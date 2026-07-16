@@ -1,11 +1,11 @@
-import { version } from 'expo/package.json';
 import { Image } from 'expo-image';
-import { useColorScheme, StyleSheet } from 'react-native';
+import { version } from 'expo/package.json';
+import { StyleSheet, useColorScheme } from 'react-native';
 
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 
-import { Spacing } from '@/constants/theme';
+import { Spacing } from '../constants/theme';
 
 export function WebBadge() {
   const scheme = useColorScheme();
@@ -18,8 +18,10 @@ export function WebBadge() {
       <Image
         source={
           scheme === 'dark'
-            ? require('@/assets/images/expo-badge-white.png')
-            : require('@/assets/images/expo-badge.png')
+            // MANUTENÇÃO FUTURA: Os atalhos '@/assets/...' foram substituídos por '../../assets/...'.
+            // O caminho precisa voltar duas pastas (saindo de 'components' e de 'src' ou 'app') para chegar na raiz de assets.
+            ? require('../../assets/images/expo-badge-white.png')
+            : require('../../assets/images/expo-badge.png')
         }
         style={styles.badgeImage}
       />

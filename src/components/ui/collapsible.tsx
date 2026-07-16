@@ -1,65 +1,48 @@
-import { SymbolView } from 'expo-symbols';
-import { PropsWithChildren, useState } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import { PropsWithChildren, useState } from "react";
+// MANUTENÇÃO FUTURA: Adicionado o useColorScheme nativo
+import { Text, TouchableOpacity, View, useColorScheme } from "react-native";
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { IconSymbol } from "./icon-symbol";
+
+// MANUTENÇÃO FUTURA: Removemos a dependência do arquivo 'use-colors' inexistente.
+// Agora, importamos o padrão de cores direto do arquivo de tema validado do projeto.
+import { Colors } from "../../constants/theme";
 
 export function Collapsible({ children, title }: PropsWithChildren & { title: string }) {
   const [isOpen, setIsOpen] = useState(false);
-  const theme = useTheme();
+  
+  // MANUTENÇÃO FUTURA: Lógica nativa para detectar se o celular está no modo claro ou escuro
+  const scheme = useColorScheme();
+  const themeColors = Colors[scheme === 'unspecified' ? 'light' : scheme];
 
   return (
-    <ThemedView>
-      <Pressable
-        style={({ pressed }) => [styles.heading, pressed && styles.pressedHeading]}
-        onPress={() => setIsOpen((value) => !value)}>
-        <ThemedView type="backgroundElement" style={styles.button}>
-          <SymbolView
-            name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
-            size={14}
-            weight="bold"
-            tintColor={theme.text}
-            style={{ transform: [{ rotate: isOpen ? '-90deg' : '90deg' }] }}
-          />
-        </ThemedView>
-
-        <ThemedText type="small">{title}</ThemedText>
-      </Pressable>
+    // MANUTENÇÃO FUTURA: Aplicado o bypass {...{ className: "..." } as any} 
+    // em todos os componentes nativos para o TypeScript não reclamar do Tailwind.
+    <View {...{ className: "bg-background" } as any}>
+      <TouchableOpacity
+        {...{ className: "flex-row items-center gap-1.5" } as any}
+        onPress={() => setIsOpen((value) => !value)}
+        activeOpacity={0.8}
+      >
+        <IconSymbol
+          name="chevron.right"
+          size={18}
+          weight="medium"
+          // Usamos 'as any' para garantir a tipagem. 
+          // O fallback '?? themeColors.text' garante que o ícone não suma se a cor 'icon' não estiver mapeada.
+          color={(themeColors as any).icon ?? themeColors.text}
+          style={{ transform: [{ rotate: isOpen ? "90deg" : "0deg" }] }}
+        />
+        <Text {...{ className: "text-base font-semibold text-foreground" } as any}>
+          {title}
+        </Text>
+      </TouchableOpacity>
+      
       {isOpen && (
-        <Animated.View entering={FadeIn.duration(200)}>
-          <ThemedView type="backgroundElement" style={styles.content}>
-            {children}
-          </ThemedView>
-        </Animated.View>
+        <View {...{ className: "mt-1.5 ml-6" } as any}>
+          {children}
+        </View>
       )}
-    </ThemedView>
+    </View>
   );
 }
-
-const styles = StyleSheet.create({
-  heading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  pressedHeading: {
-    opacity: 0.7,
-  },
-  button: {
-    width: Spacing.four,
-    height: Spacing.four,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  content: {
-    marginTop: Spacing.three,
-    borderRadius: Spacing.three,
-    marginLeft: Spacing.four,
-    padding: Spacing.four,
-  },
-});

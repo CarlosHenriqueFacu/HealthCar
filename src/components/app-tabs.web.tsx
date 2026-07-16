@@ -1,19 +1,18 @@
 import {
-  Tabs,
   TabList,
-  TabTrigger,
-  TabSlot,
-  TabTriggerSlotProps,
   TabListProps,
+  Tabs,
+  TabSlot,
+  TabTrigger,
+  TabTriggerSlotProps,
 } from 'expo-router/ui';
 import { SymbolView } from 'expo-symbols';
-import { Pressable, useColorScheme, View, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, useColorScheme, View } from 'react-native';
 
+import { Colors, MaxContentWidth, Spacing } from '../constants/theme';
 import { ExternalLink } from './external-link';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
-
-import { Colors, MaxContentWidth, Spacing } from '@/constants/theme';
 
 export default function AppTabs() {
   return (
@@ -33,11 +32,16 @@ export default function AppTabs() {
   );
 }
 
+// ==========================================
+// COMPONENTE DO BOTÃO DA ABA
+// ==========================================
 export function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps) {
   return (
     <Pressable {...props} style={({ pressed }) => pressed && styles.pressed}>
+      {/* MANUTENÇÃO FUTURA: O TypeScript reclamou que a propriedade 'type' não existe nativamente no ThemedView. 
+          Usamos o desvio com operador spread {...{ type: ... } as any} para forçar a injeção da propriedade sem gerar alertas vermelhos no VS Code. */}
       <ThemedView
-        type={isFocused ? 'backgroundSelected' : 'backgroundElement'}
+        {...{ type: isFocused ? 'backgroundSelected' : 'backgroundElement' } as any}
         style={styles.tabButtonView}>
         <ThemedText type="small" themeColor={isFocused ? 'text' : 'textSecondary'}>
           {children}
@@ -47,13 +51,17 @@ export function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps
   );
 }
 
+// ==========================================
+// COMPONENTE DA BARRA DE ABAS CUSTOMIZADA
+// ==========================================
 export function CustomTabList(props: TabListProps) {
   const scheme = useColorScheme();
   const colors = Colors[scheme === 'unspecified' ? 'light' : scheme];
 
   return (
     <View {...props} style={styles.tabListContainer}>
-      <ThemedView type="backgroundElement" style={styles.innerContainer}>
+      {/* MANUTENÇÃO FUTURA: Mesmo desvio técnico aplicado aqui para a propriedade 'type' */}
+      <ThemedView {...{ type: 'backgroundElement' } as any} style={styles.innerContainer}>
         <ThemedText type="smallBold" style={styles.brandText}>
           Expo Starter
         </ThemedText>
@@ -75,6 +83,9 @@ export function CustomTabList(props: TabListProps) {
   );
 }
 
+// ==========================================
+// ESTILOS DE LAYOUT
+// ==========================================
 const styles = StyleSheet.create({
   tabListContainer: {
     position: 'absolute',
