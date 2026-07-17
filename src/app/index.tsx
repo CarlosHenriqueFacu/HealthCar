@@ -58,17 +58,17 @@ export default function HomeScreen() {
       // ==========================================================
       // MODO 1: SIMULAÇÃO (Desativado para o teste no carro)
       // ==========================================================
-      
+      /*
       ToastAndroid.show("Simulando busca pelo Scanner OBD2...", ToastAndroid.SHORT);
       await new Promise(resolve => setTimeout(resolve, 2000));
       ToastAndroid.show("Comunicação Estabelecida (Modo Teste)!", ToastAndroid.SHORT);
       setIsActive(true);
-      
+     */ 
 
       // ==========================================================
       // MODO 2: CARRO REAL (Ativado!)
       // ==========================================================
-      /*ToastAndroid.show("Procurando Scanner OBD2...", ToastAndroid.SHORT);
+      ToastAndroid.show("Procurando Scanner OBD2...", ToastAndroid.SHORT);
       const enabled = await RNBluetoothClassic.isBluetoothEnabled();
       if (!enabled) {
         ToastAndroid.show("Por favor, ative o Bluetooth!", ToastAndroid.LONG);
@@ -93,7 +93,7 @@ export default function HomeScreen() {
         }
       } else {
         ToastAndroid.show("Nenhum scanner pareado encontrado.", ToastAndroid.LONG);
-      }*/
+      }
       // ========================================================== 
 
     } catch (error: any) { 
