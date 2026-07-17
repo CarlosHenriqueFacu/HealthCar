@@ -29,9 +29,15 @@ import RNBluetoothClassic from "react-native-bluetooth-classic";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-// Dados de telemetria base
 const TELEMETRY_IDLE = { speed: 0, rpm: 0, temp: 20, fuel: 0.72, kmTotal: 48320, kmDay: 0 };
 const TELEMETRY_LIVE = { speed: 87, rpm: 3200, temp: 92, fuel: 0.72, kmTotal: 48320, kmDay: 142 };
+
+// ================= COMPONENTE DA ETIQUETA VERMELHA =================
+const DevBadge = () => (
+  <View style={styles.devBadge}>
+    <Text style={styles.devBadgeText}>EM IMPLEMENTAÇÃO</Text>
+  </View>
+);
 
 export default function HomeScreen() {
   const [isActive, setIsActive] = useState(false);
@@ -44,66 +50,28 @@ export default function HomeScreen() {
 
   useKeepAwake();
 
-  // Função Segura para Conectar o Scanner (Só roda quando clica no botão)
- /* async function conectarScanner() {
-    try {
-      setIsConnecting(true);
-      ToastAndroid.show("Procurando Scanner OBD2...", ToastAndroid.SHORT);
-
-      const enabled = await RNBluetoothClassic.isBluetoothEnabled();
-      if (!enabled) {
-        ToastAndroid.show("Por favor, ative o Bluetooth do celular!", ToastAndroid.LONG);
-        setIsConnecting(false);
-        return;
-      }
-
-      const paired = await RNBluetoothClassic.getBondedDevices();
-      const obdDevice = paired.find(d => 
-        d.name.toUpperCase().includes("OBD") || d.name.toUpperCase().includes("ELM")
-      );
-
-      if (obdDevice) {
-        ToastAndroid.show(`Conectando ao ${obdDevice.name}...`, ToastAndroid.SHORT);
-        const connected = await obdDevice.connect();
-        
-        if (connected) {
-          ToastAndroid.show("Comunicação Estabelecida!", ToastAndroid.SHORT);
-          setIsActive(true); // Aciona o painel visual
-        } else {
-          ToastAndroid.show("Falha ao conectar no Scanner", ToastAndroid.SHORT);
-        }
-      } else {
-        ToastAndroid.show("Nenhum scanner OBD pareado encontrado.", ToastAndroid.LONG);
-      }
-    } catch (error: any) { 
-      ToastAndroid.show("Erro: " + error.message, ToastAndroid.SHORT);
-    } finally {
-      setIsConnecting(false);
-    }
-  }
-*/
-
-//esse codido abaixo é só apenas testa o programa sem precisar do scanner, para testear o painel de instrumentos e as animações.  
-// Função Segura para Conectar o Scanner (MODO DE SIMULAÇÃO DE TELAS)
+ // Função para Conectar o Scanner (Controla Simulação vs Carro Real)
   async function conectarScanner() {
     try {
       setIsConnecting(true);
+
+      // ==========================================================
+      // MODO 1: SIMULAÇÃO (Desativado para o teste no carro)
+      // ==========================================================
+      
       ToastAndroid.show("Simulando busca pelo Scanner OBD2...", ToastAndroid.SHORT);
-
-      // Finge que o celular está processando a conexão Bluetooth por 2 segundos
       await new Promise(resolve => setTimeout(resolve, 2000));
-
       ToastAndroid.show("Comunicação Estabelecida (Modo Teste)!", ToastAndroid.SHORT);
-      setIsActive(true); // Aciona a animação e revela o painel do Camaro
+      setIsActive(true);
+      
 
-      /* ==========================================================
-         MANUTENÇÃO FUTURA: CÓDIGO REAL DO CARRO (COMENTADO)
-         Quando for testar no veículo real, apague o 'await new Promise...' acima
-         e remova as barras de comentário deste bloco abaixo:
-      ==========================================================
+      // ==========================================================
+      // MODO 2: CARRO REAL (Ativado!)
+      // ==========================================================
+      /*ToastAndroid.show("Procurando Scanner OBD2...", ToastAndroid.SHORT);
       const enabled = await RNBluetoothClassic.isBluetoothEnabled();
       if (!enabled) {
-        ToastAndroid.show("Por favor, ative o Bluetooth do celular!", ToastAndroid.LONG);
+        ToastAndroid.show("Por favor, ative o Bluetooth!", ToastAndroid.LONG);
         setIsConnecting(false);
         return;
       }
@@ -119,14 +87,14 @@ export default function HomeScreen() {
         
         if (connected) {
           ToastAndroid.show("Comunicação Estabelecida!", ToastAndroid.SHORT);
-          setIsActive(true);
+          setIsActive(true); 
         } else {
           ToastAndroid.show("Falha ao conectar no Scanner", ToastAndroid.SHORT);
         }
       } else {
-        ToastAndroid.show("Nenhum scanner OBD pareado encontrado.", ToastAndroid.LONG);
-      }
-      ========================================================== */
+        ToastAndroid.show("Nenhum scanner pareado encontrado.", ToastAndroid.LONG);
+      }*/
+      // ========================================================== 
 
     } catch (error: any) { 
       ToastAndroid.show("Erro: " + error.message, ToastAndroid.SHORT);
@@ -134,7 +102,7 @@ export default function HomeScreen() {
       setIsConnecting(false);
     }
   }
-  // Função Segura para Desconectar
+
   async function desconectarScanner() {
     try {
       const connectedDevices = await RNBluetoothClassic.getConnectedDevices();
@@ -148,7 +116,6 @@ export default function HomeScreen() {
     }
   }
 
-  // Controlador das Animações do Painel
   useEffect(() => {
     if (isActive) {
       dashboardOpacity.value = withTiming(1, { duration: 600 });
@@ -238,8 +205,10 @@ export default function HomeScreen() {
 
         {/* Painel de Instrumentos */}
         <Animated.View style={[styles.dashboard, dashboardStyle]} pointerEvents={isActive ? "auto" : "none"}>
+          
           <View style={styles.kmRow}>
             <View style={styles.kmCard}>
+              <DevBadge />
               <MaterialIcons name="speed" size={14} color="#8892A4" />
               <Text style={styles.kmLabel}>KM Total</Text>
               <Text style={styles.kmValue}>{telemetry.kmTotal.toLocaleString("pt-BR")}</Text>
@@ -247,6 +216,7 @@ export default function HomeScreen() {
             </View>
             <View style={styles.kmDivider} />
             <View style={styles.kmCard}>
+              <DevBadge />
               <MaterialIcons name="today" size={14} color="#8892A4" />
               <Text style={styles.kmLabel}>KM Hoje</Text>
               <Text style={styles.kmValue}>{telemetry.kmDay}</Text>
@@ -274,27 +244,36 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.telemetryGrid}>
-            <TelemetryCard 
-              icon="local-gas-station" 
-              label="Combustível" 
-              value={`${Math.round(telemetry.fuel * 100)}`} 
-              unit="%" 
-              color={telemetry.fuel < 0.2 ? "#FF3D57" : telemetry.fuel < 0.4 ? "#FFB300" : "#00E676"} 
-              progress={telemetry.fuel} 
-              onPress={() => router.push("/detalhes/combustivel" as any)}
-            />
-            <TelemetryCard 
-              icon="battery-charging-full" 
-              label="Bateria" 
-              value="12.6" 
-              unit="V" 
-              color="#00B4FF" 
-              progress={0.85} 
-              onPress={() => router.push("/detalhes/bateria" as any)}
-            />
+            <View style={{ flex: 1, position: "relative" }}>
+              <DevBadge />
+              <TelemetryCard 
+                icon="local-gas-station" 
+                label="Combustível" 
+                value={`${Math.round(telemetry.fuel * 100)}`} 
+                unit="%" 
+                color={telemetry.fuel < 0.2 ? "#FF3D57" : telemetry.fuel < 0.4 ? "#FFB300" : "#00E676"} 
+                progress={telemetry.fuel} 
+                onPress={() => router.push("/detalhes/combustivel" as any)}
+              />
+            </View>
+            <View style={{ flex: 1, position: "relative" }}>
+              <DevBadge />
+              <TelemetryCard 
+                icon="battery-charging-full" 
+                label="Bateria" 
+                value="12.6" 
+                unit="V" 
+                color="#00B4FF" 
+                progress={0.85} 
+                onPress={() => router.push("/detalhes/bateria" as any)}
+              />
+            </View>
           </View>
 
-         <FuelChart onPress={() => router.push("/detalhes/consumo" as any)} />
+          <View style={{ position: "relative" }}>
+            <DevBadge />
+            <FuelChart onPress={() => router.push("/detalhes/consumo" as any)} />
+          </View>
 
         </Animated.View>
 
@@ -302,18 +281,14 @@ export default function HomeScreen() {
         <View style={styles.toolsSection}>
           <Text style={styles.toolsTitle}>Ferramentas</Text>
           <View style={styles.toolsGrid}>
-            
-            {/* Botão do Scanner*/}
             <Pressable style={({ pressed }) => [styles.toolCard, pressed && styles.toolCardPressed]} onPress={() => router.push("/scanner" as any)}>
               <View style={[styles.toolIcon, { backgroundColor: "#FF3D5722" }]}>
                 <MaterialIcons name="wifi-tethering-error" size={26} color="#FF3D57" />
               </View>
               <Text style={styles.toolCardTitle}>Scanner de Falhas</Text>
-              <Text style={styles.toolCardSub}>3 erros detectados</Text>
-              <View style={styles.toolCardBadge}><Text style={styles.toolCardBadgeText}>3</Text></View>
+              <Text style={styles.toolCardSub}>Módulo Real Ativo</Text>
             </Pressable>
             
-            {/* Botão de Relatórios */}
             <Pressable style={({ pressed }) => [styles.toolCard, pressed && styles.toolCardPressed]} onPress={() => router.push("/relatorios" as any)}>
               <View style={[styles.toolIcon, { backgroundColor: "#FFB30022" }]}>
                 <MaterialIcons name="history" size={26} color="#FFB300" />
@@ -322,7 +297,6 @@ export default function HomeScreen() {
               <Text style={styles.toolCardSub}>Próx. troca: 2.400 km</Text>
             </Pressable>
             
-            {/* Botão de Configurações */}
             <Pressable style={({ pressed }) => [styles.toolCard, pressed && styles.toolCardPressed]} onPress={() => router.push("/configuracoes" as any)}>
               <View style={[styles.toolIcon, { backgroundColor: "#00B4FF22" }]}>
                 <MaterialIcons name="settings" size={26} color="#00B4FF" />
@@ -330,7 +304,6 @@ export default function HomeScreen() {
               <Text style={styles.toolCardTitle}>Configurar Veículo</Text>
               <Text style={styles.toolCardSub}>OBD2 · Bluetooth</Text>
             </Pressable>
-
           </View>
         </View>
 
@@ -340,6 +313,8 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  devBadge: { position: "absolute", top: 8, right: 8, backgroundColor: "#FF3D57", paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, zIndex: 99, elevation: 4 },
+  devBadgeText: { fontSize: 7, fontWeight: "900", color: "#FFF", textTransform: "uppercase" },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 100 },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8 },
@@ -370,7 +345,7 @@ const styles = StyleSheet.create({
   stopButtonText: { fontSize: 12, color: "#FF3D57", fontWeight: "600" },
   dashboard: { paddingHorizontal: 16, gap: 12, marginBottom: 8 },
   kmRow: { flexDirection: "row", backgroundColor: "#12141A", borderRadius: 16, borderWidth: 1, borderColor: "#1E2235", overflow: "hidden" },
-  kmCard: { flex: 1, padding: 16, alignItems: "center", gap: 2 },
+  kmCard: { flex: 1, padding: 16, alignItems: "center", gap: 2, position: "relative" },
   kmDivider: { width: 1, backgroundColor: "#1E2235", marginVertical: 12 },
   kmLabel: { fontSize: 10, color: "#8892A4", textTransform: "uppercase", letterSpacing: 0.5, marginTop: 4 },
   kmValue: { fontSize: 26, fontWeight: "700", color: "#00D4FF", fontVariant: ["tabular-nums"], letterSpacing: 1, textShadowColor: "#00B4FF", textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 8 },
@@ -384,6 +359,4 @@ const styles = StyleSheet.create({
   toolIcon: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", marginBottom: 10 },
   toolCardTitle: { fontSize: 12, fontWeight: "600", color: "#F0F2FF", marginBottom: 3 },
   toolCardSub: { fontSize: 10, color: "#8892A4", lineHeight: 14 },
-  toolCardBadge: { position: "absolute", top: 10, right: 10, width: 20, height: 20, borderRadius: 10, backgroundColor: "#FF3D57", alignItems: "center", justifyContent: "center" },
-  toolCardBadgeText: { fontSize: 10, fontWeight: "700", color: "#FFF" },
 });

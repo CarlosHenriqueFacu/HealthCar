@@ -4,7 +4,7 @@ import { TelemetryCard } from "@/components/TelemetryCard";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useKeepAwake } from "expo-keep-awake";
 import { router } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dimensions,
   Pressable,
@@ -18,71 +18,128 @@ import Animated, {
   useSharedValue
 } from "react-native-reanimated";
 
+// Importando o motor do Bluetooth
+import RNBluetoothClassic from "react-native-bluetooth-classic";
+
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-/* ==========================================================
-   MANUTENÇÃO FUTURA: DADOS DE TELEMETRIA AO VIVO
-   Estes são os valores de "teste" (Mock) que alimentam a tela.
-   Quando a conexão OBD-II estiver pronta, nós vamos apagar este
-   objeto e criar um 'Estado' (useState) global ou usar ContextAPI
-   para que os dados cheguem direto do adaptador ELM327.
-========================================================== */
-const REALTIME_DATA = {
-  speed: 87,
-  rpm: 3200,
-  temp: 92,
+/* Dados fixos temporários para o que ainda não lemos do OBD */
+const MOCK_DATA = {
   fuel: 0.72,
   kmTraveled: 142,
   fuelConsumption: 8.5, // km/l
 };
 
 export default function RealtimeScreen() {
-  const [displaySpeed, setDisplaySpeed] = useState(REALTIME_DATA.speed);
-  const [displayKm, setDisplayKm] = useState(REALTIME_DATA.kmTraveled);
-  const speedRef = useRef(0);
-  const kmRef = useRef(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Estados Reais alimentados pelo OBD-II
+  const [displaySpeed, setDisplaySpeed] = useState(0);
+  const [displayRpm, setDisplayRpm] = useState(0);
+  const [displayTemp, setDisplayTemp] = useState(0);
+  const [isReading, setIsReading] = useState(false);
+  
+  // Estados Fixos
+  const [displayKm, setDisplayKm] = useState(MOCK_DATA.kmTraveled);
 
   const headerGlow = useSharedValue(1);
   const speedometerScale = useSharedValue(1);
 
   useKeepAwake();
 
+  /* ==========================================================
+     CÉREBRO DO OBD-II: MOTOR DE LEITURA CONTÍNUA
+  ========================================================== */
   useEffect(() => {
-    /* ==========================================================
-       MANUTENÇÃO FUTURA: SIMULADOR DE VELOCIDADE
-       Este 'setInterval' existe apenas para a agulha do velocímetro 
-       ficar balançando e simular o carro em movimento (±5 km/h).
-       Ao conectar no carro real, toda essa lógica será DELETADA e
-       substituída por: setDisplaySpeed(dadosOBD.velocidade);
-    ========================================================== */
-    intervalRef.current = setInterval(() => {
-      // Variação randômica de velocidade
-      const speedVariation = (Math.random() - 0.5) * 10;
-      speedRef.current = Math.max(0, Math.min(240, REALTIME_DATA.speed + speedVariation));
-      setDisplaySpeed(Math.round(speedRef.current));
+    let interval: ReturnType<typeof setInterval>;
 
-      // Incrementa KM baseado na velocidade
-      kmRef.current += displaySpeed / 3600;
-      setDisplayKm(Math.round(kmRef.current * 10) / 10);
-    }, 1000);
+    async function startReading() {
+      try {
+        const devices = await RNBluetoothClassic.getConnectedDevices();
+        
+        if (devices.length > 0) {
+          const device = devices[0];
+          setIsReading(true);
+
+          // Loop de leitura: Repete a cada 1 segundo
+          interval = setInterval(async () => {
+            try {
+              // 1. Ler Velocidade (Comando HEX: 010D)
+              await device.write("010D\r");
+              const speedResp = await device.read();
+              const realSpeed = parseOBD(speedResp, "0D");
+              if (realSpeed > 0) setDisplaySpeed(realSpeed);
+
+              // 2. Ler RPM (Comando HEX: 010C)
+              await device.write("010C\r");
+              const rpmResp = await device.read();
+              const realRpm = parseOBD(rpmResp, "0C");
+              if (realRpm > 0) setDisplayRpm(realRpm);
+
+              // 3. Ler Temperatura (Comando HEX: 0105)
+              await device.write("0105\r");
+              const tempResp = await device.read();
+              const realTemp = parseOBD(tempResp, "05");
+              if (realTemp > 0) setDisplayTemp(realTemp);
+
+            } catch (err) {
+              console.log("Erro na leitura de telemetria", err);
+            }
+          }, 1000);
+        }
+      } catch (error) {
+        console.log("Nenhum dispositivo conectado encontrado", error);
+      }
+    }
+
+    startReading();
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (interval) clearInterval(interval);
     };
   }, []);
 
-  // Calcula a autonomia disponível (Mágica matemática do TCC!)
-  const availableRange = Math.round(REALTIME_DATA.fuel * 60 * REALTIME_DATA.fuelConsumption);
-  const fuelConsumptionRate = (displaySpeed / REALTIME_DATA.fuelConsumption).toFixed(1);
+  /* ==========================================================
+     TRADUTOR HEXADECIMAL -> NÚMEROS REAIS
+  ========================================================== */
+  function parseOBD(response: any, pid: string): number {
+    if (!response) return 0;
+    
+    // Força a conversão para texto puro para o TypeScript não reclamar
+    const strResponse = String(response);
+    if (strResponse.includes("NO DATA")) return 0;
+    
+    const cleanResp = strResponse.replace(/\s/g, "").toUpperCase();
+    const target = "41" + pid;
+    const index = cleanResp.indexOf(target);
+    
+    if (index !== -1) {
+      const dataHex = cleanResp.substring(index + 4);
+      try {
+        if (pid === "0C") { // RPM
+          const A = parseInt(dataHex.substring(0, 2), 16);
+          const B = parseInt(dataHex.substring(2, 4), 16);
+          return Math.round(((A * 256) + B) / 4);
+        } 
+        else if (pid === "0D") { // Velocidade
+          const A = parseInt(dataHex.substring(0, 2), 16);
+          return A;
+        }
+        else if (pid === "05") { // Temperatura
+          const A = parseInt(dataHex.substring(0, 2), 16);
+          return A - 40;
+        }
+      } catch (e) {
+        return 0;
+      }
+    }
+    return 0;
+  }
 
-  const headerGlowStyle = useAnimatedStyle(() => ({
-    opacity: headerGlow.value,
-  }));
+  // Calcula a autonomia
+  const availableRange = Math.round(MOCK_DATA.fuel * 60 * MOCK_DATA.fuelConsumption);
+  const fuelConsumptionRate = (displaySpeed / MOCK_DATA.fuelConsumption).toFixed(1);
 
-  const speedometerStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: speedometerScale.value }],
-  }));
+  const headerGlowStyle = useAnimatedStyle(() => ({ opacity: headerGlow.value }));
+  const speedometerStyle = useAnimatedStyle(() => ({ transform: [{ scale: speedometerScale.value }] }));
 
   return (
     <ScreenContainer containerClassName="bg-background" edges={["top", "left", "right"]}>
@@ -98,14 +155,15 @@ export default function RealtimeScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {/* ================= BADGE: TRANSMISSÃO AO VIVO ================= */}
         <Animated.View style={[styles.liveBadge, headerGlowStyle]}>
-          <View style={styles.liveDot} />
-          <Text style={styles.liveBadgeText}>TRANSMISSÃO AO VIVO</Text>
+          <View style={[styles.liveDot, isReading && { backgroundColor: "#00E676", shadowColor: "#00E676" }]} />
+          <Text style={styles.liveBadgeText}>
+            {isReading ? "LENDO DADOS DO CARRO" : "AGUARDANDO CONEXÃO..."}
+          </Text>
         </Animated.View>
 
         {/* ================= VELOCÍMETRO PRINCIPAL ================= */}
         <Animated.View style={[styles.speedometerWrapper, speedometerStyle]}>
-          {/* MANUTENÇÃO: Este componente recebe a prop 'speed' que fará o ponteiro mexer */}
-          <SpeedometerMinimal speed={displaySpeed} isActive={true} />
+          <SpeedometerMinimal speed={displaySpeed} isActive={isReading} />
         </Animated.View>
 
         {/* ================= CARDS DE TELEMETRIA PRIMÁRIA ================= */}
@@ -121,7 +179,7 @@ export default function RealtimeScreen() {
             <TelemetryCard
               icon="settings"
               label="RPM"
-              value={(REALTIME_DATA.rpm / 1000).toFixed(1)}
+              value={(displayRpm / 1000).toFixed(1)}
               unit="k"
               color="#00B4FF"
             />
@@ -131,17 +189,17 @@ export default function RealtimeScreen() {
             <TelemetryCard
               icon="thermostat"
               label="Temperatura"
-              value={`${REALTIME_DATA.temp}`}
+              value={`${displayTemp}`}
               unit="°C"
-              color={REALTIME_DATA.temp > 100 ? "#FF3D57" : REALTIME_DATA.temp > 85 ? "#FFB300" : "#00E676"}
+              color={displayTemp > 100 ? "#FF3D57" : displayTemp > 85 ? "#FFB300" : "#00E676"}
             />
             <TelemetryCard
               icon="local-gas-station"
               label="Combustível"
-              value={`${Math.round(REALTIME_DATA.fuel * 100)}`}
+              value={`${Math.round(MOCK_DATA.fuel * 100)}`}
               unit="%"
-              color={REALTIME_DATA.fuel < 0.2 ? "#FF3D57" : REALTIME_DATA.fuel < 0.4 ? "#FFB300" : "#00E676"}
-              progress={REALTIME_DATA.fuel}
+              color={MOCK_DATA.fuel < 0.2 ? "#FF3D57" : MOCK_DATA.fuel < 0.4 ? "#FFB300" : "#00E676"}
+              progress={MOCK_DATA.fuel}
             />
           </View>
         </View>
@@ -160,7 +218,7 @@ export default function RealtimeScreen() {
             <View style={styles.rangeDetails}>
               <Text style={styles.rangeLabel}>Consumo atual</Text>
               <Text style={styles.rangeConsumption}>{fuelConsumptionRate} L/h</Text>
-              <Text style={styles.rangeInfo}>Baseado em {REALTIME_DATA.fuelConsumption} km/l</Text>
+              <Text style={styles.rangeInfo}>Baseado em {MOCK_DATA.fuelConsumption} km/l</Text>
             </View>
           </View>
           <View style={styles.rangeBar}>
@@ -174,8 +232,6 @@ export default function RealtimeScreen() {
         </View>
 
         {/* ================= MÉTRICAS AVANÇADAS ================= */}
-        {/* MANUTENÇÃO: A maioria destes dados não vem direto do OBD-II. Nós teremos 
-            que calcular a média deles usando lógica JS baseada no tempo de conexão. */}
         <View style={styles.advancedSection}>
           <Text style={styles.advancedTitle}>Métricas Avançadas</Text>
 
@@ -267,8 +323,8 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#00B4FF",
-    shadowColor: "#00B4FF",
+    backgroundColor: "#FF3D57",
+    shadowColor: "#FF3D57",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 1,
     shadowRadius: 4,
