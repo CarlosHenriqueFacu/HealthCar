@@ -223,7 +223,7 @@ export default function HomeScreen() {
           ) : (
             <View style={styles.liveSection}>
               <View style={styles.liveButtonsRow}>
-                <Pressable onPress={() => router.push("/realtime" as any)} style={({ pressed }) => [styles.liveActionBtn, styles.liveActionBtnPrimary, pressed && { opacity: 0.8 }]}>
+                <Pressable onPress={() => router.push("/tempo-real" as any)} style={({ pressed }) => [styles.liveActionBtn, styles.liveActionBtnPrimary, pressed && { opacity: 0.8 }]}>
                   <MaterialIcons name="speed" size={18} color="#0A0A0F" />
                   <Text style={styles.liveActionBtnText}>Tempo Real</Text>
                 </Pressable>
@@ -295,13 +295,15 @@ export default function HomeScreen() {
           </View>
 
          <FuelChart onPress={() => router.push("/detalhes/consumo" as any)} />
-          
+
         </Animated.View>
 
         {/* Ferramentas */}
         <View style={styles.toolsSection}>
           <Text style={styles.toolsTitle}>Ferramentas</Text>
           <View style={styles.toolsGrid}>
+            
+            {/* Botão do Scanner*/}
             <Pressable style={({ pressed }) => [styles.toolCard, pressed && styles.toolCardPressed]} onPress={() => router.push("/scanner" as any)}>
               <View style={[styles.toolIcon, { backgroundColor: "#FF3D5722" }]}>
                 <MaterialIcons name="wifi-tethering-error" size={26} color="#FF3D57" />
@@ -310,20 +312,25 @@ export default function HomeScreen() {
               <Text style={styles.toolCardSub}>3 erros detectados</Text>
               <View style={styles.toolCardBadge}><Text style={styles.toolCardBadgeText}>3</Text></View>
             </Pressable>
-            <Pressable style={({ pressed }) => [styles.toolCard, pressed && styles.toolCardPressed]} onPress={() => router.push("/reports" as any)}>
+            
+            {/* Botão de Relatórios */}
+            <Pressable style={({ pressed }) => [styles.toolCard, pressed && styles.toolCardPressed]} onPress={() => router.push("/relatorios" as any)}>
               <View style={[styles.toolIcon, { backgroundColor: "#FFB30022" }]}>
                 <MaterialIcons name="history" size={26} color="#FFB300" />
               </View>
               <Text style={styles.toolCardTitle}>Relatórios e Óleo</Text>
               <Text style={styles.toolCardSub}>Próx. troca: 2.400 km</Text>
             </Pressable>
-            <Pressable style={({ pressed }) => [styles.toolCard, pressed && styles.toolCardPressed]} onPress={() => router.push("/settings" as any)}>
+            
+            {/* Botão de Configurações */}
+            <Pressable style={({ pressed }) => [styles.toolCard, pressed && styles.toolCardPressed]} onPress={() => router.push("/configuracoes" as any)}>
               <View style={[styles.toolIcon, { backgroundColor: "#00B4FF22" }]}>
                 <MaterialIcons name="settings" size={26} color="#00B4FF" />
               </View>
               <Text style={styles.toolCardTitle}>Configurar Veículo</Text>
               <Text style={styles.toolCardSub}>OBD2 · Bluetooth</Text>
             </Pressable>
+
           </View>
         </View>
 
