@@ -51,6 +51,15 @@ export default function RealtimeScreen() {
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
 
+    // Função auxiliar inteligente: Pergunta e ESPERA a resposta
+    async function perguntarAoCarro(device: any, comando: string) {
+      await device.write(comando + "\r");
+      // Pausa de 250 milissegundos para o carro processar a resposta
+      await new Promise(resolve => setTimeout(resolve, 250));
+      const resposta = await device.read();
+      return resposta;
+    }
+
     async function startReading() {
       try {
         const devices = await RNBluetoothClassic.getConnectedDevices();
@@ -59,31 +68,40 @@ export default function RealtimeScreen() {
           const device = devices[0];
           setIsReading(true);
 
-          // Loop de leitura: Repete a cada 1 segundo
+          // ==========================================
+          // INICIALIZAÇÃO DO SCANNER ELM327
+          // ==========================================
+          await perguntarAoCarro(device, "ATZ");   // Reinicia o scanner
+          await perguntarAoCarro(device, "ATE0");  // Desliga o eco (limpa a resposta)
+          await perguntarAoCarro(device, "ATSP0"); // Procura o protocolo do carro automaticamente
+          
+          // Dá um tempinho extra para ele achar a rede do carro
+          await new Promise(resolve => setTimeout(resolve, 1000));
+
+          // ==========================================
+          // LOOP DE LEITURA EM TEMPO REAL
+          // ==========================================
           interval = setInterval(async () => {
             try {
               // 1. Ler Velocidade (Comando HEX: 010D)
-              await device.write("010D\r");
-              const speedResp = await device.read();
+              const speedResp = await perguntarAoCarro(device, "010D");
               const realSpeed = parseOBD(speedResp, "0D");
               if (realSpeed > 0) setDisplaySpeed(realSpeed);
 
               // 2. Ler RPM (Comando HEX: 010C)
-              await device.write("010C\r");
-              const rpmResp = await device.read();
+              const rpmResp = await perguntarAoCarro(device, "010C");
               const realRpm = parseOBD(rpmResp, "0C");
               if (realRpm > 0) setDisplayRpm(realRpm);
 
               // 3. Ler Temperatura (Comando HEX: 0105)
-              await device.write("0105\r");
-              const tempResp = await device.read();
+              const tempResp = await perguntarAoCarro(device, "0105");
               const realTemp = parseOBD(tempResp, "05");
               if (realTemp > 0) setDisplayTemp(realTemp);
 
             } catch (err) {
-              console.log("Erro na leitura de telemetria", err);
+              console.log("Erro no loop de telemetria", err);
             }
-          }, 1000);
+          }, 1500); // Repete a cada 1.5 segundos para não engasgar o Bluetooth
         }
       } catch (error) {
         console.log("Nenhum dispositivo conectado encontrado", error);
