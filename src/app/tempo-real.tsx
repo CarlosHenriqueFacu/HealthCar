@@ -36,8 +36,7 @@ export default function RealtimeScreen() {
   const [displayKm, setDisplayKm] = useState(MOCK_DATA.kmTraveled);
   const [statusMsg, setStatusMsg] = useState("INICIALIZANDO SCANNER...");
   
-  // ESTADO PARA O MODO RAIO-X (DEBUG)
-  const [debugLog, setDebugLog] = useState("Aguardando dados brutos do Bluetooth...");
+  const [debugLog, setDebugLog] = useState("Aguardando dados...");
 
   const headerGlow = useSharedValue(1);
   const speedometerScale = useSharedValue(1);
@@ -48,16 +47,37 @@ export default function RealtimeScreen() {
     let interval: ReturnType<typeof setInterval>;
     let isActive = true;
 
+    /* ==========================================================
+       NOVO CÉREBRO: LEITURA INTELIGENTE COM ESPERA (POLLING)
+    ========================================================== */
     async function perguntarAoCarro(device: any, comando: string) {
       try {
-        // Limpa qualquer lixo que tenha ficado no buffer antes de perguntar
-        const lixo = await device.read(); 
+        // 1. Limpa lixo antigo do buffer
+        await device.read(); 
         
+        // 2. Envia o comando
         await device.write(comando + "\r");
-        await new Promise(resolve => setTimeout(resolve, 400));
         
-        const resposta = await device.read();
-        return resposta || "";
+        // 3. Aguarda a resposta montando o texto aos poucos
+        let respostaCompleta = "";
+        let tentativas = 0;
+        
+        // Tenta ler até 8 vezes (aprox 1.6 segundos) esperando o sinal ">"
+        while (tentativas < 8) {
+          await new Promise(resolve => setTimeout(resolve, 200)); 
+          const trecho = await device.read();
+          
+          if (trecho) {
+            respostaCompleta += trecho;
+            // Se o ELM327 mandou o caractere '>', significa que a resposta acabou!
+            if (respostaCompleta.includes(">")) {
+              break; 
+            }
+          }
+          tentativas++;
+        }
+        
+        return respostaCompleta || "";
       } catch (err) {
         return "";
       }
@@ -87,12 +107,12 @@ export default function RealtimeScreen() {
 
           setStatusMsg("LENDO DADOS DO CARRO");
 
+          // Aumentei o intervalo para 2 segundos para dar fôlego ao scanner
           interval = setInterval(async () => {
             try {
-              // Lendo o RPM e jogando o texto bruto na tela para visualizarmos
               const rpmResp = await perguntarAoCarro(device, "010C");
               
-              // ATUALIZA A TELA COM O TEXTO EXATO QUE O BLUETOOTH DEVOLVEU
+              // Joga o log na tela para vermos se a resposta finalmente chegou
               setDebugLog(`Comando 010C retornou:\n"${rpmResp}"`);
 
               const realRpm = parseOBD(rpmResp, "0C");
@@ -105,7 +125,7 @@ export default function RealtimeScreen() {
             } catch (err) {
               setDebugLog("Erro no loop: " + JSON.stringify(err));
             }
-          }, 1500); 
+          }, 2000); 
         }
       } catch (error) {
         setStatusMsg("FALHA NA CONEXÃO");
@@ -128,7 +148,8 @@ export default function RealtimeScreen() {
       return 0;
     }
     
-    const cleanResp = strResponse.replace(/\s/g, "").toUpperCase();
+    // Removemos os espaços e o caractere ">" que usamos para saber o fim da leitura
+    const cleanResp = strResponse.replace(/[\s>]/g, "").toUpperCase();
     const target = "41" + pid;
     const index = cleanResp.indexOf(target);
     
@@ -187,9 +208,6 @@ export default function RealtimeScreen() {
           </View>
         </View>
 
-        {/* =========================================================
-            PAINEL DE MODO RAIO-X (DEBUG LOG)
-        ========================================================= */}
         <View style={styles.debugSection}>
           <Text style={styles.debugTitle}>RAIO-X DO BLUETOOTH (DEBUG)</Text>
           <Text style={styles.debugText}>{debugLog}</Text>
@@ -217,12 +235,9 @@ const styles = StyleSheet.create({
   speedometerWrapper: { alignItems: "center", paddingVertical: 16 },
   primaryTelemetry: { gap: 10 },
   telemetryRow: { flexDirection: "row", gap: 10 },
-  
-  // Estilos do painel de Debug
   debugSection: { backgroundColor: "#1A0000", borderRadius: 12, padding: 16, borderWidth: 1, borderColor: "#FF3D57", marginTop: 10 },
   debugTitle: { fontSize: 11, fontWeight: "800", color: "#FF3D57", marginBottom: 8, letterSpacing: 1 },
   debugText: { fontSize: 12, color: "#FFF", fontFamily: "monospace", minHeight: 60 },
-
   stopBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#FF3D5722", borderWidth: 1, borderColor: "#FF3D5744", borderRadius: 14, paddingVertical: 12 },
   stopBtnText: { fontSize: 14, fontWeight: "600", color: "#FF3D57" },
 });
