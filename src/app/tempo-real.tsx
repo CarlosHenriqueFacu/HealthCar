@@ -45,36 +45,41 @@ export default function RealtimeScreen() {
   useEffect(() => {
     let isActive = true;
     let timerId: ReturnType<typeof setTimeout>;
-    // Função idêntica ao funcionamento low-level da biblioteca python-obd
+    
+    // Nova função com leitura "Força Bruta" (Ignorando o available)
     async function perguntarAoCarro(device: any, comando: string) {
       try {
-        // 1. Limpa o lixo da memória do adaptador antes de perguntar
-        const disponivelParaLimpar = await device.available();
-        if (disponivelParaLimpar > 0) {
+        // 1. Tenta limpar o lixo da memória lendo diretamente, sem perguntar se tem algo
+        try {
           await device.read(); 
+        } catch (e) {
+          // Ignora erro de leitura vazia aqui
         }
         
-        // 2. Envia o comando com o carriage return (\r)
+        // 2. Envia o comando com o carriage return (\r) para o carro
         await device.write(comando + "\r");
         
         let respostaCompleta = "";
         let tentativas = 0;
         
-        // 3. Aguarda a resposta (máx 2.5 segundos) vigiando o buffer
+        // 3. Aguarda a resposta metralhando comandos de leitura (máx 2.5 segundos)
         while (tentativas < 25) {
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise(resolve => setTimeout(resolve, 100)); // Espera 100ms
           
-          const disponivel = await device.available();
-          if (disponivel > 0) {
-            const trecho = await device.read();
+          // LÊ DIRETAMENTE O BLUETOOTH (O pulo do gato está aqui!)
+          try {
+            const trecho = await device.read(); 
             if (trecho) {
-              respostaCompleta += trecho;
-              // O sinal > significa que o adaptador parou de falar
+              respostaCompleta += String(trecho);
+              // Se o carro enviou o ">", significa que terminou a resposta
               if (respostaCompleta.includes(">")) {
                 break; 
               }
             }
+          } catch (readError) {
+             // Apenas ignora e tenta no próximo ciclo
           }
+          
           tentativas++;
         }
         
