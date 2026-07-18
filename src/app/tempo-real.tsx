@@ -49,7 +49,7 @@ export default function RealtimeScreen() {
     // Nova função com leitura "Força Bruta" (Ignorando o available)
     async function perguntarAoCarro(device: any, comando: string) {
       try {
-        // 1. Tenta limpar o lixo da memória lendo diretamente, sem perguntar se tem algo
+        // 1. Tenta limpar o lixo da memória lendo diretamente
         try {
           await device.read(); 
         } catch (e) {
@@ -66,7 +66,7 @@ export default function RealtimeScreen() {
         while (tentativas < 25) {
           await new Promise(resolve => setTimeout(resolve, 100)); // Espera 100ms
           
-          // LÊ DIRETAMENTE O BLUETOOTH (O pulo do gato está aqui!)
+          // LÊ DIRETAMENTE O BLUETOOTH
           try {
             const trecho = await device.read(); 
             if (trecho) {
@@ -84,8 +84,9 @@ export default function RealtimeScreen() {
         }
         
         return respostaCompleta;
-      } catch (err) {
-        return "";
+      } catch (err: any) {
+        // Se der erro grave, joga na tela de debug
+        return `ERRO: ${err?.message || 'Falha ao comunicar'}`;
       }
     }
 
@@ -124,6 +125,14 @@ export default function RealtimeScreen() {
           const device = devices[0];
           setIsReading(true);
 
+          // ===== A PEÇA QUE FALTAVA: ABRIR A PORTA =====
+          setStatusMsg("ABRINDO PORTA BLUETOOTH...");
+          const socketAberto = await device.isConnected();
+          if (!socketAberto) {
+             await device.connect(); // Exige que o app conecte fisicamente ao scanner!
+          }
+          // =============================================
+
           // INICIALIZAÇÃO ROBUSTA (Igual ao python-obd)
           setStatusMsg("REINICIANDO ADAPTADOR...");
           await perguntarAoCarro(device, "ATZ"); 
@@ -146,9 +155,12 @@ export default function RealtimeScreen() {
           
           // Inicia o motor de leitura
           loopDeLeitura(device);
+        } else {
+          setStatusMsg("NENHUM DISPOSITIVO ENCONTRADO");
         }
-      } catch (error) {
+      } catch (error: any) {
         setStatusMsg("FALHA NA CONEXÃO");
+        setDebugLog(`Falha Crítica: ${error?.message}`);
       }
     }
 
@@ -166,7 +178,7 @@ export default function RealtimeScreen() {
     // Limpa espaços e o > que sobrou da resposta
     const strResponse = String(response).replace(/[\s>]/g, "").toUpperCase();
     
-    if (strResponse.includes("NODATA") || strResponse.includes("SEARCHING") || strResponse.includes("ERROR")) {
+    if (strResponse.includes("NODATA") || strResponse.includes("SEARCHING") || strResponse.includes("ERROR") || strResponse.includes("ERRO")) {
       return 0;
     }
     
