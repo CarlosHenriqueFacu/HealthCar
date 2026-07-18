@@ -11,7 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  View
+  View,
 } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -25,7 +25,6 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const MOCK_DATA = {
   fuel: 0.72,
   kmTraveled: 142,
-  fuelConsumption: 8.5,
 };
 
 export default function RealtimeScreen() {
@@ -36,7 +35,7 @@ export default function RealtimeScreen() {
   const [displayKm, setDisplayKm] = useState(MOCK_DATA.kmTraveled);
   const [statusMsg, setStatusMsg] = useState("INICIALIZANDO SCANNER...");
   
-  const [debugLog, setDebugLog] = useState("Aguardando dados...");
+  const [debugLog, setDebugLog] = useState("Aguardando comunicação com a ECU...");
 
   const headerGlow = useSharedValue(1);
   const speedometerScale = useSharedValue(1);
@@ -44,42 +43,71 @@ export default function RealtimeScreen() {
   useKeepAwake();
 
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
     let isActive = true;
-
-    /* ==========================================================
-       NOVO CÉREBRO: LEITURA INTELIGENTE COM ESPERA (POLLING)
-    ========================================================== */
+    let timerId: ReturnType<typeof setTimeout>;
+    // Função idêntica ao funcionamento low-level da biblioteca python-obd
     async function perguntarAoCarro(device: any, comando: string) {
       try {
-        // 1. Limpa lixo antigo do buffer
-        await device.read(); 
+        // 1. Limpa o lixo da memória do adaptador antes de perguntar
+        const disponivelParaLimpar = await device.available();
+        if (disponivelParaLimpar > 0) {
+          await device.read(); 
+        }
         
-        // 2. Envia o comando
+        // 2. Envia o comando com o carriage return (\r)
         await device.write(comando + "\r");
         
-        // 3. Aguarda a resposta montando o texto aos poucos
         let respostaCompleta = "";
         let tentativas = 0;
         
-        // Tenta ler até 8 vezes (aprox 1.6 segundos) esperando o sinal ">"
-        while (tentativas < 8) {
-          await new Promise(resolve => setTimeout(resolve, 200)); 
-          const trecho = await device.read();
+        // 3. Aguarda a resposta (máx 2.5 segundos) vigiando o buffer
+        while (tentativas < 25) {
+          await new Promise(resolve => setTimeout(resolve, 100));
           
-          if (trecho) {
-            respostaCompleta += trecho;
-            // Se o ELM327 mandou o caractere '>', significa que a resposta acabou!
-            if (respostaCompleta.includes(">")) {
-              break; 
+          const disponivel = await device.available();
+          if (disponivel > 0) {
+            const trecho = await device.read();
+            if (trecho) {
+              respostaCompleta += trecho;
+              // O sinal > significa que o adaptador parou de falar
+              if (respostaCompleta.includes(">")) {
+                break; 
+              }
             }
           }
           tentativas++;
         }
         
-        return respostaCompleta || "";
+        return respostaCompleta;
       } catch (err) {
         return "";
+      }
+    }
+
+    // Loop em cadeia (impede atropelamento de comandos, igual ao time.sleep do Python)
+    async function loopDeLeitura(device: any) {
+      if (!isActive) return;
+
+      try {
+        // Pede RPM
+        const rpmResp = await perguntarAoCarro(device, "010C");
+        setDebugLog(`Comando 010C (RPM):\n"${rpmResp}"`);
+        
+        const realRpm = parseOBD(rpmResp, "0C");
+        if (realRpm > 0) setDisplayRpm(realRpm);
+
+        // Pede Temperatura
+        const tempResp = await perguntarAoCarro(device, "0105");
+        const realTemp = parseOBD(tempResp, "05");
+        if (realTemp > 0) setDisplayTemp(realTemp);
+
+      } catch (err) {
+        setDebugLog("Erro no ciclo de leitura.");
+      }
+
+      // Agenda a próxima leitura se a tela ainda estiver aberta
+      if (isActive) {
+        timerId = setTimeout(() => loopDeLeitura(device), 1000); 
       }
     }
 
@@ -91,41 +119,28 @@ export default function RealtimeScreen() {
           const device = devices[0];
           setIsReading(true);
 
-          setStatusMsg("CONFIGURANDO ADAPTADOR...");
+          // INICIALIZAÇÃO ROBUSTA (Igual ao python-obd)
+          setStatusMsg("REINICIANDO ADAPTADOR...");
           await perguntarAoCarro(device, "ATZ"); 
-          await new Promise(resolve => setTimeout(resolve, 500));
-          await perguntarAoCarro(device, "ATE0"); 
-          await perguntarAoCarro(device, "ATL0"); 
-          await perguntarAoCarro(device, "ATSP0"); 
+          await new Promise(resolve => setTimeout(resolve, 1500)); // Tempo vital para o ATZ
 
-          setStatusMsg("NEGOCIANDO PROTOCOLO COM O CARRO...");
-          await device.write("010C\r"); 
-          await new Promise(resolve => setTimeout(resolve, 4000)); 
-          await device.read(); 
+          setStatusMsg("CONFIGURANDO CANAIS...");
+          await perguntarAoCarro(device, "ATE0"); // Sem echo
+          await perguntarAoCarro(device, "ATL0"); // Sem quebra de linha longa
+          await perguntarAoCarro(device, "ATS0"); // Sem espaços extras
+          await perguntarAoCarro(device, "ATH0"); // Sem cabeçalhos
+          await perguntarAoCarro(device, "ATSP0"); // Protocolo Automático
+
+          setStatusMsg("SINCRONIZANDO COM A ECU...");
+          await perguntarAoCarro(device, "0100"); 
+          await new Promise(resolve => setTimeout(resolve, 1000)); 
 
           if (!isActive) return;
 
           setStatusMsg("LENDO DADOS DO CARRO");
-
-          // Aumentei o intervalo para 2 segundos para dar fôlego ao scanner
-          interval = setInterval(async () => {
-            try {
-              const rpmResp = await perguntarAoCarro(device, "010C");
-              
-              // Joga o log na tela para vermos se a resposta finalmente chegou
-              setDebugLog(`Comando 010C retornou:\n"${rpmResp}"`);
-
-              const realRpm = parseOBD(rpmResp, "0C");
-              if (realRpm > 0) setDisplayRpm(realRpm);
-
-              const tempResp = await perguntarAoCarro(device, "0105");
-              const realTemp = parseOBD(tempResp, "05");
-              if (realTemp > 0) setDisplayTemp(realTemp);
-
-            } catch (err) {
-              setDebugLog("Erro no loop: " + JSON.stringify(err));
-            }
-          }, 2000); 
+          
+          // Inicia o motor de leitura
+          loopDeLeitura(device);
         }
       } catch (error) {
         setStatusMsg("FALHA NA CONEXÃO");
@@ -135,26 +150,26 @@ export default function RealtimeScreen() {
     startReading();
 
     return () => {
-      isActive = false;
-      if (interval) clearInterval(interval);
+      isActive = false; // Corta o ciclo instantaneamente se o usuário sair da tela
+      if (timerId) clearTimeout(timerId);
     };
   }, []);
 
   function parseOBD(response: any, pid: string): number {
     if (!response) return 0;
-    const strResponse = String(response);
     
-    if (strResponse.includes("NO DATA") || strResponse.includes("SEARCHING") || strResponse.includes("ERROR")) {
+    // Limpa espaços e o > que sobrou da resposta
+    const strResponse = String(response).replace(/[\s>]/g, "").toUpperCase();
+    
+    if (strResponse.includes("NODATA") || strResponse.includes("SEARCHING") || strResponse.includes("ERROR")) {
       return 0;
     }
     
-    // Removemos os espaços e o caractere ">" que usamos para saber o fim da leitura
-    const cleanResp = strResponse.replace(/[\s>]/g, "").toUpperCase();
     const target = "41" + pid;
-    const index = cleanResp.indexOf(target);
+    const index = strResponse.indexOf(target);
     
     if (index !== -1) {
-      const dataHex = cleanResp.substring(index + 4);
+      const dataHex = strResponse.substring(index + 4);
       try {
         if (pid === "0C") { 
           const A = parseInt(dataHex.substring(0, 2), 16);
@@ -235,9 +250,9 @@ const styles = StyleSheet.create({
   speedometerWrapper: { alignItems: "center", paddingVertical: 16 },
   primaryTelemetry: { gap: 10 },
   telemetryRow: { flexDirection: "row", gap: 10 },
-  debugSection: { backgroundColor: "#1A0000", borderRadius: 12, padding: 16, borderWidth: 1, borderColor: "#FF3D57", marginTop: 10 },
-  debugTitle: { fontSize: 11, fontWeight: "800", color: "#FF3D57", marginBottom: 8, letterSpacing: 1 },
-  debugText: { fontSize: 12, color: "#FFF", fontFamily: "monospace", minHeight: 60 },
+  debugSection: { backgroundColor: "#1A0000", borderRadius: 12, padding: 16, borderWidth: 1, borderColor: "#00E676", marginTop: 10 },
+  debugTitle: { fontSize: 11, fontWeight: "800", color: "#00E676", marginBottom: 8, letterSpacing: 1 },
+  debugText: { fontSize: 13, color: "#FFF", fontFamily: "monospace", minHeight: 60 },
   stopBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#FF3D5722", borderWidth: 1, borderColor: "#FF3D5744", borderRadius: 14, paddingVertical: 12 },
   stopBtnText: { fontSize: 14, fontWeight: "600", color: "#FF3D57" },
 });
