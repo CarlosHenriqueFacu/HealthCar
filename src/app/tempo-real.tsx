@@ -11,8 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  ToastAndroid,
-  View,
+  View
 } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -36,24 +35,27 @@ export default function RealtimeScreen() {
   const [isReading, setIsReading] = useState(false);
   const [displayKm, setDisplayKm] = useState(MOCK_DATA.kmTraveled);
   const [statusMsg, setStatusMsg] = useState("INICIALIZANDO SCANNER...");
+  
+  // ESTADO PARA O MODO RAIO-X (DEBUG)
+  const [debugLog, setDebugLog] = useState("Aguardando dados brutos do Bluetooth...");
 
   const headerGlow = useSharedValue(1);
   const speedometerScale = useSharedValue(1);
 
   useKeepAwake();
 
-  /* ==========================================================
-     CÉREBRO DO OBD-II: MOTOR DE LEITURA BLINDADO
-  ========================================================== */
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     let isActive = true;
 
     async function perguntarAoCarro(device: any, comando: string) {
       try {
+        // Limpa qualquer lixo que tenha ficado no buffer antes de perguntar
+        const lixo = await device.read(); 
+        
         await device.write(comando + "\r");
-        // Aumentamos a paciência para 400ms para o buffer encher completamente
         await new Promise(resolve => setTimeout(resolve, 400));
+        
         const resposta = await device.read();
         return resposta || "";
       } catch (err) {
@@ -69,35 +71,30 @@ export default function RealtimeScreen() {
           const device = devices[0];
           setIsReading(true);
 
-          // 1. Limpeza e Configuração Inicial
           setStatusMsg("CONFIGURANDO ADAPTADOR...");
           await perguntarAoCarro(device, "ATZ"); 
           await new Promise(resolve => setTimeout(resolve, 500));
-          await perguntarAoCarro(device, "ATE0"); // Desliga eco
-          await perguntarAoCarro(device, "ATL0"); // Desliga quebra de linha
-          await perguntarAoCarro(device, "ATSP0"); // Protocolo Automático
+          await perguntarAoCarro(device, "ATE0"); 
+          await perguntarAoCarro(device, "ATL0"); 
+          await perguntarAoCarro(device, "ATSP0"); 
 
-          // 2. O PULO DO GATO: Forçar a busca e ESPERAR
           setStatusMsg("NEGOCIANDO PROTOCOLO COM O CARRO...");
-          ToastAndroid.show("Buscando protocolo (aguarde 4s)...", ToastAndroid.LONG);
-          
-          await device.write("010C\r"); // Pede o RPM só para forçar a comunicação
-          await new Promise(resolve => setTimeout(resolve, 4000)); // Espera 4 SEGUNDOS sagrados
-          await device.read(); // Limpa a resposta de "SEARCHING..." do buffer
+          await device.write("010C\r"); 
+          await new Promise(resolve => setTimeout(resolve, 4000)); 
+          await device.read(); 
 
           if (!isActive) return;
 
           setStatusMsg("LENDO DADOS DO CARRO");
-          ToastAndroid.show("Comunicação estabelecida! Lendo dados...", ToastAndroid.SHORT);
 
-          // 3. Loop Seguro
           interval = setInterval(async () => {
             try {
-              const speedResp = await perguntarAoCarro(device, "010D");
-              const realSpeed = parseOBD(speedResp, "0D");
-              if (realSpeed > 0) setDisplaySpeed(realSpeed);
-
+              // Lendo o RPM e jogando o texto bruto na tela para visualizarmos
               const rpmResp = await perguntarAoCarro(device, "010C");
+              
+              // ATUALIZA A TELA COM O TEXTO EXATO QUE O BLUETOOTH DEVOLVEU
+              setDebugLog(`Comando 010C retornou:\n"${rpmResp}"`);
+
               const realRpm = parseOBD(rpmResp, "0C");
               if (realRpm > 0) setDisplayRpm(realRpm);
 
@@ -106,7 +103,7 @@ export default function RealtimeScreen() {
               if (realTemp > 0) setDisplayTemp(realTemp);
 
             } catch (err) {
-              console.log("Erro no loop", err);
+              setDebugLog("Erro no loop: " + JSON.stringify(err));
             }
           }, 1500); 
         }
@@ -127,7 +124,6 @@ export default function RealtimeScreen() {
     if (!response) return 0;
     const strResponse = String(response);
     
-    // Se o carro responder que não tem dados ou está buscando, ignora
     if (strResponse.includes("NO DATA") || strResponse.includes("SEARCHING") || strResponse.includes("ERROR")) {
       return 0;
     }
@@ -157,8 +153,6 @@ export default function RealtimeScreen() {
     return 0;
   }
 
-  const availableRange = Math.round(MOCK_DATA.fuel * 60 * MOCK_DATA.fuelConsumption);
-  const fuelConsumptionRate = (displaySpeed / MOCK_DATA.fuelConsumption).toFixed(1);
   const headerGlowStyle = useAnimatedStyle(() => ({ opacity: headerGlow.value }));
   const speedometerStyle = useAnimatedStyle(() => ({ transform: [{ scale: speedometerScale.value }] }));
 
@@ -193,42 +187,17 @@ export default function RealtimeScreen() {
           </View>
         </View>
 
-        <View style={styles.fuelRangeCard}>
-          <View style={styles.fuelRangeHeader}>
-            <MaterialIcons name="route" size={18} color="#00B4FF" />
-            <Text style={styles.fuelRangeTitle}>Autonomia com Combustível</Text>
-          </View>
-          <View style={styles.fuelRangeContent}>
-            <View style={styles.rangeValue}>
-              <Text style={styles.rangeNumber}>{availableRange}</Text>
-              <Text style={styles.rangeUnit}>km</Text>
-            </View>
-            <View style={styles.rangeDetails}>
-              <Text style={styles.rangeLabel}>Consumo atual</Text>
-              <Text style={styles.rangeConsumption}>{fuelConsumptionRate} L/h</Text>
-              <Text style={styles.rangeInfo}>Baseado em {MOCK_DATA.fuelConsumption} km/l</Text>
-            </View>
-          </View>
-          <View style={styles.rangeBar}>
-            <View style={[styles.rangeFill, { width: `${(availableRange / 500) * 100}%` as any }]} />
-          </View>
-        </View>
-
-        <View style={styles.advancedSection}>
-          <Text style={styles.advancedTitle}>Métricas Avançadas</Text>
-          <View style={styles.metricRow}>
-            <View style={styles.metricLeft}><MaterialIcons name="speed" size={16} color="#8892A4" /><Text style={styles.metricLabel}>Velocidade Máxima</Text></View>
-            <Text style={styles.metricValue}>120 km/h</Text>
-          </View>
-          <View style={styles.metricRow}>
-            <View style={styles.metricLeft}><MaterialIcons name="trending-up" size={16} color="#8892A4" /><Text style={styles.metricLabel}>Aceleração Média</Text></View>
-            <Text style={styles.metricValue}>2.3 m/s²</Text>
-          </View>
+        {/* =========================================================
+            PAINEL DE MODO RAIO-X (DEBUG LOG)
+        ========================================================= */}
+        <View style={styles.debugSection}>
+          <Text style={styles.debugTitle}>RAIO-X DO BLUETOOTH (DEBUG)</Text>
+          <Text style={styles.debugText}>{debugLog}</Text>
         </View>
 
         <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.stopBtn, pressed && { opacity: 0.8 }]}>
           <MaterialIcons name="stop-circle" size={20} color="#FF3D57" />
-          <Text style={styles.stopBtnText}>Encerrar Transmissão</Text>
+          <Text style={styles.stopBtnText}>Voltar</Text>
         </Pressable>
       </ScrollView>
     </ScreenContainer>
@@ -248,25 +217,12 @@ const styles = StyleSheet.create({
   speedometerWrapper: { alignItems: "center", paddingVertical: 16 },
   primaryTelemetry: { gap: 10 },
   telemetryRow: { flexDirection: "row", gap: 10 },
-  fuelRangeCard: { backgroundColor: "#12141A", borderRadius: 16, padding: 16, borderWidth: 1, borderColor: "#1E2235", gap: 12 },
-  fuelRangeHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-  fuelRangeTitle: { fontSize: 14, fontWeight: "600", color: "#F0F2FF" },
-  fuelRangeContent: { flexDirection: "row", gap: 16, alignItems: "center" },
-  rangeValue: { alignItems: "center", gap: 2 },
-  rangeNumber: { fontSize: 36, fontWeight: "800", color: "#00B4FF", fontVariant: ["tabular-nums"], letterSpacing: 1, textShadowColor: "#00B4FF", textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 8 },
-  rangeUnit: { fontSize: 12, color: "#8892A4" },
-  rangeDetails: { flex: 1, gap: 2 },
-  rangeLabel: { fontSize: 10, color: "#8892A4", textTransform: "uppercase", letterSpacing: 0.5 },
-  rangeConsumption: { fontSize: 16, fontWeight: "700", color: "#F0F2FF" },
-  rangeInfo: { fontSize: 10, color: "#8892A4" },
-  rangeBar: { height: 4, backgroundColor: "#1E2235", borderRadius: 2, overflow: "hidden" },
-  rangeFill: { height: "100%", backgroundColor: "#00B4FF", borderRadius: 2 },
-  advancedSection: { backgroundColor: "#12141A", borderRadius: 16, padding: 16, borderWidth: 1, borderColor: "#1E2235", gap: 10 },
-  advancedTitle: { fontSize: 13, fontWeight: "600", color: "#8892A4", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 },
-  metricRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#1E2235" },
-  metricLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
-  metricLabel: { fontSize: 12, color: "#8892A4" },
-  metricValue: { fontSize: 14, fontWeight: "700", color: "#00B4FF" },
+  
+  // Estilos do painel de Debug
+  debugSection: { backgroundColor: "#1A0000", borderRadius: 12, padding: 16, borderWidth: 1, borderColor: "#FF3D57", marginTop: 10 },
+  debugTitle: { fontSize: 11, fontWeight: "800", color: "#FF3D57", marginBottom: 8, letterSpacing: 1 },
+  debugText: { fontSize: 12, color: "#FFF", fontFamily: "monospace", minHeight: 60 },
+
   stopBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#FF3D5722", borderWidth: 1, borderColor: "#FF3D5744", borderRadius: 14, paddingVertical: 12 },
   stopBtnText: { fontSize: 14, fontWeight: "600", color: "#FF3D57" },
 });

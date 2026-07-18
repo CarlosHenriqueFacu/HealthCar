@@ -52,44 +52,12 @@ export default function HomeScreen() {
 
   useKeepAwake();
 
-  /* ==========================================================
-     TRADUTOR HEXADECIMAL PARA O PAINEL INICIAL
-  ========================================================== */
-  function parseOBD(response: any, pid: string): number {
-    if (!response) return 0;
-    const strResponse = String(response);
-    if (strResponse.includes("NO DATA")) return 0;
-    
-    const cleanResp = strResponse.replace(/\s/g, "").toUpperCase();
-    const target = "41" + pid;
-    const index = cleanResp.indexOf(target);
-    
-    if (index !== -1) {
-      const dataHex = cleanResp.substring(index + 4);
-      try {
-        if (pid === "0C") { // RPM
-          const A = parseInt(dataHex.substring(0, 2), 16);
-          const B = parseInt(dataHex.substring(2, 4), 16);
-          return Math.round(((A * 256) + B) / 4);
-        } else if (pid === "05") { // Temperatura
-          const A = parseInt(dataHex.substring(0, 2), 16);
-          return A - 40;
-        }
-      } catch (e) {
-        return 0;
-      }
-    }
-    return 0;
-  }
-
-  // Função para Conectar o Scanner (Controla Simulação vs Carro Real)
+  // Função para Conectar o Scanner
   async function conectarScanner() {
     try {
       setIsConnecting(true);
 
-      // ==========================================================
       // PASSO DE SEGURANÇA: PEDIR PERMISSÃO NA TELA (ANDROID 12+)
-      // ==========================================================
       if (Platform.OS === 'android') {
         if (Platform.Version >= 31) {
           const granted = await PermissionsAndroid.requestMultiple([
@@ -110,9 +78,6 @@ export default function HomeScreen() {
         }
       }
 
-      // ==========================================================
-      // MODO 2: CARRO REAL (Ativado!)
-      // ==========================================================
       ToastAndroid.show("Procurando Scanner OBD2...", ToastAndroid.SHORT);
       const enabled = await RNBluetoothClassic.isBluetoothEnabled();
       if (!enabled) {
@@ -161,75 +126,23 @@ export default function HomeScreen() {
   }
 
   /* ==========================================================
-     CÉREBRO DO PAINEL INICIAL (LEITURA LENTA A CADA 3 SEGUNDOS)
+     CONTROLE VISUAL DA TELA INICIAL (LEITURA BLUETOOTH DESATIVADA)
   ========================================================== */
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
-
-    async function perguntarAoCarro(device: any, comando: string) {
-      try {
-        await device.write(comando + "\r");
-        await new Promise(resolve => setTimeout(resolve, 250));
-        return await device.read();
-      } catch (error) {
-        return null;
-      }
-    }
-
-    async function iniciarLeituraLenta() {
-      try {
-        const devices = await RNBluetoothClassic.getConnectedDevices();
-        if (devices.length > 0) {
-          const device = devices[0];
-          
-          // Loop de 3 em 3 segundos para não pesar a tela inicial
-          interval = setInterval(async () => {
-            try {
-              // 1. Ler RPM
-              const rpmResp = await perguntarAoCarro(device, "010C");
-              const realRpm = parseOBD(rpmResp, "0C");
-
-              // 2. Ler Temperatura
-              const tempResp = await perguntarAoCarro(device, "0105");
-              const realTemp = parseOBD(tempResp, "05");
-
-              // Atualiza os dados na tela (só altera se a leitura for válida)
-              setTelemetry(prev => ({
-                ...prev,
-                rpm: realRpm > 0 ? realRpm : prev.rpm,
-                temp: realTemp > 0 ? realTemp : prev.temp
-              }));
-            } catch (err) {
-              console.log("Erro na leitura de fundo", err);
-            }
-          }, 3000);
-        }
-      } catch (error) {
-        console.log("Erro ao buscar dispositivo para fundo", error);
-      }
-    }
-
     if (isActive) {
       dashboardOpacity.value = withTiming(1, { duration: 600 });
       dashboardTranslate.value = withSpring(0, { damping: 18, stiffness: 120 });
       headerGlow.value = withTiming(1, { duration: 800 });
       
-      // Carrega os dados visuais básicos primeiro
+      // Apenas carrega os dados congelados para a tela não ficar vazia
       setTelemetry(TELEMETRY_LIVE);
       
-      // Inicia a leitura Bluetooth em segundo plano
-      iniciarLeituraLenta();
     } else {
       dashboardOpacity.value = withTiming(0, { duration: 400 });
       dashboardTranslate.value = withTiming(20, { duration: 400 });
       headerGlow.value = withTiming(0, { duration: 400 });
       setTelemetry(TELEMETRY_IDLE);
     }
-
-    // Limpa o loop se o usuário desligar
-    return () => {
-      if (interval) clearInterval(interval);
-    };
   }, [isActive]);
 
   const dashboardStyle = useAnimatedStyle(() => ({
