@@ -46,63 +46,54 @@ export default function RealtimeScreen() {
     let isActive = true;
     let timerId: ReturnType<typeof setTimeout>;
     
-    // Nova função com leitura "Força Bruta" (Ignorando o available)
     async function perguntarAoCarro(device: any, comando: string) {
       try {
-        // 1. Tenta limpar o lixo da memória lendo diretamente
         try {
           await device.read(); 
-        } catch (e) {
-          // Ignora erro de leitura vazia aqui
-        }
+        } catch (e) {}
         
-        // 2. Envia o comando com o carriage return (\r) para o carro
         await device.write(comando + "\r");
         
         let respostaCompleta = "";
         let tentativas = 0;
         
-        // 3. Aguarda a resposta metralhando comandos de leitura (máx 2.5 segundos)
         while (tentativas < 25) {
-          await new Promise(resolve => setTimeout(resolve, 100)); // Espera 100ms
+          await new Promise(resolve => setTimeout(resolve, 100)); 
           
-          // LÊ DIRETAMENTE O BLUETOOTH
           try {
             const trecho = await device.read(); 
             if (trecho) {
               respostaCompleta += String(trecho);
-              // Se o carro enviou o ">", significa que terminou a resposta
               if (respostaCompleta.includes(">")) {
                 break; 
               }
             }
-          } catch (readError) {
-             // Apenas ignora e tenta no próximo ciclo
-          }
+          } catch (readError) {}
           
           tentativas++;
         }
         
+        // Se esgotou as tentativas e continuou vazio, mostra o erro visual
+        if (respostaCompleta === "") {
+          return "TIMEOUT: Nenhuma resposta recebida";
+        }
+        
         return respostaCompleta;
       } catch (err: any) {
-        // Se der erro grave, joga na tela de debug
-        return `ERRO: ${err?.message || 'Falha ao comunicar'}`;
+        return `ERRO GRAVE: ${err?.message || 'Falha ao comunicar'}`;
       }
     }
 
-    // Loop em cadeia (impede atropelamento de comandos, igual ao time.sleep do Python)
     async function loopDeLeitura(device: any) {
       if (!isActive) return;
 
       try {
-        // Pede RPM
         const rpmResp = await perguntarAoCarro(device, "010C");
         setDebugLog(`Comando 010C (RPM):\n"${rpmResp}"`);
         
         const realRpm = parseOBD(rpmResp, "0C");
         if (realRpm > 0) setDisplayRpm(realRpm);
 
-        // Pede Temperatura
         const tempResp = await perguntarAoCarro(device, "0105");
         const realTemp = parseOBD(tempResp, "05");
         if (realTemp > 0) setDisplayTemp(realTemp);
@@ -111,7 +102,6 @@ export default function RealtimeScreen() {
         setDebugLog("Erro no ciclo de leitura.");
       }
 
-      // Agenda a próxima leitura se a tela ainda estiver aberta
       if (isActive) {
         timerId = setTimeout(() => loopDeLeitura(device), 1000); 
       }
@@ -119,44 +109,49 @@ export default function RealtimeScreen() {
 
     async function startReading() {
       try {
-        const devices = await RNBluetoothClassic.getConnectedDevices();
+        // Busca aparelhos pareados no celular em vez de apenas "conectados" no momento
+        const devices = await RNBluetoothClassic.getBondedDevices();
         
-        if (devices.length > 0) {
-          const device = devices[0];
+        // Filtra para achar o OBD2 ignorando maiúsculas e minúsculas
+        const obdDevice = devices.find((d: any) => 
+          d.name && (
+            d.name.toUpperCase().includes("OBD") || 
+            d.name.toUpperCase().includes("ELM") ||
+            d.name.toUpperCase().includes("VLINK")
+          )
+        );
+        
+        if (obdDevice) {
           setIsReading(true);
 
-          // ===== A PEÇA QUE FALTAVA: ABRIR A PORTA =====
-          setStatusMsg("ABRINDO PORTA BLUETOOTH...");
-          const socketAberto = await device.isConnected();
+          setStatusMsg(`ABRINDO PORTA: ${obdDevice.name.toUpperCase()}`);
+          const socketAberto = await obdDevice.isConnected();
           if (!socketAberto) {
-             await device.connect(); // Exige que o app conecte fisicamente ao scanner!
+             await obdDevice.connect(); 
           }
-          // =============================================
 
-          // INICIALIZAÇÃO ROBUSTA (Igual ao python-obd)
           setStatusMsg("REINICIANDO ADAPTADOR...");
-          await perguntarAoCarro(device, "ATZ"); 
-          await new Promise(resolve => setTimeout(resolve, 1500)); // Tempo vital para o ATZ
+          await perguntarAoCarro(obdDevice, "ATZ"); 
+          await new Promise(resolve => setTimeout(resolve, 1500)); 
 
           setStatusMsg("CONFIGURANDO CANAIS...");
-          await perguntarAoCarro(device, "ATE0"); // Sem echo
-          await perguntarAoCarro(device, "ATL0"); // Sem quebra de linha longa
-          await perguntarAoCarro(device, "ATS0"); // Sem espaços extras
-          await perguntarAoCarro(device, "ATH0"); // Sem cabeçalhos
-          await perguntarAoCarro(device, "ATSP0"); // Protocolo Automático
+          await perguntarAoCarro(obdDevice, "ATE0"); 
+          await perguntarAoCarro(obdDevice, "ATL0"); 
+          await perguntarAoCarro(obdDevice, "ATS0"); 
+          await perguntarAoCarro(obdDevice, "ATH0"); 
+          await perguntarAoCarro(obdDevice, "ATSP0"); 
 
           setStatusMsg("SINCRONIZANDO COM A ECU...");
-          await perguntarAoCarro(device, "0100"); 
+          await perguntarAoCarro(obdDevice, "0100"); 
           await new Promise(resolve => setTimeout(resolve, 1000)); 
 
           if (!isActive) return;
 
           setStatusMsg("LENDO DADOS DO CARRO");
-          
-          // Inicia o motor de leitura
-          loopDeLeitura(device);
+          loopDeLeitura(obdDevice);
         } else {
-          setStatusMsg("NENHUM DISPOSITIVO ENCONTRADO");
+          setStatusMsg("NENHUM SCANNER OBD PAREADO");
+          setDebugLog("FALHA: Vá nas configurações Bluetooth do celular e pareie o scanner OBD2 primeiro.");
         }
       } catch (error: any) {
         setStatusMsg("FALHA NA CONEXÃO");
@@ -167,7 +162,7 @@ export default function RealtimeScreen() {
     startReading();
 
     return () => {
-      isActive = false; // Corta o ciclo instantaneamente se o usuário sair da tela
+      isActive = false; 
       if (timerId) clearTimeout(timerId);
     };
   }, []);
@@ -175,10 +170,9 @@ export default function RealtimeScreen() {
   function parseOBD(response: any, pid: string): number {
     if (!response) return 0;
     
-    // Limpa espaços e o > que sobrou da resposta
     const strResponse = String(response).replace(/[\s>]/g, "").toUpperCase();
     
-    if (strResponse.includes("NODATA") || strResponse.includes("SEARCHING") || strResponse.includes("ERROR") || strResponse.includes("ERRO")) {
+    if (strResponse.includes("NODATA") || strResponse.includes("SEARCHING") || strResponse.includes("ERROR") || strResponse.includes("TIMEOUT")) {
       return 0;
     }
     
