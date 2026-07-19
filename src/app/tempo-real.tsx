@@ -46,28 +46,40 @@ export default function RealtimeScreen() {
     let isActive = true;
     let timerId: ReturnType<typeof setTimeout>;
     
-    // === NOVA FUNÇÃO USANDO NATIVO DO ANDROID (readUntil) ===
+    // === NOVA FUNÇÃO MANUAL DE LEITURA (SEM readUntil) ===
     async function perguntarAoCarro(device: any, comando: string) {
       try {
-        // 1. Limpa o buffer de forma nativa e segura
-        try {
-          await device.clear(); 
-        } catch (e) {}
-        
-        // 2. Envia o comando
+        // Envia o comando com o retorno de carro (\r) que o scanner exige
         await device.write(comando + "\r");
         
-        // 3. Deixa o núcleo do Android esperar até o scanner enviar o '>'
-        // O Android é quem faz o trabalho pesado agora, não o nosso loop while!
-        const respostaCompleta = await device.readUntil('>');
+        let buffer = "";
+        let tentativas = 0;
+        const maxTentativas = 40; // 40 * 50ms = 2 segundos de limite
         
-        if (!respostaCompleta || respostaCompleta.trim() === "") {
-          return "TIMEOUT: Nenhuma resposta nativa recebida";
+        while (tentativas < maxTentativas) {
+          // Verifica se o Bluetooth tem bytes esperando para serem lidos
+          let bytesDisponiveis = await device.available();
+          
+          if (bytesDisponiveis > 0) {
+            let pedaco = await device.read();
+            if (pedaco) {
+              buffer += pedaco;
+              
+              // Se achou o caractere de parada do OBD2 (>), recebemos tudo!
+              if (buffer.includes(">")) {
+                return buffer;
+              }
+            }
+          }
+          
+          // Pausa milimétrica de 50ms para não travar o loop e dar tempo do aparelho responder
+          await new Promise(resolve => setTimeout(resolve, 50));
+          tentativas++;
         }
         
-        return respostaCompleta;
+        return "TIMEOUT: Resposta incompleta ou vazia";
       } catch (err: any) {
-        return `ERRO GRAVE: ${err?.message || 'Falha ao comunicar'}`;
+        return `ERRO: ${err?.message || 'Falha ao processar'}`;
       }
     }
 
@@ -90,7 +102,7 @@ export default function RealtimeScreen() {
       }
 
       if (isActive) {
-        // Agora damos 1 segundo exato entre um ciclo e outro, assim como no Python
+        // Aguarda 1 segundo antes da próxima bateria de comandos
         timerId = setTimeout(() => loopDeLeitura(device), 1000); 
       }
     }
