@@ -46,38 +46,47 @@ export default function RealtimeScreen() {
     let isActive = true;
     let timerId: ReturnType<typeof setTimeout>;
     
-    // === NOVA FUNÇÃO MANUAL DE LEITURA (SEM readUntil) ===
+    // === LEITURA DE FORÇA BRUTA (SEM available E SEM readUntil) ===
     async function perguntarAoCarro(device: any, comando: string) {
       try {
-        // Envia o comando com o retorno de carro (\r) que o scanner exige
+        // 1. Limpa qualquer lixo da memória antes de enviar o comando
+        try {
+          await device.read(); 
+        } catch (e) {}
+        
+        // 2. Envia o comando com o retorno de carro (\r)
         await device.write(comando + "\r");
         
         let buffer = "";
         let tentativas = 0;
         const maxTentativas = 40; // 40 * 50ms = 2 segundos de limite
         
+        // 3. Loop agressivo puxando dados sem perguntar se estão disponíveis
         while (tentativas < maxTentativas) {
-          // Verifica se o Bluetooth tem bytes esperando para serem lidos
-          let bytesDisponiveis = await device.available();
-          
-          if (bytesDisponiveis > 0) {
+          try {
             let pedaco = await device.read();
             if (pedaco) {
-              buffer += pedaco;
+              buffer += String(pedaco);
               
               // Se achou o caractere de parada do OBD2 (>), recebemos tudo!
               if (buffer.includes(">")) {
                 return buffer;
               }
             }
+          } catch (e) {
+            // Se falhar a leitura, ignora e tenta de novo no próximo ciclo
           }
           
-          // Pausa milimétrica de 50ms para não travar o loop e dar tempo do aparelho responder
           await new Promise(resolve => setTimeout(resolve, 50));
           tentativas++;
         }
         
-        return "TIMEOUT: Resposta incompleta ou vazia";
+        // Se o tempo esgotou mas ele conseguiu ler ALGO, mostra para nós!
+        if (buffer.trim().length > 0) {
+          return "QUASE LÁ: " + buffer;
+        }
+        
+        return "TIMEOUT: Resposta 100% vazia";
       } catch (err: any) {
         return `ERRO: ${err?.message || 'Falha ao processar'}`;
       }
@@ -102,7 +111,6 @@ export default function RealtimeScreen() {
       }
 
       if (isActive) {
-        // Aguarda 1 segundo antes da próxima bateria de comandos
         timerId = setTimeout(() => loopDeLeitura(device), 1000); 
       }
     }
@@ -123,9 +131,16 @@ export default function RealtimeScreen() {
           setIsReading(true);
 
           setStatusMsg(`ABRINDO PORTA: ${obdDevice.name.toUpperCase()}`);
+          
+          // FORÇANDO O DELIMITADOR PARA '>' NO ANDROID (Caso a biblioteca suporte)
           const socketAberto = await obdDevice.isConnected();
           if (!socketAberto) {
-             await obdDevice.connect(); 
+             try {
+                await obdDevice.connect({ delimiter: '>' });
+             } catch (e) {
+                // Se não suportar a opção, conecta do jeito padrão
+                await obdDevice.connect();
+             }
           }
 
           setStatusMsg("REINICIANDO ADAPTADOR...");
@@ -170,7 +185,14 @@ export default function RealtimeScreen() {
     
     const strResponse = String(response).replace(/[\s>]/g, "").toUpperCase();
     
-    if (strResponse.includes("NODATA") || strResponse.includes("SEARCHING") || strResponse.includes("ERROR") || strResponse.includes("TIMEOUT")) {
+    // Filtro atualizado para não bugar com a nova mensagem de debug "QUASE LÁ"
+    if (
+      strResponse.includes("NODATA") || 
+      strResponse.includes("SEARCHING") || 
+      strResponse.includes("ERROR") || 
+      strResponse.includes("TIMEOUT") ||
+      strResponse.includes("QUASE")
+    ) {
       return 0;
     }
     
