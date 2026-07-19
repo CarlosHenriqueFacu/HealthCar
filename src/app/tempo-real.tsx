@@ -46,50 +46,54 @@ export default function RealtimeScreen() {
     let isActive = true;
     let timerId: ReturnType<typeof setTimeout>;
     
-    // === LEITURA DE FORÇA BRUTA (SEM available E SEM readUntil) ===
+    // === PLANO B: ESCUTA ATIVA (EVENT LISTENER) ===
     async function perguntarAoCarro(device: any, comando: string) {
-      try {
-        // 1. Limpa qualquer lixo da memória antes de enviar o comando
+      return new Promise(async (resolve) => {
+        let tempBuffer = "";
+        let espiaoDeDados: any = null;
+        let cronometroTimeout: any = null;
+
+        // Função interna para limpar o espião e devolver o resultado
+        const finalizar = (resultado: string) => {
+          if (cronometroTimeout) clearTimeout(cronometroTimeout);
+          if (espiaoDeDados) {
+            try { espiaoDeDados.remove(); } catch(e) {}
+          }
+          resolve(resultado);
+        };
+
         try {
-          await device.read(); 
-        } catch (e) {}
-        
-        // 2. Envia o comando com o retorno de carro (\r)
-        await device.write(comando + "\r");
-        
-        let buffer = "";
-        let tentativas = 0;
-        const maxTentativas = 40; // 40 * 50ms = 2 segundos de limite
-        
-        // 3. Loop agressivo puxando dados sem perguntar se estão disponíveis
-        while (tentativas < maxTentativas) {
-          try {
-            let pedaco = await device.read();
-            if (pedaco) {
-              buffer += String(pedaco);
+          // 1. Limpa qualquer lixo da memória antes de começar
+          try { await device.clear(); } catch(e) {}
+
+          // 2. Arma o espião ANTES de enviar o comando
+          espiaoDeDados = device.onDataReceived((event: any) => {
+            if (event && event.data) {
+              tempBuffer += String(event.data);
               
-              // Se achou o caractere de parada do OBD2 (>), recebemos tudo!
-              if (buffer.includes(">")) {
-                return buffer;
+              // Se o espião detectar o caractere de finalização do OBD2
+              if (tempBuffer.includes(">")) {
+                finalizar(tempBuffer);
               }
             }
-          } catch (e) {
-            // Se falhar a leitura, ignora e tenta de novo no próximo ciclo
-          }
-          
-          await new Promise(resolve => setTimeout(resolve, 50));
-          tentativas++;
+          });
+
+          // 3. Inicia a contagem regressiva de segurança (2.5 segundos)
+          cronometroTimeout = setTimeout(() => {
+            if (tempBuffer.trim().length > 0) {
+              finalizar("QUASE LÁ: " + tempBuffer);
+            } else {
+              finalizar("TIMEOUT: O ouvinte não capturou nada");
+            }
+          }, 2500);
+
+          // 4. Dispara o comando para o carro
+          await device.write(comando + "\r");
+
+        } catch (error: any) {
+          finalizar(`ERRO NO COMANDO: ${error?.message || 'Falha'}`);
         }
-        
-        // Se o tempo esgotou mas ele conseguiu ler ALGO, mostra para nós!
-        if (buffer.trim().length > 0) {
-          return "QUASE LÁ: " + buffer;
-        }
-        
-        return "TIMEOUT: Resposta 100% vazia";
-      } catch (err: any) {
-        return `ERRO: ${err?.message || 'Falha ao processar'}`;
-      }
+      });
     }
 
     async function loopDeLeitura(device: any) {
@@ -132,13 +136,11 @@ export default function RealtimeScreen() {
 
           setStatusMsg(`ABRINDO PORTA: ${obdDevice.name.toUpperCase()}`);
           
-          // FORÇANDO O DELIMITADOR PARA '>' NO ANDROID (Caso a biblioteca suporte)
           const socketAberto = await obdDevice.isConnected();
           if (!socketAberto) {
              try {
                 await obdDevice.connect({ delimiter: '>' });
              } catch (e) {
-                // Se não suportar a opção, conecta do jeito padrão
                 await obdDevice.connect();
              }
           }
@@ -185,7 +187,6 @@ export default function RealtimeScreen() {
     
     const strResponse = String(response).replace(/[\s>]/g, "").toUpperCase();
     
-    // Filtro atualizado para não bugar com a nova mensagem de debug "QUASE LÁ"
     if (
       strResponse.includes("NODATA") || 
       strResponse.includes("SEARCHING") || 
