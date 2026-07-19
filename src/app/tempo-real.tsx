@@ -46,36 +46,23 @@ export default function RealtimeScreen() {
     let isActive = true;
     let timerId: ReturnType<typeof setTimeout>;
     
+    // === NOVA FUNÇÃO USANDO NATIVO DO ANDROID (readUntil) ===
     async function perguntarAoCarro(device: any, comando: string) {
       try {
+        // 1. Limpa o buffer de forma nativa e segura
         try {
-          await device.read(); 
+          await device.clear(); 
         } catch (e) {}
         
+        // 2. Envia o comando
         await device.write(comando + "\r");
         
-        let respostaCompleta = "";
-        let tentativas = 0;
+        // 3. Deixa o núcleo do Android esperar até o scanner enviar o '>'
+        // O Android é quem faz o trabalho pesado agora, não o nosso loop while!
+        const respostaCompleta = await device.readUntil('>');
         
-        while (tentativas < 25) {
-          await new Promise(resolve => setTimeout(resolve, 100)); 
-          
-          try {
-            const trecho = await device.read(); 
-            if (trecho) {
-              respostaCompleta += String(trecho);
-              if (respostaCompleta.includes(">")) {
-                break; 
-              }
-            }
-          } catch (readError) {}
-          
-          tentativas++;
-        }
-        
-        // Se esgotou as tentativas e continuou vazio, mostra o erro visual
-        if (respostaCompleta === "") {
-          return "TIMEOUT: Nenhuma resposta recebida";
+        if (!respostaCompleta || respostaCompleta.trim() === "") {
+          return "TIMEOUT: Nenhuma resposta nativa recebida";
         }
         
         return respostaCompleta;
@@ -103,16 +90,15 @@ export default function RealtimeScreen() {
       }
 
       if (isActive) {
+        // Agora damos 1 segundo exato entre um ciclo e outro, assim como no Python
         timerId = setTimeout(() => loopDeLeitura(device), 1000); 
       }
     }
 
     async function startReading() {
       try {
-        // Busca aparelhos pareados no celular em vez de apenas "conectados" no momento
         const devices = await RNBluetoothClassic.getBondedDevices();
         
-        // Filtra para achar o OBD2 ignorando maiúsculas e minúsculas
         const obdDevice = devices.find((d: any) => 
           d.name && (
             d.name.toUpperCase().includes("OBD") || 
