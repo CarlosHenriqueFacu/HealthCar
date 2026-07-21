@@ -46,54 +46,37 @@ export default function RealtimeScreen() {
     let isActive = true;
     let timerId: ReturnType<typeof setTimeout>;
     
-    // === PLANO B: ESCUTA ATIVA (EVENT LISTENER) ===
+    // === PLANO C: LEITURA EM BLOCO (BLOCK READING) ===
     async function perguntarAoCarro(device: any, comando: string) {
-      return new Promise(async (resolve) => {
-        let tempBuffer = "";
-        let espiaoDeDados: any = null;
-        let cronometroTimeout: any = null;
+      try {
+        // 1. Esvazia o buffer de qualquer lixo anterior
+        try { await device.clear(); } catch(e) {}
 
-        // Função interna para limpar o espião e devolver o resultado
-        const finalizar = (resultado: string) => {
-          if (cronometroTimeout) clearTimeout(cronometroTimeout);
-          if (espiaoDeDados) {
-            try { espiaoDeDados.remove(); } catch(e) {}
-          }
-          resolve(resultado);
-        };
+        // 2. Envia o comando
+        await device.write(comando + "\r");
 
-        try {
-          // 1. Limpa qualquer lixo da memória antes de começar
-          try { await device.clear(); } catch(e) {}
+        // 3. PAUSA ABSOLUTA (800ms) - Deixa o scanner respirar e processar
+        await new Promise(resolve => setTimeout(resolve, 800));
 
-          // 2. Arma o espião ANTES de enviar o comando
-          espiaoDeDados = device.onDataReceived((event: any) => {
-            if (event && event.data) {
-              tempBuffer += String(event.data);
-              
-              // Se o espião detectar o caractere de finalização do OBD2
-              if (tempBuffer.includes(">")) {
-                finalizar(tempBuffer);
-              }
-            }
-          });
+        // 4. Lê tudo o que acumulou no buffer de uma vez
+        let resposta = await device.read();
 
-          // 3. Inicia a contagem regressiva de segurança (2.5 segundos)
-          cronometroTimeout = setTimeout(() => {
-            if (tempBuffer.trim().length > 0) {
-              finalizar("QUASE LÁ: " + tempBuffer);
-            } else {
-              finalizar("TIMEOUT: O ouvinte não capturou nada");
-            }
-          }, 2500);
-
-          // 4. Dispara o comando para o carro
-          await device.write(comando + "\r");
-
-        } catch (error: any) {
-          finalizar(`ERRO NO COMANDO: ${error?.message || 'Falha'}`);
+        if (resposta && String(resposta).trim().length > 0) {
+           return resposta;
         }
-      });
+
+        // 5. Repescagem: Se demorou um pouco mais, dá mais 500ms e tenta de novo
+        await new Promise(resolve => setTimeout(resolve, 500));
+        let repescagem = await device.read();
+        
+        if (repescagem && String(repescagem).trim().length > 0) {
+            return "ATRASADO: " + repescagem;
+        }
+
+        return "TIMEOUT: Buffer 100% vazio após 1.3s";
+      } catch (err: any) {
+        return `ERRO: ${err?.message}`;
+      }
     }
 
     async function loopDeLeitura(device: any) {
@@ -106,16 +89,20 @@ export default function RealtimeScreen() {
         const realRpm = parseOBD(rpmResp, "0C");
         if (realRpm > 0) setDisplayRpm(realRpm);
 
-        const tempResp = await perguntarAoCarro(device, "0105");
-        const realTemp = parseOBD(tempResp, "05");
-        if (realTemp > 0) setDisplayTemp(realTemp);
+        // Só faz a segunda leitura se a primeira não der erro grave
+        if (!String(rpmResp).includes("ERRO")) {
+            const tempResp = await perguntarAoCarro(device, "0105");
+            const realTemp = parseOBD(tempResp, "05");
+            if (realTemp > 0) setDisplayTemp(realTemp);
+        }
 
       } catch (err) {
         setDebugLog("Erro no ciclo de leitura.");
       }
 
       if (isActive) {
-        timerId = setTimeout(() => loopDeLeitura(device), 1000); 
+        // Aumentei o tempo de respiro entre os loops gerais para não afogar o scanner
+        timerId = setTimeout(() => loopDeLeitura(device), 1500); 
       }
     }
 
@@ -133,21 +120,22 @@ export default function RealtimeScreen() {
         
         if (obdDevice) {
           setIsReading(true);
-
           setStatusMsg(`ABRINDO PORTA: ${obdDevice.name.toUpperCase()}`);
           
           const socketAberto = await obdDevice.isConnected();
           if (!socketAberto) {
              try {
-                await obdDevice.connect({ delimiter: '>' });
+                // TENTA CONEXÃO INSEGURA: Fundamental para alguns clones de ELM327 no Android
+                await obdDevice.connect({ SECURE_SOCKET: false } as any);
              } catch (e) {
                 await obdDevice.connect();
              }
           }
 
           setStatusMsg("REINICIANDO ADAPTADOR...");
+          // Aumentando os tempos de setup inicial
           await perguntarAoCarro(obdDevice, "ATZ"); 
-          await new Promise(resolve => setTimeout(resolve, 1500)); 
+          await new Promise(resolve => setTimeout(resolve, 2000)); 
 
           setStatusMsg("CONFIGURANDO CANAIS...");
           await perguntarAoCarro(obdDevice, "ATE0"); 
@@ -158,7 +146,7 @@ export default function RealtimeScreen() {
 
           setStatusMsg("SINCRONIZANDO COM A ECU...");
           await perguntarAoCarro(obdDevice, "0100"); 
-          await new Promise(resolve => setTimeout(resolve, 1000)); 
+          await new Promise(resolve => setTimeout(resolve, 1500)); 
 
           if (!isActive) return;
 
@@ -166,7 +154,7 @@ export default function RealtimeScreen() {
           loopDeLeitura(obdDevice);
         } else {
           setStatusMsg("NENHUM SCANNER OBD PAREADO");
-          setDebugLog("FALHA: Vá nas configurações Bluetooth do celular e pareie o scanner OBD2 primeiro.");
+          setDebugLog("FALHA: Vá nas configs Bluetooth e pareie primeiro.");
         }
       } catch (error: any) {
         setStatusMsg("FALHA NA CONEXÃO");
