@@ -46,34 +46,43 @@ export default function RealtimeScreen() {
     let isActive = true;
     let timerId: ReturnType<typeof setTimeout>;
     
-    // === PLANO C: LEITURA EM BLOCO (BLOCK READING) ===
+    // === PLANO D: ACÚMULO MANUAL ATÉ O PROMPT (>) ===
     async function perguntarAoCarro(device: any, comando: string) {
       try {
-        // 1. Esvazia o buffer de qualquer lixo anterior
+        // 1. Limpa o lixo
         try { await device.clear(); } catch(e) {}
 
         // 2. Envia o comando
         await device.write(comando + "\r");
 
-        // 3. PAUSA ABSOLUTA (800ms) - Deixa o scanner respirar e processar
-        await new Promise(resolve => setTimeout(resolve, 800));
+        let respostaCompleta = "";
+        let tentativas = 0;
+        const MAX_TENTATIVAS = 20; // 20 repetições de 100ms = 2 segundos no máximo
 
-        // 4. Lê tudo o que acumulou no buffer de uma vez
-        let resposta = await device.read();
+        // 3. Fica "pescando" dados de pouquinho em pouquinho
+        while (tentativas < MAX_TENTATIVAS) {
+          // Pausa curtinha de 100ms para o buffer receber algo
+          await new Promise(resolve => setTimeout(resolve, 100)); 
+          
+          let pedaco = await device.read();
 
-        if (resposta && String(resposta).trim().length > 0) {
-           return resposta;
+          if (pedaco && String(pedaco).trim().length > 0) {
+            respostaCompleta += String(pedaco); // Vai colando os pedaços
+            
+            // Se no meio do texto que chegou tiver o ">", a resposta acabou!
+            if (respostaCompleta.includes(">")) {
+              return respostaCompleta;
+            }
+          }
+          tentativas++;
         }
 
-        // 5. Repescagem: Se demorou um pouco mais, dá mais 500ms e tenta de novo
-        await new Promise(resolve => setTimeout(resolve, 500));
-        let repescagem = await device.read();
-        
-        if (repescagem && String(repescagem).trim().length > 0) {
-            return "ATRASADO: " + repescagem;
+        // Se deu 2 segundos e não achou o ">", devolve o que conseguiu juntar
+        if (respostaCompleta.length > 0) {
+           return "INCOMPLETO: " + respostaCompleta;
         }
 
-        return "TIMEOUT: Buffer 100% vazio após 1.3s";
+        return "TIMEOUT: Nenhuma resposta após 2 segundos";
       } catch (err: any) {
         return `ERRO: ${err?.message}`;
       }
