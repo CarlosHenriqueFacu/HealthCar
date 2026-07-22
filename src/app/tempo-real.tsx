@@ -7,11 +7,13 @@ import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   Dimensions,
+  NativeModules // [ALTERAÇÃO NATIVA]: Importação necessária para acessar a nossa ponte em Java
+  ,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  View,
+  View
 } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -20,14 +22,21 @@ import Animated, {
 
 import RNBluetoothClassic from "react-native-bluetooth-classic";
 
+// [ALTERAÇÃO NATIVA]: Extraindo o nosso Módulo Nativo em Java (OBDBluetoothModule).
+// A partir de agora, a comunicação serial pesada (leitura e escrita) passa por aqui, 
+// e não mais pela biblioteca RNBluetoothClassic.
+const { OBDBluetooth } = NativeModules;
+
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
+// Dados de exemplo para exibição enquanto o carro não envia dados reais
 const MOCK_DATA = {
   fuel: 0.72,
   kmTraveled: 142,
 };
 
 export default function RealtimeScreen() {
+  // Estados para controlar os valores que aparecem na tela
   const [displaySpeed, setDisplaySpeed] = useState(0);
   const [displayRpm, setDisplayRpm] = useState(0);
   const [displayTemp, setDisplayTemp] = useState(0);
@@ -35,72 +44,48 @@ export default function RealtimeScreen() {
   const [displayKm, setDisplayKm] = useState(MOCK_DATA.kmTraveled);
   const [statusMsg, setStatusMsg] = useState("INICIALIZANDO SCANNER...");
   
+  // Log visual para ajudar no debug (raio-x da conexão)
   const [debugLog, setDebugLog] = useState("Aguardando comunicação com a ECU...");
 
   const headerGlow = useSharedValue(1);
   const speedometerScale = useSharedValue(1);
 
+  // Mantém a tela do celular sempre ligada durante a leitura
   useKeepAwake();
 
   useEffect(() => {
-    let isActive = true;
+    let isActive = true; // Controla se a tela ainda está aberta para não rodar loop em background
     let timerId: ReturnType<typeof setTimeout>;
     
-    // === PLANO D: ACÚMULO MANUAL ATÉ O PROMPT (>) ===
-    async function perguntarAoCarro(device: any, comando: string) {
+    // [ALTERAÇÃO NATIVA]: A função perguntarAoCarro foi completamente reescrita.
+    // Ela não usa mais o loop (Plano D) em JavaScript, pois isso gerava gargalo.
+    // Agora, ela delega o envio e a espera pela resposta (com timeout de 2s) diretamente 
+    // para a função 'sendCommand' do nosso módulo Java, que roda direto no processador.
+    async function perguntarAoCarro(comando: string) {
       try {
-        // 1. Limpa o lixo
-        try { await device.clear(); } catch(e) {}
-
-        // 2. Envia o comando
-        await device.write(comando + "\r");
-
-        let respostaCompleta = "";
-        let tentativas = 0;
-        const MAX_TENTATIVAS = 20; // 20 repetições de 100ms = 2 segundos no máximo
-
-        // 3. Fica "pescando" dados de pouquinho em pouquinho
-        while (tentativas < MAX_TENTATIVAS) {
-          // Pausa curtinha de 100ms para o buffer receber algo
-          await new Promise(resolve => setTimeout(resolve, 100)); 
-          
-          let pedaco = await device.read();
-
-          if (pedaco && String(pedaco).trim().length > 0) {
-            respostaCompleta += String(pedaco); // Vai colando os pedaços
-            
-            // Se no meio do texto que chegou tiver o ">", a resposta acabou!
-            if (respostaCompleta.includes(">")) {
-              return respostaCompleta;
-            }
-          }
-          tentativas++;
-        }
-
-        // Se deu 2 segundos e não achou o ">", devolve o que conseguiu juntar
-        if (respostaCompleta.length > 0) {
-           return "INCOMPLETO: " + respostaCompleta;
-        }
-
-        return "TIMEOUT: Nenhuma resposta após 2 segundos";
+        const resposta = await OBDBluetooth.sendCommand(comando);
+        return resposta;
       } catch (err: any) {
         return `ERRO: ${err?.message}`;
       }
     }
 
-    async function loopDeLeitura(device: any) {
+    // Função recursiva que fica pedindo os dados para a ECU constantemente
+    async function loopDeLeitura() {
       if (!isActive) return;
 
       try {
-        const rpmResp = await perguntarAoCarro(device, "010C");
+        // 1. Pede o RPM (01 0C)
+        const rpmResp = await perguntarAoCarro("010C");
         setDebugLog(`Comando 010C (RPM):\n"${rpmResp}"`);
         
         const realRpm = parseOBD(rpmResp, "0C");
         if (realRpm > 0) setDisplayRpm(realRpm);
 
-        // Só faz a segunda leitura se a primeira não der erro grave
+        // 2. Pede a Temperatura (01 05). Só faz isso se o RPM não deu erro de comunicação, 
+        // para evitar acumular erros no buffer do adaptador.
         if (!String(rpmResp).includes("ERRO")) {
-            const tempResp = await perguntarAoCarro(device, "0105");
+            const tempResp = await perguntarAoCarro("0105");
             const realTemp = parseOBD(tempResp, "05");
             if (realTemp > 0) setDisplayTemp(realTemp);
         }
@@ -109,16 +94,20 @@ export default function RealtimeScreen() {
         setDebugLog("Erro no ciclo de leitura.");
       }
 
+      // Agenda a próxima rodada de perguntas (1.5s de respiro para não travar o scanner)
       if (isActive) {
-        // Aumentei o tempo de respiro entre os loops gerais para não afogar o scanner
-        timerId = setTimeout(() => loopDeLeitura(device), 1500); 
+        timerId = setTimeout(() => loopDeLeitura(), 1500); 
       }
     }
 
+    // Fluxo principal de inicialização da conexão
     async function startReading() {
       try {
+        // [ALTERAÇÃO NATIVA]: Continuamos usando a biblioteca clássica APENAS para 
+        // vasculhar a lista de dispositivos pareados no celular e pegar o Endereço MAC.
         const devices = await RNBluetoothClassic.getBondedDevices();
         
+        // Procura por adaptadores comuns pelo nome
         const obdDevice = devices.find((d: any) => 
           d.name && (
             d.name.toUpperCase().includes("OBD") || 
@@ -131,36 +120,38 @@ export default function RealtimeScreen() {
           setIsReading(true);
           setStatusMsg(`ABRINDO PORTA: ${obdDevice.name.toUpperCase()}`);
           
-          const socketAberto = await obdDevice.isConnected();
-          if (!socketAberto) {
-             try {
-                // TENTA CONEXÃO INSEGURA: Fundamental para alguns clones de ELM327 no Android
-                await obdDevice.connect({ SECURE_SOCKET: false } as any);
-             } catch (e) {
-                await obdDevice.connect();
-             }
+          try {
+            // [ALTERAÇÃO NATIVA]: A conexão agora é feita passando o MAC Address para o Java.
+            // O Java utiliza createInsecureRfcommSocketToServiceRecord, que é o grande 
+            // truque para fazer os clones V2.1 conectarem sem o erro de timeout no Android.
+            await OBDBluetooth.connect(obdDevice.address);
+            setDebugLog("Ponte Nativa Conectada com Sucesso!");
+          } catch (e: any) {
+            setDebugLog(`Falha na Ponte Nativa: ${e?.message}`);
+            setStatusMsg("FALHA NA CONEXÃO");
+            return; // Se falhar aqui, aborta o resto da função
           }
 
+          // Sequência de inicialização padrão do chip ELM327
           setStatusMsg("REINICIANDO ADAPTADOR...");
-          // Aumentando os tempos de setup inicial
-          await perguntarAoCarro(obdDevice, "ATZ"); 
-          await new Promise(resolve => setTimeout(resolve, 2000)); 
+          await perguntarAoCarro("ATZ"); // Reseta o chip
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Aguarda o boot do chip
 
           setStatusMsg("CONFIGURANDO CANAIS...");
-          await perguntarAoCarro(obdDevice, "ATE0"); 
-          await perguntarAoCarro(obdDevice, "ATL0"); 
-          await perguntarAoCarro(obdDevice, "ATS0"); 
-          await perguntarAoCarro(obdDevice, "ATH0"); 
-          await perguntarAoCarro(obdDevice, "ATSP0"); 
+          await perguntarAoCarro("ATE0"); // Desliga o "Eco" (impede que ele repita nosso próprio comando)
+          await perguntarAoCarro("ATL0"); // Desliga quebras de linha
+          await perguntarAoCarro("ATS0"); // Desliga espaços 
+          await perguntarAoCarro("ATH0"); // Desliga cabeçalhos da rede CAN
+          await perguntarAoCarro("ATSP0"); // Procura o protocolo automaticamente
 
           setStatusMsg("SINCRONIZANDO COM A ECU...");
-          await perguntarAoCarro(obdDevice, "0100"); 
+          await perguntarAoCarro("0100"); // Pede os PIDs suportados só para forçar a negociação com o carro
           await new Promise(resolve => setTimeout(resolve, 1500)); 
 
-          if (!isActive) return;
+          if (!isActive) return; // Checagem de segurança caso o usuário feche a tela no meio do boot
 
           setStatusMsg("LENDO DADOS DO CARRO");
-          loopDeLeitura(obdDevice);
+          loopDeLeitura(); // Inicia o loop infinito de coleta de dados
         } else {
           setStatusMsg("NENHUM SCANNER OBD PAREADO");
           setDebugLog("FALHA: Vá nas configs Bluetooth e pareie primeiro.");
@@ -173,17 +164,23 @@ export default function RealtimeScreen() {
 
     startReading();
 
+    // Cleanup: Executado quando o usuário sai da tela
     return () => {
       isActive = false; 
       if (timerId) clearTimeout(timerId);
+      // [ALTERAÇÃO NATIVA]: Chama a função disconnect do Java para liberar a porta Bluetooth adequadamente
+      OBDBluetooth.disconnect().catch(() => {});
     };
   }, []);
 
+  // Função responsável por converter o retorno sujo Hexadecimal em números decimais reais
   function parseOBD(response: any, pid: string): number {
     if (!response) return 0;
     
+    // Limpa espaços em branco e o sinal de prompt (>)
     const strResponse = String(response).replace(/[\s>]/g, "").toUpperCase();
     
+    // Ignora mensagens de erro comuns do ELM327
     if (
       strResponse.includes("NODATA") || 
       strResponse.includes("SEARCHING") || 
@@ -194,30 +191,33 @@ export default function RealtimeScreen() {
       return 0;
     }
     
+    // A resposta de sucesso sempre começa com "41" seguido do PID (ex: 410C para RPM)
     const target = "41" + pid;
     const index = strResponse.indexOf(target);
     
     if (index !== -1) {
+      // Pega a parte dos dados hexadecimais após o cabeçalho 41XX
       const dataHex = strResponse.substring(index + 4);
       try {
-        if (pid === "0C") { 
+        if (pid === "0C") { // Cálculo de RPM (A*256 + B) / 4
           const A = parseInt(dataHex.substring(0, 2), 16);
           const B = parseInt(dataHex.substring(2, 4), 16);
           return Math.round(((A * 256) + B) / 4);
         } 
-        else if (pid === "0D") { 
+        else if (pid === "0D") { // Cálculo de Velocidade (A)
           return parseInt(dataHex.substring(0, 2), 16);
         }
-        else if (pid === "05") { 
+        else if (pid === "05") { // Cálculo de Temperatura da Água (A - 40)
           return parseInt(dataHex.substring(0, 2), 16) - 40;
         }
       } catch (e) {
-        return 0;
+        return 0; // Prevenção de quebra caso o hexadecimal esteja malformado
       }
     }
     return 0;
   }
 
+  // Estilos das animações visuais
   const headerGlowStyle = useAnimatedStyle(() => ({ opacity: headerGlow.value }));
   const speedometerStyle = useAnimatedStyle(() => ({ transform: [{ scale: speedometerScale.value }] }));
 
@@ -232,15 +232,18 @@ export default function RealtimeScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        {/* Status de Conexão */}
         <Animated.View style={[styles.liveBadge, headerGlowStyle]}>
           <View style={[styles.liveDot, isReading && { backgroundColor: "#00E676", shadowColor: "#00E676" }]} />
           <Text style={styles.liveBadgeText}>{statusMsg}</Text>
         </Animated.View>
 
+        {/* Velocímetro */}
         <Animated.View style={[styles.speedometerWrapper, speedometerStyle]}>
           <SpeedometerMinimal speed={displaySpeed} isActive={isReading} />
         </Animated.View>
 
+        {/* Cards de Telemetria */}
         <View style={styles.primaryTelemetry}>
           <View style={styles.telemetryRow}>
             <TelemetryCard icon="directions" label="KM Percorrido" value={displayKm.toFixed(1)} unit="km" color="#00B4FF" />
@@ -252,11 +255,13 @@ export default function RealtimeScreen() {
           </View>
         </View>
 
+        {/* Log de Debug Visual */}
         <View style={styles.debugSection}>
           <Text style={styles.debugTitle}>RAIO-X DO BLUETOOTH (DEBUG)</Text>
           <Text style={styles.debugText}>{debugLog}</Text>
         </View>
 
+        {/* Botão Voltar */}
         <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.stopBtn, pressed && { opacity: 0.8 }]}>
           <MaterialIcons name="stop-circle" size={20} color="#FF3D57" />
           <Text style={styles.stopBtnText}>Voltar</Text>
