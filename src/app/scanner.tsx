@@ -4,16 +4,19 @@ import { router } from "expo-router";
 import { useState } from "react";
 import {
   Alert,
+  NativeModules,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import RNBluetoothClassic from "react-native-bluetooth-classic";
+
+// Importacao da ponte nativa Java desenvolvida para o TCC
+const { OBDBluetooth } = NativeModules;
 
 /* ==========================================================
-   DICIONÁRIO DE ERROS (DTCs) E SEVERIDADE
+   DICIONARIO DE ERROS (DTCs) E SEVERIDADE
 ========================================================== */
 const SEVERITY_CONFIG = {
   critical: { color: "#FF3D57", bg: "#FF3D5722", label: "Crítico", icon: "error" as const },
@@ -21,7 +24,7 @@ const SEVERITY_CONFIG = {
   resolved: { color: "#00E676", bg: "#00E67622", label: "Resolvido", icon: "check-circle" as const },
 };
 
-// Dicionário para traduzir o código seco (Ex: P0300) para texto humano
+// Dicionario para traduzir o codigo seco (Ex: P0300) para texto humano
 const DTC_DICTIONARY: Record<string, { desc: string, system: string, severity: "critical" | "warning" }> = {
   "P0300": { desc: "Falha de ignição aleatória detectada", system: "Motor", severity: "critical" },
   "P0420": { desc: "Eficiência do catalisador abaixo do limiar", system: "Emissões", severity: "warning" },
@@ -30,65 +33,51 @@ const DTC_DICTIONARY: Record<string, { desc: string, system: string, severity: "
   "P0500": { desc: "Mau funcionamento do sensor de velocidade", system: "Transmissão", severity: "critical" },
 };
 
-// Dados simulados para apresentação caso o carro não esteja conectado
-const MOCK_FAULTS = [
-  { code: "P0300", desc: DTC_DICTIONARY["P0300"].desc, severity: "critical" as const, system: "Motor" },
-  { code: "P0420", desc: DTC_DICTIONARY["P0420"].desc, severity: "warning" as const, system: "Emissões" },
-];
-
 export default function ScannerScreen() {
   const [scanning, setScanning] = useState(false);
   const [clearing, setClearing] = useState(false);
-  const [faults, setFaults] = useState<any[]>(MOCK_FAULTS); // Começa com os dados falsos para a tela não ficar vazia
+  // O estado agora inicia vazio, aguardando dados reais do modulo Java
+  const [faults, setFaults] = useState<any[]>([]);
 
-  // Lógica Matemática da Saúde do Carro
-  const healthScore = Math.max(0, 100 - (faults.length * 13)); // Cada erro tira 13 pontos
-  const isHealthy = faults.length === 0;
+  // Logica Matematica da Saude do Carro
+  const healthScore = Math.max(0, 100 - (faults.length * 13));
+  const isHealthy = faults.length === 0 && !scanning;
 
   /* ==========================================================
-     CÉREBRO DO OBD-II: LEITURA E TRADUÇÃO DE DTCs
+     CEREBRO DO OBD-II: LEITURA E TRADUCAO DE DTCs VIA NATIVE MODULE
   ========================================================== */
   async function handleScan() {
     setScanning(true);
-    setFaults([]); // Limpa a tela para dar efeito visual de busca
+    setFaults([]); 
 
     try {
-      const devices = await RNBluetoothClassic.getConnectedDevices();
+      // Envia o comando de leitura de erros (Modo 03) pela ponte nativa
+      // O metodo sendCommand (ou equivalente criado no seu Java) deve retornar a resposta do ELM327
+      const resp = await OBDBluetooth.sendCommand("03");
       
-      if (devices.length > 0) {
-        const device = devices[0];
-        
-        // Manda o comando de leitura de erros (Modo 03)
-        await device.write("03\r");
-        const resp = await device.read();
-        
-        // Traduz a resposta hexadecimal para códigos como "P0420"
-        const codes = parseDTC(String(resp));
-        
-        // Monta os cards de erro baseados no dicionário
-        const newFaults = codes.map((code) => ({
-          code: code,
-          desc: DTC_DICTIONARY[code]?.desc || "Erro desconhecido ou específico da montadora",
-          system: DTC_DICTIONARY[code]?.system || "Sistema Elétrico",
-          severity: DTC_DICTIONARY[code]?.severity || "warning",
-        }));
-        
-        setFaults(newFaults);
-      } else {
-        throw new Error("Não conectado");
-      }
+      if (!resp) throw new Error("Sem resposta do scanner");
+
+      // Traduz a resposta hexadecimal para codigos como "P0420"
+      const codes = parseDTC(String(resp));
+      
+      // Monta os cards de erro baseados no dicionario
+      const newFaults = codes.map((code) => ({
+        code: code,
+        desc: DTC_DICTIONARY[code]?.desc || "Erro desconhecido ou específico da montadora",
+        system: DTC_DICTIONARY[code]?.system || "Sistema Elétrico",
+        severity: DTC_DICTIONARY[code]?.severity || "warning",
+      }));
+      
+      setFaults(newFaults);
     } catch (error) {
-      // MODO SIMULAÇÃO: Se falhar (sem carro), finge que achou os erros do mock após 2 segundos
-      setTimeout(() => {
-        setFaults(MOCK_FAULTS);
-      }, 1800);
+      Alert.alert("Erro de Leitura", "Não foi possível ler a ECU. Verifique se o scanner está conectado e a ignição ligada.");
     } finally {
-      setTimeout(() => setScanning(false), 1800);
+      setScanning(false);
     }
   }
 
   /* ==========================================================
-     CÉREBRO DO OBD-II: LIMPEZA DE ERROS DA ECU
+     CEREBRO DO OBD-II: LIMPEZA DE ERROS DA ECU VIA NATIVE MODULE
   ========================================================== */
   async function handleClearErrors() {
     Alert.alert(
@@ -102,22 +91,12 @@ export default function ScannerScreen() {
           onPress: async () => {
             setClearing(true);
             try {
-              const devices = await RNBluetoothClassic.getConnectedDevices();
-              if (devices.length > 0) {
-                // Comando 04 apaga os erros
-                await devices[0].write("04\r");
-                await devices[0].read(); // Lê o "OK"
-                setFaults([]);
-                Alert.alert("Sucesso", "A memória de falhas foi apagada com sucesso.");
-              } else {
-                throw new Error("Não conectado");
-              }
+              // Comando 04 apaga os erros da ECU
+              await OBDBluetooth.sendCommand("04");
+              setFaults([]);
+              Alert.alert("Sucesso", "A memória de falhas foi apagada com sucesso.");
             } catch (e) {
-              // Simulação
-              setTimeout(() => {
-                setFaults([]);
-                Alert.alert("Sucesso (Modo Simulação)", "Erros apagados virtualmente.");
-              }, 1000);
+              Alert.alert("Erro de Comunicação", "Falha ao enviar comando de limpeza para a ECU.");
             } finally {
               setClearing(false);
             }
@@ -134,7 +113,7 @@ export default function ScannerScreen() {
     if (!response || response.includes("NO DATA") || response.includes("OK")) return [];
     
     const cleanResp = response.replace(/\s/g, "").toUpperCase();
-    const index = cleanResp.indexOf("43"); // 43 é a resposta de sucesso do comando 03
+    const index = cleanResp.indexOf("43"); // 43 e a resposta de sucesso do comando 03
     if (index === -1) return [];
 
     const hexData = cleanResp.substring(index + 2);
@@ -148,7 +127,7 @@ export default function ScannerScreen() {
         let letter = "P";
         let secondDigit = "0";
 
-        // Matemática universal de chassi OBD2
+        // Matematica universal de chassi OBD2
         if (["0","1","2","3"].includes(firstChar)) { letter = "P"; secondDigit = firstChar; }
         else if (["4","5","6","7"].includes(firstChar)) { letter = "C"; secondDigit = (parseInt(firstChar) - 4).toString(); }
         else if (["8","9","A","B"].includes(firstChar)) { letter = "B"; secondDigit = (parseInt(firstChar, 16) - 8).toString(); }
@@ -178,14 +157,14 @@ export default function ScannerScreen() {
           <MaterialIcons name="arrow-back" size={22} color="#F0F2FF" />
         </Pressable>
         <Text style={styles.headerTitle}>Scanner OBD-II</Text>
-        <Pressable onPress={handleScan} style={styles.scanBtn}>
-          <MaterialIcons name="refresh" size={20} color="#00B4FF" />
+        <Pressable onPress={handleScan} style={styles.scanBtn} disabled={scanning}>
+          <MaterialIcons name="refresh" size={20} color={scanning ? "#8892A4" : "#00B4FF"} />
         </Pressable>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         
-        {/* ================= CARD DE SAÚDE DINÂMICO ================= */}
+        {/* ================= CARD DE SAUDE DINAMICO ================= */}
         <View style={styles.healthCard}>
           <View style={styles.healthLeft}>
             <Text style={styles.healthLabel}>Saúde do Veículo</Text>
@@ -210,7 +189,7 @@ export default function ScannerScreen() {
 
         <Text style={styles.sectionTitle}>Códigos de Falha</Text>
         
-        {/* ================= MENSAGEM SE NÃO TIVER ERROS ================= */}
+        {/* ================= MENSAGEM SE NAO TIVER ERROS ================= */}
         {!scanning && faults.length === 0 && (
           <View style={styles.emptyState}>
             <MaterialIcons name="check-circle" size={48} color="#00E676" style={{ opacity: 0.8 }} />
@@ -241,10 +220,10 @@ export default function ScannerScreen() {
           );
         })}
 
-        {/* ================= BOTÕES DE AÇÃO ================= */}
+        {/* ================= BOTOES DE ACAO ================= */}
         {faults.length > 0 && (
           <>
-            <Pressable onPress={handleClearErrors} style={({ pressed }) => [styles.clearBtn, pressed && { opacity: 0.8 }]}>
+            <Pressable onPress={handleClearErrors} disabled={clearing} style={({ pressed }) => [styles.clearBtn, pressed && { opacity: 0.8 }]}>
               <MaterialIcons name="delete-sweep" size={20} color="#FF3D57" />
               <Text style={styles.clearBtnText}>{clearing ? "Apagando..." : "Apagar Memória de Falhas"}</Text>
             </Pressable>
@@ -256,7 +235,7 @@ export default function ScannerScreen() {
           </>
         )}
 
-        <Pressable onPress={handleScan} style={({ pressed }) => [styles.rescanBtn, pressed && { opacity: 0.7 }]}>
+        <Pressable onPress={handleScan} disabled={scanning} style={({ pressed }) => [styles.rescanBtn, pressed && { opacity: 0.7 }]}>
           <MaterialIcons name="wifi-tethering" size={18} color="#00B4FF" />
           <Text style={styles.rescanBtnText}>{scanning ? "Escaneando a ECU..." : "Novo Escaneamento"}</Text>
         </Pressable>

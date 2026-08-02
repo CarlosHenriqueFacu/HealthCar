@@ -29,6 +29,10 @@ import { TelemetryCard } from "../components/TelemetryCard";
 // Biblioteca oficial do Bluetooth
 import RNBluetoothClassic from "react-native-bluetooth-classic";
 
+// Importações do Tutorial Bluetooth
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { BluetoothTutorialModal } from "../components/ui/BluetoothTutorialModal";
+
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 const TELEMETRY_IDLE = { speed: 0, rpm: 0, temp: 20, fuel: 0.72, kmTotal: 48320, kmDay: 0 };
@@ -49,6 +53,33 @@ export default function HomeScreen() {
   const dashboardOpacity = useSharedValue(0);
   const dashboardTranslate = useSharedValue(30);
   const headerGlow = useSharedValue(0);
+
+  // Lógica do Tutorial Bluetooth (Verificação de primeiro acesso)
+  const [showTutorial, setShowTutorial] = useState(false);
+
+  useEffect(() => {
+    const verificarPrimeiroAcesso = async () => {
+      try {
+        const tutorialJaVisto = await AsyncStorage.getItem('@tutorial_concluido');
+        if (tutorialJaVisto === null) {
+          setShowTutorial(true);
+        }
+      } catch (error) {
+        console.error("Erro ao verificar o AsyncStorage:", error);
+      }
+    };
+
+    verificarPrimeiroAcesso();
+  }, []);
+
+  const finalizarTutorial = async () => {
+    try {
+      await AsyncStorage.setItem('@tutorial_concluido', 'true');
+      setShowTutorial(false);
+    } catch (error) {
+      console.error("Erro ao salvar no AsyncStorage:", error);
+    }
+  };
 
   useKeepAwake();
 
@@ -158,7 +189,7 @@ export default function HomeScreen() {
     <ScreenContainer containerClassName="bg-background" edges={["top", "left", "right"]}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
-        {/* Cabeçalho */}
+       {/* Cabeçalho */}
         <View style={styles.header}>
           <View>
             <Text style={styles.appName}>CAMARO MONITOR</Text>
@@ -169,10 +200,21 @@ export default function HomeScreen() {
               </Text>
             </View>
           </View>
-          <Animated.View style={[styles.headerBadge, headerGlowStyle]}>
-            <MaterialIcons name="bluetooth-connected" size={16} color="#00B4FF" />
-            <Text style={styles.headerBadgeText}>LIVE</Text>
-          </Animated.View>
+          
+          {/* Lado Direito: Botão de Perfil/Login + Status LIVE */}
+          <View style={styles.headerRight}>
+            <Pressable 
+              onPress={() => router.push("/(auth)/login" as any)}
+              style={({ pressed }) => [styles.profileBtn, pressed && { opacity: 0.6 }]}
+            >
+              <MaterialIcons name="account-circle" size={26} color="#00B4FF" />
+            </Pressable>
+
+            <Animated.View style={[styles.headerBadge, headerGlowStyle]}>
+              <MaterialIcons name="bluetooth-connected" size={16} color="#00B4FF" />
+              <Text style={styles.headerBadgeText}>LIVE</Text>
+            </Animated.View>
+          </View>
         </View>
 
         {/* Imagem do Carro */}
@@ -323,6 +365,13 @@ export default function HomeScreen() {
         </View>
 
       </ScrollView>
+
+      {/* Componente do Tutorial Bluetooth */}
+      <BluetoothTutorialModal 
+        visible={showTutorial} 
+        onClose={finalizarTutorial} 
+      />
+
     </ScreenContainer>
   );
 }
@@ -374,4 +423,6 @@ const styles = StyleSheet.create({
   toolIcon: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", marginBottom: 10 },
   toolCardTitle: { fontSize: 12, fontWeight: "600", color: "#F0F2FF", marginBottom: 3 },
   toolCardSub: { fontSize: 10, color: "#8892A4", lineHeight: 14 },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
+  profileBtn: { padding: 4, backgroundColor: "#00B4FF11", borderRadius: 20, borderWidth: 1, borderColor: "#00B4FF44" },
 });
