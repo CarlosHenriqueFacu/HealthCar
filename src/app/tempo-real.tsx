@@ -9,6 +9,7 @@ import {
   Dimensions,
   NativeModules // [ALTERAÇÃO NATIVA]: Importação necessária para acessar a nossa ponte em Java
   ,
+
   Pressable,
   ScrollView,
   StyleSheet,
@@ -164,12 +165,15 @@ export default function RealtimeScreen() {
 
     startReading();
 
-    // Cleanup: Executado quando o usuário sai da tela
+   // Cleanup: Executado quando o usuário sai da tela
     return () => {
       isActive = false; 
       if (timerId) clearTimeout(timerId);
-      // [ALTERAÇÃO NATIVA]: Chama a função disconnect do Java para liberar a porta Bluetooth adequadamente
-      OBDBluetooth.disconnect().catch(() => {});
+      
+      // Proteção adicionada: Só tenta desconectar se a ponte nativa existir
+      if (OBDBluetooth) {
+        OBDBluetooth.disconnect().catch(() => {});
+      }
     };
   }, []);
 
