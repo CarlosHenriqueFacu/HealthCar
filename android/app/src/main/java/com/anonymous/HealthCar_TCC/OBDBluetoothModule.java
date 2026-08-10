@@ -41,13 +41,25 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
             }
 
             BluetoothDevice device = adapter.getRemoteDevice(macAddress);
-            
-            // PONTO CHAVE: Usando conexão INSEGURA. 
-            // Clones ELM327 V2.1 costumam rejeitar conexões seguras no Android.
-            socket = device.createInsecureRfcommSocketToServiceRecord(MY_UUID);
-            
             adapter.cancelDiscovery(); // OBRIGATÓRIO cancelar a busca antes de conectar
-            socket.connect();
+
+            // TENTATIVA 1: O padrão inseguro
+            try {
+                socket = device.createInsecureRfcommSocketToServiceRecord(MY_UUID);
+                socket.connect();
+            } catch (Exception e1) {
+                // TENTATIVA 2: O método "Hacker" (Reflection)
+                // Se o scanner rejeitar o padrão (erro read ret: -1), nós ignoramos o UUID e forçamos
+                // a abertura da porta serial direto no canal de hardware 1.
+                try {
+                    java.lang.reflect.Method m = device.getClass().getMethod("createRfcommSocket", new Class[] {int.class});
+                    socket = (BluetoothSocket) m.invoke(device, 1);
+                    socket.connect();
+                } catch (Exception e2) {
+                    promise.reject("ERR_CONNECTION", "Falha ao conectar via Reflection: " + e2.getMessage());
+                    return;
+                }
+            }
 
             inputStream = socket.getInputStream();
             outputStream = socket.getOutputStream();
@@ -55,7 +67,7 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
             promise.resolve("Conectado com sucesso!");
 
         } catch (Exception e) {
-            promise.reject("ERR_CONNECTION", "Falha ao conectar: " + e.getMessage());
+            promise.reject("ERR_CONNECTION", "Falha crítica na conexão: " + e.getMessage());
         }
     }
 
