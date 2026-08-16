@@ -1,7 +1,7 @@
 import { ScreenContainer } from "@/components/screen-container";
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   NativeModules,
@@ -11,6 +11,7 @@ import {
   Text,
   View,
 } from "react-native";
+import RNBluetoothClassic from "react-native-bluetooth-classic";
 
 // Importacao da ponte nativa Java desenvolvida para o TCC
 const { OBDBluetooth } = NativeModules;
@@ -24,7 +25,6 @@ const SEVERITY_CONFIG = {
   resolved: { color: "#00E676", bg: "#00E67622", label: "Resolvido", icon: "check-circle" as const },
 };
 
-// Dicionario para traduzir o codigo seco (Ex: P0300) para texto humano
 const DTC_DICTIONARY: Record<string, { desc: string, system: string, severity: "critical" | "warning" }> = {
   "P0300": { desc: "Falha de ignição aleatória detectada", system: "Motor", severity: "critical" },
   "P0420": { desc: "Eficiência do catalisador abaixo do limiar", system: "Emissões", severity: "warning" },
@@ -36,31 +36,64 @@ const DTC_DICTIONARY: Record<string, { desc: string, system: string, severity: "
 export default function ScannerScreen() {
   const [scanning, setScanning] = useState(false);
   const [clearing, setClearing] = useState(false);
-  // O estado agora inicia vazio, aguardando dados reais do modulo Java
   const [faults, setFaults] = useState<any[]>([]);
 
-  // Logica Matematica da Saude do Carro
   const healthScore = Math.max(0, 100 - (faults.length * 13));
   const isHealthy = faults.length === 0 && !scanning;
 
+  // Cleanup garantido ao sair da tela do scanner
+  useEffect(() => {
+    return () => {
+      if (OBDBluetooth) {
+        OBDBluetooth.disconnect().catch(() => {});
+      }
+    };
+  }, []);
+
   /* ==========================================================
-     CEREBRO DO OBD-II: LEITURA E TRADUCAO DE DTCs VIA NATIVE MODULE
+     HELPER: CONECTAR AO SCANNER
+  ========================================================== */
+  async function connectToScanner() {
+    const devices = await RNBluetoothClassic.getBondedDevices();
+    const obdDevice = devices.find((d: any) => 
+      d.name && (
+        d.name.toUpperCase().includes("OBD") || 
+        d.name.toUpperCase().includes("ELM") ||
+        d.name.toUpperCase().includes("VLINK")
+      )
+    );
+    
+    if (!obdDevice) throw new Error("Nenhum scanner pareado");
+    
+    await OBDBluetooth.connect(obdDevice.address);
+    
+    // Acorda o scanner antes de ler
+    await OBDBluetooth.sendCommand("ATZ");
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await OBDBluetooth.sendCommand("ATE0");
+    await OBDBluetooth.sendCommand("ATSP0");
+    await OBDBluetooth.sendCommand("0100"); // Sincroniza a rede CAN
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  /* ==========================================================
+     CEREBRO DO OBD-II: LEITURA E TRADUCAO DE DTCs
   ========================================================== */
   async function handleScan() {
     setScanning(true);
     setFaults([]); 
 
     try {
-      // Envia o comando de leitura de erros (Modo 03) pela ponte nativa
-      // O metodo sendCommand (ou equivalente criado no seu Java) deve retornar a resposta do ELM327
+      await connectToScanner(); // Abre a porta e inicializa
+
       const resp = await OBDBluetooth.sendCommand("03");
       
-      if (!resp) throw new Error("Sem resposta do scanner");
+      if (!resp || String(resp).includes("TIMEOUT") || String(resp).includes("INCOMPLETO")) {
+        throw new Error("Sem resposta do scanner");
+      }
 
-      // Traduz a resposta hexadecimal para codigos como "P0420"
       const codes = parseDTC(String(resp));
       
-      // Monta os cards de erro baseados no dicionario
       const newFaults = codes.map((code) => ({
         code: code,
         desc: DTC_DICTIONARY[code]?.desc || "Erro desconhecido ou específico da montadora",
@@ -72,12 +105,14 @@ export default function ScannerScreen() {
     } catch (error) {
       Alert.alert("Erro de Leitura", "Não foi possível ler a ECU. Verifique se o scanner está conectado e a ignição ligada.");
     } finally {
+      // Libera o Bluetooth para outros usos
+      await OBDBluetooth.disconnect().catch(() => {});
       setScanning(false);
     }
   }
 
   /* ==========================================================
-     CEREBRO DO OBD-II: LIMPEZA DE ERROS DA ECU VIA NATIVE MODULE
+     CEREBRO DO OBD-II: LIMPEZA DE ERROS
   ========================================================== */
   async function handleClearErrors() {
     Alert.alert(
@@ -91,13 +126,14 @@ export default function ScannerScreen() {
           onPress: async () => {
             setClearing(true);
             try {
-              // Comando 04 apaga os erros da ECU
+              await connectToScanner(); // Precisa conectar para apagar também!
               await OBDBluetooth.sendCommand("04");
               setFaults([]);
               Alert.alert("Sucesso", "A memória de falhas foi apagada com sucesso.");
             } catch (e) {
               Alert.alert("Erro de Comunicação", "Falha ao enviar comando de limpeza para a ECU.");
             } finally {
+              await OBDBluetooth.disconnect().catch(() => {});
               setClearing(false);
             }
           }
@@ -113,13 +149,12 @@ export default function ScannerScreen() {
     if (!response || response.includes("NO DATA") || response.includes("OK")) return [];
     
     const cleanResp = response.replace(/\s/g, "").toUpperCase();
-    const index = cleanResp.indexOf("43"); // 43 e a resposta de sucesso do comando 03
+    const index = cleanResp.indexOf("43");
     if (index === -1) return [];
 
     const hexData = cleanResp.substring(index + 2);
     const codes = [];
 
-    // O OBD retorna os erros em blocos de 4 caracteres (Ex: 0133 0420)
     for (let i = 0; i < hexData.length; i += 4) {
       const dtcHex = hexData.substring(i, i + 4);
       if (dtcHex.length === 4 && dtcHex !== "0000") {
@@ -127,7 +162,6 @@ export default function ScannerScreen() {
         let letter = "P";
         let secondDigit = "0";
 
-        // Matematica universal de chassi OBD2
         if (["0","1","2","3"].includes(firstChar)) { letter = "P"; secondDigit = firstChar; }
         else if (["4","5","6","7"].includes(firstChar)) { letter = "C"; secondDigit = (parseInt(firstChar) - 4).toString(); }
         else if (["8","9","A","B"].includes(firstChar)) { letter = "B"; secondDigit = (parseInt(firstChar, 16) - 8).toString(); }

@@ -43,31 +43,41 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
             BluetoothDevice device = adapter.getRemoteDevice(macAddress);
             adapter.cancelDiscovery(); // OBRIGATÓRIO cancelar a busca antes de conectar
 
-            // TENTATIVA 1: O padrão inseguro
-            try {
-                socket = device.createInsecureRfcommSocketToServiceRecord(MY_UUID);
-                socket.connect();
-            } catch (Exception e1) {
-                // TENTATIVA 2: O método "Hacker" (Reflection)
-                // Se o scanner rejeitar o padrão (erro read ret: -1), nós ignoramos o UUID e forçamos
-                // a abertura da porta serial direto no canal de hardware 1.
+            int maxRetries = 5; // O app vai insistir 5 vezes automaticamente
+            int attempt = 0;
+            boolean connected = false;
+            Exception lastException = null;
+
+            // O LOOP DE INSISTÊNCIA (Ideia do Carlos)
+            while (attempt < maxRetries && !connected) {
                 try {
-                    java.lang.reflect.Method m = device.getClass().getMethod("createRfcommSocket", new Class[] {int.class});
-                    socket = (BluetoothSocket) m.invoke(device, 1);
+                    attempt++;
+                    socket = device.createInsecureRfcommSocketToServiceRecord(MY_UUID);
                     socket.connect();
-                } catch (Exception e2) {
-                    promise.reject("ERR_CONNECTION", "Falha ao conectar via Reflection: " + e2.getMessage());
-                    return;
+                    connected = true; // Se chegou aqui sem dar erro, conectou!
+                } catch (Exception e) {
+                    lastException = e;
+                    // Se falhou, fecha a porta quebrada para limpar a memória
+                    if (socket != null) {
+                        try { socket.close(); } catch (Exception ignored) {}
+                    }
+                    // Espera meio segundo (500ms) antes de tentar bater na porta de novo
+                    Thread.sleep(500); 
                 }
             }
 
-            inputStream = socket.getInputStream();
-            outputStream = socket.getOutputStream();
-
-            promise.resolve("Conectado com sucesso!");
+            // Verifica o resultado após as tentativas
+            if (connected) {
+                inputStream = socket.getInputStream();
+                outputStream = socket.getOutputStream();
+                promise.resolve("Conectado com sucesso na tentativa " + attempt + "!");
+            } else {
+                // Se tentou 5 vezes e não foi, avisa a tela do aplicativo
+                promise.reject("ERR_CONNECTION", "Falha após " + maxRetries + " tentativas. Último erro: " + lastException.getMessage());
+            }
 
         } catch (Exception e) {
-            promise.reject("ERR_CONNECTION", "Falha crítica na conexão: " + e.getMessage());
+            promise.reject("ERR_CONNECTION", "Falha crítica: " + e.getMessage());
         }
     }
 
@@ -95,7 +105,7 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
 
             byte[] buffer = new byte[1024];
 
-            // 3. Loop de leitura (O Plano D, só que nativo e sem atrasos do JS)
+            // 3. Loop de leitura 
             while ((System.currentTimeMillis() - startTime) < timeout) {
                 if (inputStream.available() > 0) {
                     int bytesRead = inputStream.read(buffer);
