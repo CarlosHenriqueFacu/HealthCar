@@ -3,32 +3,57 @@
 // @ts-ignore
 import '../global.css';
 
-// NOVO: Importamos o Stack, que é o verdadeiro motor de navegação do Expo Router
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useColorScheme, View } from 'react-native';
+
+// Importamos o AsyncStorage para ler a memória do celular
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Segura a tela de splash nativa inicial para não piscar branco
 SplashScreen.preventAutoHideAsync();
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const [isReady, setIsReady] = useState(false);
 
-  // MANUTENÇÃO FUTURA: Esse useEffect garante que a cortina preta seja levantada
-  // assim que o aplicativo terminar de montar os componentes.
+  // MANUTENÇÃO FUTURA: Controlador de Tráfego do Onboarding
   useEffect(() => {
-    SplashScreen.hideAsync();
+    async function verificarAcesso() {
+      try {
+        // Verifica se existe a chave do carro salvo na memória
+        const veiculoCadastrado = await AsyncStorage.getItem('@veiculo_cadastrado');
+        
+        if (veiculoCadastrado === null) {
+          // SE FOR A PRIMEIRA VEZ: Manda para a tela de cadastro
+          // (O setTimeout é um truque do Expo para garantir que a rota foi carregada antes de redirecionar)
+          setTimeout(() => {
+            router.replace('/(auth)/cadastro' as any); 
+          }, 100);
+        }
+      } catch (error) {
+        console.error("Erro ao verificar o AsyncStorage:", error);
+      } finally {
+        // Libera a tela para aparecer e levanta a cortina da Splash Screen
+        setIsReady(true);
+        SplashScreen.hideAsync();
+      }
+    }
+
+    verificarAcesso();
   }, []);
+
+  // Enquanto estiver lendo a memória, não renderiza nada (segura a splash)
+  if (!isReady) {
+    return null; 
+  }
 
   return (
     <View style={{ flex: 1 }}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        
-        {/* Aqui estava o AppTabs. Trocamos pelo Stack para as telas poderem abrir!
-            O headerShown: false oculta aquela barra de título feia nativa do Android */}
+        {/* O headerShown: false oculta aquela barra de título feia nativa do Android */}
         <Stack screenOptions={{ headerShown: false }} />
-
       </ThemeProvider>
     </View>
   );
