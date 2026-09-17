@@ -24,9 +24,7 @@ import { useKeepAwake } from "expo-keep-awake";
 import { router } from "expo-router";
 
 // Componentes UI
-import { FuelChart } from "../components/FuelChart";
 import { ScreenContainer } from "../components/screen-container";
-import { TelemetryCard } from "../components/TelemetryCard";
 
 // Bluetooth
 import RNBluetoothClassic from "react-native-bluetooth-classic";
@@ -237,19 +235,19 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* ========================================================
-            INTERFACE 3D: HOLOGRAMA DO VEÍCULO (DESIGN)
-        ======================================================== */}
+        {/* ===INTERFACE 3D: HOLOGRAMA DO VEÍCULO==== */}
         <View style={styles.carImageContainer}>
           <View style={styles.diagnosticBox}>
             
-            {/* Imagem 3D Estilo Holograma/Wireframe Tecnológico */}
-            <Animated.Image 
-              source={{ uri: "https://cdn-icons-png.flaticon.com/512/5558/5558231.png" }} 
-              style={[styles.hologramCar, { opacity: isActive ? 1 : 0.2 }, headerGlowStyle]} 
-              resizeMode="contain"
+            {/* Esqueleto do Carro em Vetor Nativo (À prova de falhas) */}
+            <MaterialCommunityIcons 
+              name="car-sports" 
+              size={120} 
+              color={isActive ? "#00B4FF" : "#1E2235"} 
+              style={{ zIndex: 2, opacity: isActive ? 1 : 0.4 }} 
             />
-            {/* Brilho neon de fundo */}
+            
+            {/* Brilho neon de fundo (só acende quando conectar) */}
             {isActive && <Animated.View style={[styles.hologramGlow, headerGlowStyle]} />}
 
             {/* Badges Flutuantes (Alertas) */}
@@ -274,59 +272,10 @@ export default function HomeScreen() {
 
             <View style={styles.carLabel}>
               <Text style={styles.carModel}>{carroConfigurado.marca} {carroConfigurado.veiculo}</Text>
-              <Text style={styles.carYear}>{carroConfigurado.ano} · Motor {carroConfigurado.motor}</Text>
+              <Text style={styles.carYear}>{carroConfigurado.ano} {carroConfigurado.motor ? `· Motor ${carroConfigurado.motor}` : ''}</Text>
             </View>
           </View>
         </View>
-
-        <View style={styles.centerSection}>
-          <View style={styles.liveButtonsRow}>
-            <Pressable onPress={() => router.push("/tempo-real" as any)} style={({ pressed }) => [styles.liveActionBtn, styles.liveActionBtnPrimary, pressed && { opacity: 0.8 }]}>
-              <MaterialIcons name="speed" size={20} color="#0A0A0F" />
-              <Text style={styles.liveActionBtnText}>Painel em Tempo Real</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        <Animated.View style={[styles.dashboard, dashboardStyle]}>
-          <View style={styles.kmRow}>
-            <View style={styles.kmCard}>
-              <MaterialIcons name="speed" size={14} color="#8892A4" />
-              <Text style={styles.kmLabel}>KM Total</Text>
-              <Text style={styles.kmValue}>{telemetry.kmTotal.toLocaleString("pt-BR")}</Text>
-              <Text style={styles.kmUnit}>km</Text>
-            </View>
-            <View style={styles.kmDivider} />
-            <View style={styles.kmCard}>
-              <DevBadge />
-              <MaterialIcons name="today" size={14} color="#8892A4" />
-              <Text style={styles.kmLabel}>KM Hoje</Text>
-              <Text style={styles.kmValue}>{telemetry.kmDay}</Text>
-              <Text style={styles.kmUnit}>km</Text>
-            </View>
-          </View>
-
-          <View style={styles.telemetryGrid}>
-            <TelemetryCard icon="thermostat" label="Temperatura" value={isActive ? `${telemetry.temp}` : "--"} unit="°C" color={isActive ? (telemetry.temp > 100 ? "#FF3D57" : "#00E676") : "#8892A4"} onPress={() => router.push("/detalhes/temperatura" as any)} />
-            <TelemetryCard icon="settings" label="RPM" value={isActive && telemetry.rpm > 0 ? (telemetry.rpm / 1000).toFixed(1) : "--"} unit="k" color={isActive ? "#00B4FF" : "#8892A4"} onPress={() => router.push("/detalhes/rpm" as any)} />
-          </View>
-
-          <View style={styles.telemetryGrid}>
-            <View style={{ flex: 1, position: "relative" }}>
-              <TelemetryCard icon="local-gas-station" label="Combustível" value={isActive ? `${Math.round(telemetry.fuel * 100)}` : "--"} unit="%" color={isActive ? (telemetry.fuel < 0.2 ? "#FF3D57" : (telemetry.fuel < 0.4 ? "#FFB300" : "#00E676")) : "#8892A4"} progress={isActive ? telemetry.fuel : 0} onPress={() => router.push("/detalhes/combustivel" as any)} />
-            </View>
-            <View style={{ flex: 1, position: "relative" }}>
-              {/* TEXTO DE STATUS DA BATERIA */}
-              <TelemetryCard icon="battery-charging-full" label="Bateria" value={isActive ? `${telemetry.volt}` : "--"} unit="V" color={isActive ? (telemetry.volt < 12 ? "#FF3D57" : "#00B4FF") : "#8892A4"} progress={isActive ? (telemetry.volt/15) : 0} onPress={() => router.push("/detalhes/bateria" as any)} />
-              {isActive && <Text style={styles.batteryStatusText}>{batteryStatus}</Text>}
-            </View>
-          </View>
-
-          <View style={{ position: "relative" }}>
-            <DevBadge />
-            <FuelChart onPress={() => router.push("/detalhes/consumo" as any)} />
-          </View>
-        </Animated.View>
 
         <View style={styles.toolsSection}>
           <Text style={styles.toolsTitle}>Ferramentas</Text>
