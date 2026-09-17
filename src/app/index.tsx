@@ -2,13 +2,15 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useState } from "react";
 import {
   Dimensions,
+  Modal,
   PermissionsAndroid,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  View,
+  TextInput,
+  View
 } from "react-native";
 import Animated, {
   useAnimatedStyle,
@@ -30,8 +32,9 @@ import { TelemetryCard } from "../components/TelemetryCard";
 import RNBluetoothClassic from "react-native-bluetooth-classic";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const TELEMETRY_IDLE = { speed: 0, rpm: 0, temp: 0, fuel: 0, kmTotal: 0, kmDay: 0 };
-const TELEMETRY_LIVE = { speed: 87, rpm: 3200, temp: 92, fuel: 0.72, kmTotal: 48320, kmDay: 142 };
+
+// Valores iniciais e simulados
+const TELEMETRY_IDLE = { speed: 0, rpm: 0, temp: 0, fuel: 0, kmTotal: 0, kmDay: 0, volt: 0 };
 
 const DevBadge = () => (
   <View style={styles.devBadge}>
@@ -41,12 +44,18 @@ const DevBadge = () => (
 
 export default function HomeScreen() {
   const [isActive, setIsActive] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(true);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [telemetry, setTelemetry] = useState(TELEMETRY_IDLE);
+  const [batteryStatus, setBatteryStatus] = useState("Desconhecido");
   
   const [carroConfigurado, setCarroConfigurado] = useState({
     marca: 'Carregando...', veiculo: '', ano: '', motor: '', km: '0'
   });
+
+  // ESTADOS DO POP-UP DE VALIDAÇÃO DE KM
+  const [showKmModal, setShowKmModal] = useState(false);
+  const [kmObd, setKmObd] = useState("0");
+  const [kmInput, setKmInput] = useState("");
 
   const [pillConfig, setPillConfig] = useState({ message: '', type: 'info' });
   const pillTranslateY = useSharedValue(-150); 
@@ -92,6 +101,7 @@ export default function HomeScreen() {
       setIsConnecting(true);
       showPill("Buscando conexão com o veículo...", "info");
 
+      // Permissões Android 12+ (Omitidas para brevidade, mantidas iguais ao seu código)
       if (Platform.OS === 'android' && Platform.Version >= 31) {
         const granted = await PermissionsAndroid.requestMultiple([
           PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
@@ -106,7 +116,7 @@ export default function HomeScreen() {
 
       const enabled = await RNBluetoothClassic.isBluetoothEnabled();
       if (!enabled) {
-        showPill("Bluetooth desativado. Ligue para conectar.", "error");
+        showPill("Bluetooth desativado.", "error");
         setIsConnecting(false);
         return;
       }
@@ -119,13 +129,21 @@ export default function HomeScreen() {
         if (connected) {
           showPill("Conectado ao scanner OBD2 com sucesso!", "success");
           setIsActive(true); 
-          setTelemetry(prev => ({ ...TELEMETRY_LIVE, kmTotal: prev.kmTotal }));
+
+          // LÓGICA DO TCC: Simular leitura do KM do OBD na hora que conecta
+          const kmLidoDoCarro = "48500"; // Aqui viria o hex decimal convertido do PID 01A6
+          if (kmLidoDoCarro !== carroConfigurado.km) {
+            setKmObd(kmLidoDoCarro);
+            setKmInput(kmLidoDoCarro);
+            setTimeout(() => setShowKmModal(true), 2000); // Abre o pop-up 2 seg após conectar
+          }
+
         } else {
-          showPill("Falha ao conectar. Equipamento fora de alcance?", "error");
-          setTelemetry(prev => ({ ...TELEMETRY_IDLE, kmTotal: prev.kmTotal }));
+          showPill("Falha ao conectar.", "error");
+          setIsActive(false);
         }
       } else {
-        showPill("Nenhum scanner OBD2 pareado encontrado.", "error");
+        showPill("Nenhum scanner OBD2 pareado.", "error");
       }
     } catch (error: any) { 
       showPill(`Erro de conexão: ${error.message}`, "error");
@@ -139,28 +157,60 @@ export default function HomeScreen() {
     let loopLento: ReturnType<typeof setInterval>;
 
     if (isActive) {
-      // Cria um ciclo que roda a cada 5 segundos (5000ms)
       loopLento = setInterval(async () => {
         try {
-          // AQUI ENTRA A SUA LÓGICA DE COMUNICAÇÃO REAL
-          // Exemplo do que vai acontecer no futuro:
-          // 1. Envia comando: await RNBluetoothClassic.write('010C\r'); // Pede RPM
-          // 2. Lê resposta: const resposta = await RNBluetoothClassic.read();
-          // 3. Converte Hexadecimal para Decimal e atualiza a tela
+          console.log("Ping Dashboard: Lendo Bateria e Combustível...");
           
-          console.log("Ping de atualização lenta (Dashboard)...");
+          //  IMPLEMENTAÇÃO REAL
+          // 1. LER BATERIA (Comando AT: ATRV)
+          // await RNBluetoothClassic.write('ATRV\r');
+          // let resVolt = await RNBluetoothClassic.read();
+          let voltSimulado = 12.6; // Simulação do retorno do OBD
           
+          // Analisador de Status da Bateria
+          let statusBat = "Desconhecido";
+          if (voltSimulado >= 13.5) statusBat = "Carregando (Alternador)";
+          else if (voltSimulado >= 12.2 && voltSimulado <= 12.8) statusBat = "Ideal";
+          else if (voltSimulado < 12.0) statusBat = "Atenção (Fraca)";
+          
+          setBatteryStatus(statusBat);
+
+          // 2. LER COMBUSTÍVEL (Comando PID: 012F)
+          // await RNBluetoothClassic.write('012F\r');
+          // let resFuel = await RNBluetoothClassic.read();
+          let fuelSimulado = 0.72; // 72%
+
+          setTelemetry(prev => ({ 
+            ...prev, 
+            volt: voltSimulado,
+            fuel: fuelSimulado,
+            temp: 92 // Simulado
+          }));
+
         } catch (error) {
           console.log("Erro na leitura de fundo:", error);
         }
       }, 5000); 
     }
 
-    // Função de Cleanup: Evita que o loop continue rodando se o app desconectar
     return () => {
       if (loopLento) clearInterval(loopLento);
     };
   }, [isActive]);
+
+  // Função para salvar o novo KM confirmado pelo usuário
+  const salvarNovoKm = async () => {
+    try {
+      const atualizado = { ...carroConfigurado, km: kmInput };
+      await AsyncStorage.setItem('@veiculo_cadastrado', JSON.stringify(atualizado));
+      setCarroConfigurado(atualizado);
+      setTelemetry(prev => ({ ...prev, kmTotal: Number(kmInput) }));
+      setShowKmModal(false);
+      showPill("Quilometragem atualizada com sucesso!", "success");
+    } catch (error) {
+      console.log("Erro ao salvar KM", error);
+    }
+  };
 
   return (
     <ScreenContainer containerClassName="bg-background" edges={["top", "left", "right"]}>
@@ -188,43 +238,40 @@ export default function HomeScreen() {
         </View>
 
         {/* ========================================================
-            INTERFACE: RAIO-X DE DIAGNÓSTICO DO VEÍCULO
+            INTERFACE 3D: HOLOGRAMA DO VEÍCULO (DESIGN)
         ======================================================== */}
         <View style={styles.carImageContainer}>
           <View style={styles.diagnosticBox}>
             
-            {/* Esqueleto Genérico do Carro */}
-            <MaterialCommunityIcons 
-              name="car-sports" 
-              size={110} 
-              color={isActive ? "#00B4FF" : "#1E2235"} 
-              style={{ opacity: isActive ? 1 : 0.3 }} 
+            {/* Imagem 3D Estilo Holograma/Wireframe Tecnológico */}
+            <Animated.Image 
+              source={{ uri: "https://cdn-icons-png.flaticon.com/512/5558/5558231.png" }} 
+              style={[styles.hologramCar, { opacity: isActive ? 1 : 0.2 }, headerGlowStyle]} 
+              resizeMode="contain"
             />
+            {/* Brilho neon de fundo */}
+            {isActive && <Animated.View style={[styles.hologramGlow, headerGlowStyle]} />}
 
-            {/* Badges Flutuantes (Alertas Simulados do Scanner) */}
+            {/* Badges Flutuantes (Alertas) */}
             {isActive && (
               <>
-                {/* Badge de Temperatura */}
                 <Animated.View style={[styles.diagBadge, { top: 16, left: 16 }, headerGlowStyle]}>
                   <MaterialIcons name="thermostat" size={14} color={telemetry.temp > 100 ? "#FF3D57" : "#00B4FF"} />
                   <Text style={styles.diagBadgeText}>{telemetry.temp}°C</Text>
                 </Animated.View>
 
-                {/* Badge de Status do Motor */}
                 <Animated.View style={[styles.diagBadge, { top: 16, right: 16 }, headerGlowStyle]}>
-                  <MaterialCommunityIcons name="engine-outline" size={14} color={telemetry.rpm > 3000 ? "#FFB300" : "#00E676"} />
+                  <MaterialCommunityIcons name="engine-outline" size={14} color="#00E676" />
                   <Text style={styles.diagBadgeText}>Motor OK</Text>
                 </Animated.View>
 
-                {/* Badge de Erros (DTC) */}
                 <Animated.View style={[styles.diagBadge, { bottom: 64, right: 16 }, headerGlowStyle]}>
-                  <MaterialIcons name="warning" size={14} color={isActive ? "#00E676" : "#FF3D57"} />
+                  <MaterialIcons name="warning" size={14} color="#00E676" />
                   <Text style={styles.diagBadgeText}>0 Erros</Text>
                 </Animated.View>
               </>
             )}
 
-            {/* Letreiros do Veículo na base do Box */}
             <View style={styles.carLabel}>
               <Text style={styles.carModel}>{carroConfigurado.marca} {carroConfigurado.veiculo}</Text>
               <Text style={styles.carYear}>{carroConfigurado.ano} · Motor {carroConfigurado.motor}</Text>
@@ -265,8 +312,14 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.telemetryGrid}>
-            <View style={{ flex: 1, position: "relative" }}><DevBadge /><TelemetryCard icon="local-gas-station" label="Combustível" value={isActive ? `${Math.round(telemetry.fuel * 100)}` : "--"} unit="%" color={isActive ? (telemetry.fuel < 0.2 ? "#FF3D57" : (telemetry.fuel < 0.4 ? "#FFB300" : "#00E676")) : "#8892A4"} progress={isActive ? telemetry.fuel : 0} onPress={() => router.push("/detalhes/combustivel" as any)} /></View>
-            <View style={{ flex: 1, position: "relative" }}><DevBadge /><TelemetryCard icon="battery-charging-full" label="Bateria" value={isActive ? "12.6" : "--"} unit="V" color={isActive ? "#00B4FF" : "#8892A4"} progress={isActive ? 0.85 : 0} onPress={() => router.push("/detalhes/bateria" as any)} /></View>
+            <View style={{ flex: 1, position: "relative" }}>
+              <TelemetryCard icon="local-gas-station" label="Combustível" value={isActive ? `${Math.round(telemetry.fuel * 100)}` : "--"} unit="%" color={isActive ? (telemetry.fuel < 0.2 ? "#FF3D57" : (telemetry.fuel < 0.4 ? "#FFB300" : "#00E676")) : "#8892A4"} progress={isActive ? telemetry.fuel : 0} onPress={() => router.push("/detalhes/combustivel" as any)} />
+            </View>
+            <View style={{ flex: 1, position: "relative" }}>
+              {/* TEXTO DE STATUS DA BATERIA */}
+              <TelemetryCard icon="battery-charging-full" label="Bateria" value={isActive ? `${telemetry.volt}` : "--"} unit="V" color={isActive ? (telemetry.volt < 12 ? "#FF3D57" : "#00B4FF") : "#8892A4"} progress={isActive ? (telemetry.volt/15) : 0} onPress={() => router.push("/detalhes/bateria" as any)} />
+              {isActive && <Text style={styles.batteryStatusText}>{batteryStatus}</Text>}
+            </View>
           </View>
 
           <View style={{ position: "relative" }}>
@@ -299,6 +352,40 @@ export default function HomeScreen() {
         </View>
 
       </ScrollView>
+
+      {/* ========================================================
+          MODAL DE VALIDAÇÃO DE QUILOMETRAGEM
+      ======================================================== */}
+      <Modal visible={showKmModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={styles.modalIconBox}><MaterialCommunityIcons name="speedometer" size={32} color="#00B4FF" /></View>
+            <Text style={styles.modalTitle}>Atenção à Quilometragem</Text>
+            <Text style={styles.modalText}>
+              O Scanner OBD2 detectou uma divergência. O sistema leu <Text style={{fontWeight: '700', color: '#00B4FF'}}>{Number(kmObd).toLocaleString('pt-BR')} km</Text>, mas o seu cadastro está com <Text style={{fontWeight: '700', color: '#FF3D57'}}>{Number(carroConfigurado.km).toLocaleString('pt-BR')} km</Text>.
+            </Text>
+            <Text style={styles.modalSubText}>Confirme o KM atual do painel do seu veículo para garantir a precisão dos relatórios de manutenção:</Text>
+            
+            <TextInput 
+              style={styles.modalInput} 
+              keyboardType="numeric" 
+              value={kmInput} 
+              onChangeText={setKmInput} 
+              maxLength={7}
+            />
+
+            <View style={styles.modalBtnRow}>
+              <Pressable style={styles.modalBtnCancel} onPress={() => setShowKmModal(false)}>
+                <Text style={styles.modalBtnCancelText}>Ignorar</Text>
+              </Pressable>
+              <Pressable style={styles.modalBtnConfirm} onPress={salvarNovoKm}>
+                <Text style={styles.modalBtnConfirmText}>Atualizar Sistema</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </ScreenContainer>
   );
 }
@@ -320,13 +407,15 @@ const styles = StyleSheet.create({
   statusDotActive: { backgroundColor: "#00E676", shadowColor: "#00E676", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 4 },
   statusText: { fontSize: 11, color: "#8892A4" },
   
-  // ESTILOS DO RAIO-X
+  // ESTILOS DA IMAGEM 3D / HOLOGRAMA
   carImageContainer: { alignItems: "center", marginHorizontal: 20, marginBottom: 4, position: "relative", marginTop: 12 },
   diagnosticBox: { width: SCREEN_WIDTH - 40, height: 190, backgroundColor: "#12141A", borderRadius: 16, borderWidth: 1, borderColor: "#1E2235", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" },
-  diagBadge: { position: "absolute", flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#0A0A0F", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: 1, borderColor: "#1E2235", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 4 },
-  diagBadgeText: { fontSize: 10, color: "#F0F2FF", fontWeight: "700", letterSpacing: 0.5 },
+  hologramCar: { width: 140, height: 140, tintColor: "#00B4FF", zIndex: 2 },
+  hologramGlow: { position: 'absolute', width: 100, height: 100, backgroundColor: '#00B4FF', borderRadius: 50, opacity: 0.15, transform: [{ scaleX: 2 }], zIndex: 1, shadowColor: "#00B4FF", shadowOpacity: 1, shadowRadius: 30 },
   
-  carLabel: { position: "absolute", bottom: 12, left: 16 },
+  diagBadge: { position: "absolute", flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#0A0A0F", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: 1, borderColor: "#1E2235", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 4, zIndex: 3 },
+  diagBadgeText: { fontSize: 10, color: "#F0F2FF", fontWeight: "700", letterSpacing: 0.5 },
+  carLabel: { position: "absolute", bottom: 12, left: 16, zIndex: 3 },
   carModel: { fontSize: 16, fontWeight: "700", color: "#F0F2FF", textShadowColor: "#000", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   carYear: { fontSize: 11, color: "#8892A4", textShadowColor: "#000", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   
@@ -343,6 +432,7 @@ const styles = StyleSheet.create({
   kmValue: { fontSize: 26, fontWeight: "700", color: "#00D4FF", fontVariant: ["tabular-nums"], letterSpacing: 1, textShadowColor: "#00B4FF", textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 8 },
   kmUnit: { fontSize: 11, color: "#8892A4" },
   telemetryGrid: { flexDirection: "row", gap: 10 },
+  batteryStatusText: { position: 'absolute', bottom: 10, alignSelf: 'center', fontSize: 10, fontWeight: '700', color: '#8892A4', textTransform: 'uppercase' },
   toolsSection: { paddingHorizontal: 16, marginTop: 12 },
   toolsTitle: { fontSize: 13, fontWeight: "600", color: "#8892A4", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 },
   toolsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
@@ -353,4 +443,18 @@ const styles = StyleSheet.create({
   toolCardSub: { fontSize: 10, color: "#8892A4", lineHeight: 14 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
   profileBtn: { padding: 4, backgroundColor: "#00B4FF11", borderRadius: 20, borderWidth: 1, borderColor: "#00B4FF44" },
+  
+  // ESTILOS DO MODAL DE KM
+  modalOverlay: { flex: 1, backgroundColor: "#0A0A0FF0", justifyContent: "center", alignItems: "center", padding: 20 },
+  modalBox: { backgroundColor: "#12141A", width: "100%", borderRadius: 24, padding: 24, borderWidth: 1, borderColor: "#1E2235", alignItems: "center", shadowColor: "#00B4FF", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.2, shadowRadius: 30, elevation: 10 },
+  modalIconBox: { width: 64, height: 64, borderRadius: 32, backgroundColor: "#00B4FF11", alignItems: "center", justifyContent: "center", marginBottom: 16, borderWidth: 1, borderColor: "#00B4FF44" },
+  modalTitle: { fontSize: 18, fontWeight: "800", color: "#F0F2FF", marginBottom: 12 },
+  modalText: { fontSize: 14, color: "#8892A4", textAlign: "center", lineHeight: 22, marginBottom: 12 },
+  modalSubText: { fontSize: 12, color: "#8892A4", textAlign: "center", marginBottom: 20, opacity: 0.8 },
+  modalInput: { backgroundColor: "#1E2235", width: "100%", borderRadius: 12, color: "#F0F2FF", fontSize: 24, fontWeight: "700", textAlign: "center", paddingVertical: 16, marginBottom: 24, borderWidth: 1, borderColor: "#00B4FF" },
+  modalBtnRow: { flexDirection: "row", gap: 12, width: "100%" },
+  modalBtnCancel: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center", borderWidth: 1, borderColor: "#1E2235" },
+  modalBtnCancelText: { color: "#8892A4", fontWeight: "700", fontSize: 14 },
+  modalBtnConfirm: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center", backgroundColor: "#00B4FF" },
+  modalBtnConfirmText: { color: "#0A0A0F", fontWeight: "800", fontSize: 14 },
 });
