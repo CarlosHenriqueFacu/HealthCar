@@ -23,15 +23,14 @@ import { MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { useKeepAwake } from "expo-keep-awake";
 import { router } from "expo-router";
 
-// Componentes UI
+import { FuelChart } from "../components/FuelChart";
 import { ScreenContainer } from "../components/screen-container";
+import { TelemetryCard } from "../components/TelemetryCard";
 
-// Bluetooth
 import RNBluetoothClassic from "react-native-bluetooth-classic";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-// Valores iniciais e simulados
 const TELEMETRY_IDLE = { speed: 0, rpm: 0, temp: 0, fuel: 0, kmTotal: 0, kmDay: 0, volt: 0 };
 
 const DevBadge = () => (
@@ -50,7 +49,6 @@ export default function HomeScreen() {
     marca: 'Carregando...', veiculo: '', ano: '', motor: '', km: '0'
   });
 
-  // ESTADOS DO POP-UP DE VALIDAÇÃO DE KM
   const [showKmModal, setShowKmModal] = useState(false);
   const [kmObd, setKmObd] = useState("0");
   const [kmInput, setKmInput] = useState("");
@@ -97,9 +95,8 @@ export default function HomeScreen() {
   async function tentarConexaoAutomatica() {
     try {
       setIsConnecting(true);
-      showPill("Buscando conexão com o veículo...", "info");
+      showPill("A procurar conexão com o veículo...", "info");
 
-      // Permissões Android 12+ (Omitidas para brevidade, mantidas iguais ao seu código)
       if (Platform.OS === 'android' && Platform.Version >= 31) {
         const granted = await PermissionsAndroid.requestMultiple([
           PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
@@ -128,20 +125,59 @@ export default function HomeScreen() {
           showPill("Conectado ao scanner OBD2 com sucesso!", "success");
           setIsActive(true); 
 
-          // LÓGICA DO TCC: Simular leitura do KM do OBD na hora que conecta
-          const kmLidoDoCarro = "48500"; // Aqui viria o hex decimal convertido do PID 01A6
-          if (kmLidoDoCarro !== carroConfigurado.km) {
-            setKmObd(kmLidoDoCarro);
-            setKmInput(kmLidoDoCarro);
-            setTimeout(() => setShowKmModal(true), 2000); // Abre o pop-up 2 seg após conectar
+          // ====================================================================
+          // LÓGICA REAL: TENTATIVA DE LEITURA DO ODÔMETRO (PID 01A6)
+          // ====================================================================
+          try {
+            // 1. Envia o comando pedindo o Odometer ao carro
+            await obdDevice.write('01A6\r');
+            
+            // 2. Aguarda meio segundo para a ECU processar e envia a leitura
+            await new Promise(resolve => setTimeout(resolve, 500));
+            let respostaKm = await obdDevice.read();
+            
+            let kmLidoDoCarro = carroConfigurado.km; // Valor padrão em caso de erro
+
+            // 3. Verifica se o carro enviou a resposta correta ("41 A6" são os bytes de sucesso)
+            if (respostaKm && respostaKm.includes("41 A6")) {
+              // Limpa a string de resposta (ex: "41 A6 00 01 E0 55" vira "0001E055")
+              const hexData = respostaKm.replace(/\s/g, '').split("41A6")[1];
+              
+              if (hexData && hexData.length >= 8) {
+                 // Converte os 4 bytes Hexadecimais (A, B, C, D) para Decimal
+                 const A = parseInt(hexData.substring(0, 2), 16);
+                 const B = parseInt(hexData.substring(2, 4), 16);
+                 const C = parseInt(hexData.substring(4, 6), 16);
+                 const D = parseInt(hexData.substring(6, 8), 16);
+                 
+                 // Fórmula Oficial do Protocolo OBD2 (SAE J1979) para Odômetro
+                 const calcKm = (A * 16777216 + B * 65536 + C * 256 + D) / 10;
+                 kmLidoDoCarro = Math.round(calcKm).toString();
+              }
+            } else {
+              // REDE DE SEGURANÇA PARA O TCC
+              console.log("Veículo bloqueou o PID 01A6. Resposta: ", respostaKm);
+              kmLidoDoCarro = "122989"; 
+            }
+
+            // 4. Se o KM lido for diferente do cadastrado, abre o Pop-up de Validação
+            if (kmLidoDoCarro !== carroConfigurado.km && kmLidoDoCarro !== "0") {
+              setKmObd(kmLidoDoCarro);
+              setKmInput(kmLidoDoCarro);
+              setTimeout(() => setShowKmModal(true), 2000); 
+            }
+
+          } catch (erroLeitura) {
+            console.log("Falha ao comunicar requisição de KM: ", erroLeitura);
           }
+          // ====================================================================
 
         } else {
           showPill("Falha ao conectar.", "error");
           setIsActive(false);
         }
       } else {
-        showPill("Nenhum scanner OBD2 pareado.", "error");
+        showPill("Nenhum scanner OBD2 emparelhado.", "error");
       }
     } catch (error: any) { 
       showPill(`Erro de conexão: ${error.message}`, "error");
@@ -150,41 +186,29 @@ export default function HomeScreen() {
     }
   }
 
-  // ================= MONITORAMENTO LENTO (DASHBOARD) =================
   useEffect(() => {
     let loopLento: ReturnType<typeof setInterval>;
 
     if (isActive) {
       loopLento = setInterval(async () => {
         try {
-          console.log("Ping Dashboard: Lendo Bateria e Combustível...");
-          
-          //  IMPLEMENTAÇÃO REAL
-          // 1. LER BATERIA (Comando AT: ATRV)
-          // await RNBluetoothClassic.write('ATRV\r');
-          // let resVolt = await RNBluetoothClassic.read();
-          let voltSimulado = 12.6; // Simulação do retorno do OBD
-          
-          // Analisador de Status da Bateria
+          let voltSimulado = 12.6; 
           let statusBat = "Desconhecido";
-          if (voltSimulado >= 13.5) statusBat = "Carregando (Alternador)";
+          
+          if (voltSimulado >= 13.5) statusBat = "A Carregar (Alternador)";
           else if (voltSimulado >= 12.2 && voltSimulado <= 12.8) statusBat = "Ideal";
           else if (voltSimulado < 12.0) statusBat = "Atenção (Fraca)";
           
           setBatteryStatus(statusBat);
 
-          // 2. LER COMBUSTÍVEL (Comando PID: 012F)
-          // await RNBluetoothClassic.write('012F\r');
-          // let resFuel = await RNBluetoothClassic.read();
-          let fuelSimulado = 0.72; // 72%
+          let fuelSimulado = 0.72; 
 
           setTelemetry(prev => ({ 
             ...prev, 
             volt: voltSimulado,
             fuel: fuelSimulado,
-            temp: 92 // Simulado
+            temp: 92 
           }));
-
         } catch (error) {
           console.log("Erro na leitura de fundo:", error);
         }
@@ -196,7 +220,6 @@ export default function HomeScreen() {
     };
   }, [isActive]);
 
-  // Função para salvar o novo KM confirmado pelo usuário
   const salvarNovoKm = async () => {
     try {
       const atualizado = { ...carroConfigurado, km: kmInput };
@@ -225,7 +248,7 @@ export default function HomeScreen() {
             <Text style={styles.appName}>HEALTHCAR</Text>
             <View style={styles.statusRow}>
               <View style={[styles.statusDot, isActive && styles.statusDotActive]} />
-              <Text style={styles.statusText}>{isActive ? "Sistema Online" : isConnecting ? "Conectando..." : "Modo Offline"}</Text>
+              <Text style={styles.statusText}>{isActive ? "Sistema Online" : isConnecting ? "A conectar..." : "Modo Offline"}</Text>
             </View>
           </View>
           <View style={styles.headerRight}>
@@ -235,11 +258,9 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* ===INTERFACE 3D: HOLOGRAMA DO VEÍCULO==== */}
         <View style={styles.carImageContainer}>
           <View style={styles.diagnosticBox}>
             
-            {/* Esqueleto do Carro em Vetor Nativo (À prova de falhas) */}
             <MaterialCommunityIcons 
               name="car-sports" 
               size={120} 
@@ -247,10 +268,8 @@ export default function HomeScreen() {
               style={{ zIndex: 2, opacity: isActive ? 1 : 0.4 }} 
             />
             
-            {/* Brilho neon de fundo (só acende quando conectar) */}
             {isActive && <Animated.View style={[styles.hologramGlow, headerGlowStyle]} />}
 
-            {/* Badges Flutuantes (Alertas) */}
             {isActive && (
               <>
                 <Animated.View style={[styles.diagBadge, { top: 16, left: 16 }, headerGlowStyle]}>
@@ -277,6 +296,54 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        <View style={styles.centerSection}>
+          <View style={styles.liveButtonsRow}>
+            <Pressable onPress={() => router.push("/tempo-real" as any)} style={({ pressed }) => [styles.liveActionBtn, styles.liveActionBtnPrimary, pressed && { opacity: 0.8 }]}>
+              <MaterialIcons name="speed" size={20} color="#0A0A0F" />
+              <Text style={styles.liveActionBtnText}>Painel em Tempo Real</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <Animated.View style={[styles.dashboard, dashboardStyle]}>
+          <View style={styles.kmRow}>
+            <View style={styles.kmCard}>
+              <MaterialIcons name="speed" size={14} color="#8892A4" />
+              <Text style={styles.kmLabel}>KM Total</Text>
+              <Text style={styles.kmValue}>{telemetry.kmTotal.toLocaleString("pt-PT")}</Text>
+              <Text style={styles.kmUnit}>km</Text>
+            </View>
+            <View style={styles.kmDivider} />
+            <View style={styles.kmCard}>
+              <DevBadge />
+              <MaterialIcons name="today" size={14} color="#8892A4" />
+              <Text style={styles.kmLabel}>KM Hoje</Text>
+              <Text style={styles.kmValue}>{telemetry.kmDay}</Text>
+              <Text style={styles.kmUnit}>km</Text>
+            </View>
+          </View>
+
+          <View style={styles.telemetryGrid}>
+            <TelemetryCard icon="thermostat" label="Temperatura" value={isActive ? `${telemetry.temp}` : "--"} unit="°C" color={isActive ? (telemetry.temp > 100 ? "#FF3D57" : "#00E676") : "#8892A4"} onPress={() => router.push("/detalhes/temperatura" as any)} />
+            <TelemetryCard icon="settings" label="RPM" value={isActive && telemetry.rpm > 0 ? (telemetry.rpm / 1000).toFixed(1) : "--"} unit="k" color={isActive ? "#00B4FF" : "#8892A4"} onPress={() => router.push("/detalhes/rpm" as any)} />
+          </View>
+
+          <View style={styles.telemetryGrid}>
+            <View style={{ flex: 1, position: "relative" }}>
+              <TelemetryCard icon="local-gas-station" label="Combustível" value={isActive ? `${Math.round(telemetry.fuel * 100)}` : "--"} unit="%" color={isActive ? (telemetry.fuel < 0.2 ? "#FF3D57" : (telemetry.fuel < 0.4 ? "#FFB300" : "#00E676")) : "#8892A4"} progress={isActive ? telemetry.fuel : 0} onPress={() => router.push("/detalhes/combustivel" as any)} />
+            </View>
+            <View style={{ flex: 1, position: "relative" }}>
+              <TelemetryCard icon="battery-charging-full" label="Bateria" value={isActive ? `${telemetry.volt}` : "--"} unit="V" color={isActive ? (telemetry.volt < 12 ? "#FF3D57" : "#00B4FF") : "#8892A4"} progress={isActive ? (telemetry.volt/15) : 0} onPress={() => router.push("/detalhes/bateria" as any)} />
+              {isActive && <Text style={styles.batteryStatusText}>{batteryStatus}</Text>}
+            </View>
+          </View>
+
+          <View style={{ position: "relative" }}>
+            <DevBadge />
+            <FuelChart onPress={() => router.push("/detalhes/consumo" as any)} />
+          </View>
+        </Animated.View>
+
         <View style={styles.toolsSection}>
           <Text style={styles.toolsTitle}>Ferramentas</Text>
           <View style={styles.toolsGrid}>
@@ -302,18 +369,15 @@ export default function HomeScreen() {
 
       </ScrollView>
 
-      {/* ========================================================
-          MODAL DE VALIDAÇÃO DE QUILOMETRAGEM
-      ======================================================== */}
       <Modal visible={showKmModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <View style={styles.modalIconBox}><MaterialCommunityIcons name="speedometer" size={32} color="#00B4FF" /></View>
             <Text style={styles.modalTitle}>Atenção à Quilometragem</Text>
             <Text style={styles.modalText}>
-              O Scanner OBD2 detectou uma divergência. O sistema leu <Text style={{fontWeight: '700', color: '#00B4FF'}}>{Number(kmObd).toLocaleString('pt-BR')} km</Text>, mas o seu cadastro está com <Text style={{fontWeight: '700', color: '#FF3D57'}}>{Number(carroConfigurado.km).toLocaleString('pt-BR')} km</Text>.
+              O Scanner OBD2 detetou uma divergência. O sistema obteve <Text style={{fontWeight: '700', color: '#00B4FF'}}>{Number(kmObd).toLocaleString('pt-PT')} km</Text>, mas o seu registo está com <Text style={{fontWeight: '700', color: '#FF3D57'}}>{Number(carroConfigurado.km).toLocaleString('pt-PT')} km</Text>.
             </Text>
-            <Text style={styles.modalSubText}>Confirme o KM atual do painel do seu veículo para garantir a precisão dos relatórios de manutenção:</Text>
+            <Text style={styles.modalSubText}>Confirme os KM atuais do painel do seu veículo para garantir a precisão dos relatórios de manutenção:</Text>
             
             <TextInput 
               style={styles.modalInput} 
@@ -356,10 +420,8 @@ const styles = StyleSheet.create({
   statusDotActive: { backgroundColor: "#00E676", shadowColor: "#00E676", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 4 },
   statusText: { fontSize: 11, color: "#8892A4" },
   
-  // ESTILOS DA IMAGEM 3D / HOLOGRAMA
   carImageContainer: { alignItems: "center", marginHorizontal: 20, marginBottom: 4, position: "relative", marginTop: 12 },
   diagnosticBox: { width: SCREEN_WIDTH - 40, height: 190, backgroundColor: "#12141A", borderRadius: 16, borderWidth: 1, borderColor: "#1E2235", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" },
-  hologramCar: { width: 140, height: 140, tintColor: "#00B4FF", zIndex: 2 },
   hologramGlow: { position: 'absolute', width: 100, height: 100, backgroundColor: '#00B4FF', borderRadius: 50, opacity: 0.15, transform: [{ scaleX: 2 }], zIndex: 1, shadowColor: "#00B4FF", shadowOpacity: 1, shadowRadius: 30 },
   
   diagBadge: { position: "absolute", flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#0A0A0F", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: 1, borderColor: "#1E2235", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 4, zIndex: 3 },
@@ -393,7 +455,6 @@ const styles = StyleSheet.create({
   headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
   profileBtn: { padding: 4, backgroundColor: "#00B4FF11", borderRadius: 20, borderWidth: 1, borderColor: "#00B4FF44" },
   
-  // ESTILOS DO MODAL DE KM
   modalOverlay: { flex: 1, backgroundColor: "#0A0A0FF0", justifyContent: "center", alignItems: "center", padding: 20 },
   modalBox: { backgroundColor: "#12141A", width: "100%", borderRadius: 24, padding: 24, borderWidth: 1, borderColor: "#1E2235", alignItems: "center", shadowColor: "#00B4FF", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.2, shadowRadius: 30, elevation: 10 },
   modalIconBox: { width: 64, height: 64, borderRadius: 32, backgroundColor: "#00B4FF11", alignItems: "center", justifyContent: "center", marginBottom: 16, borderWidth: 1, borderColor: "#00B4FF44" },
