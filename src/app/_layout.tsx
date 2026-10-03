@@ -1,63 +1,78 @@
-// MANUTENÇÃO FUTURA: O arquivo global.css está dentro da pasta 'src'. 
-// Como estamos em 'src/app', voltamos apenas uma pasta ('../') para encontrá-lo.
 // @ts-ignore
 import '../global.css';
 
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
 import { useColorScheme, View } from 'react-native';
 
-// Importamos o AsyncStorage para ler a memória do celular
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-// === NOVO: Importação do Provedor de Contexto Global (Tema e Idioma) ===
 import { AppProvider } from '../contexts/AppContext';
 
-// Segura a tela de splash nativa inicial para não piscar branco
+/**
+ * Previne o fechamento automático da Splash Screen nativa.
+ * Isso permite ocultá-la manualmente apenas quando o App estiver totalmente carregado,
+ * evitando flashes brancos na inicialização.
+ */
 SplashScreen.preventAutoHideAsync();
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const [isReady, setIsReady] = useState(false);
+  const [isFirstAccess, setIsFirstAccess] = useState(false);
 
-  // MANUTENÇÃO FUTURA: Controlador de Tráfego do Onboarding
+  /**
+   * Fase 1: Inicialização e Leitura de Memória
+   * Verifica a existência de dados de configuração na memória do dispositivo.
+   * Determina a flag de estado de acesso (primeiro acesso ou usuário recorrente).
+   */
   useEffect(() => {
-    async function verificarAcesso() {
+    async function checkInitialAccess() {
       try {
-        // Verifica se existe a chave do carro salvo na memória
         const veiculoCadastrado = await AsyncStorage.getItem('@veiculo_cadastrado');
         
         if (veiculoCadastrado === null) {
-          // SE FOR A PRIMEIRA VEZ: Manda para a tela de cadastro
-          // (O setTimeout é um truque do Expo para garantir que a rota foi carregada antes de redirecionar)
-          setTimeout(() => {
-            router.replace('/(auth)/cadastro' as any); 
-          }, 100);
+          setIsFirstAccess(true);
         }
       } catch (error) {
-        console.error("Erro ao verificar o AsyncStorage:", error);
+        console.error("[AppLayout] Falha ao ler AsyncStorage durante a inicialização:", error);
       } finally {
-        // Libera a tela para aparecer e levanta a cortina da Splash Screen
         setIsReady(true);
-        SplashScreen.hideAsync();
       }
     }
 
-    verificarAcesso();
+    checkInitialAccess();
   }, []);
 
-  // Enquanto estiver lendo a memória, não renderiza nada (segura a splash)
+  /**
+   * Fase 2: Controlador de Tráfego de Navegação (Onboarding)
+   * Disparado apenas após a aplicação estar pronta para renderizar.
+   * Redireciona o usuário para a tela de cadastro se for a primeira instalação.
+   */
+  useEffect(() => {
+    if (isReady) {
+      if (isFirstAccess) {
+        // Libera a Splash Screen e dá tempo para o Stack Root montar antes do redirecionamento
+        SplashScreen.hideAsync();
+        setTimeout(() => {
+          router.replace('/(auth)/cadastro' as any);
+        }, 150);
+      } else {
+        // Usuário recorrente: Apenas libera a Splash Screen e segue o fluxo normal
+        SplashScreen.hideAsync();
+      }
+    }
+  }, [isReady, isFirstAccess]);
+
+  // Bloqueia a renderização da interface enquanto a verificação inicial (Fase 1) ocorre
   if (!isReady) {
     return null; 
   }
 
   return (
-    // === NOVO: AppProvider envolve toda a aplicação para fornecer os dados dinâmicos ===
     <AppProvider>
       <View style={{ flex: 1 }}>
         <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          {/* O headerShown: false oculta aquela barra de título feia nativa do Android */}
           <Stack screenOptions={{ headerShown: false }} />
         </ThemeProvider>
       </View>

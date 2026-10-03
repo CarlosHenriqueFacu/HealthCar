@@ -48,6 +48,10 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 const TELEMETRY_IDLE = { speed: 0, rpm: 0, temp: 0, fuel: 0, kmTotal: 0, kmDay: 0, volt: 0 };
 
+/**
+ * Tela Principal (Home Screen)
+ * Gerencia a comunicação Bluetooth de fundo, telemetria em tempo real e serve como Hub para ferramentas.
+ */
 export default function HomeScreen() {
   // === ESTADO GLOBAL DE TEMA E IDIOMA ===
   const { theme, t } = useApp();
@@ -64,7 +68,7 @@ export default function HomeScreen() {
   const [isActive, setIsActive] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [telemetry, setTelemetry] = useState(TELEMETRY_IDLE);
-  const [batteryStatus, setBatteryStatus] = useState("Desconhecido");
+  const [batteryStatus, setBatteryStatus] = useState("batDesconhecido");
   
   const [carroConfigurado, setCarroConfigurado] = useState({
     marca: 'Carregando...', veiculo: '', ano: '', motor: '', km: '0'
@@ -76,9 +80,6 @@ export default function HomeScreen() {
 
   const [pillConfig, setPillConfig] = useState({ message: '', type: 'info' });
   const pillTranslateY = useSharedValue(-150); 
-  
-  const dashboardOpacity = useSharedValue(0);
-  const dashboardTranslate = useSharedValue(30);
   const headerGlow = useSharedValue(0);
 
   const appState = useRef(AppState.currentState);
@@ -92,17 +93,41 @@ export default function HomeScreen() {
   };
 
   const pillStyle = useAnimatedStyle(() => ({ transform: [{ translateY: pillTranslateY.value }] }));
-  const dashboardStyle = useAnimatedStyle(() => ({ opacity: dashboardOpacity.value, transform: [{ translateY: dashboardTranslate.value }] }));
   const headerGlowStyle = useAnimatedStyle(() => ({ opacity: headerGlow.value }));
 
+  /**
+   * VERIFICAÇÃO DE PRIMEIRO ACESSO (ONBOARDING) E NOTIFICAÇÕES
+   * Garante que o redirecionamento não colida com as permissões nativas do SO.
+   */
   useEffect(() => {
-    const iniciarNotificacoes = async () => {
+    async function setupApp() {
+      // 1. Verificação de Primeiro Acesso
+      const veiculoCadastrado = await AsyncStorage.getItem('@veiculo_cadastrado');
+      if (veiculoCadastrado === null) {
+        // Redireciona para o cadastro se não houver veículo
+        router.replace('/(auth)/cadastro' as any);
+        return; // Impede execução do restante
+      } else {
+        const veiculoSalvo = JSON.parse(veiculoCadastrado);
+        setCarroConfigurado(veiculoSalvo);
+        setTelemetry(prev => ({ ...prev, kmTotal: Number(veiculoSalvo.km) }));
+      }
+
+      // 2. Requisição de Permissões de Notificação
       const { status } = await Notifications.requestPermissionsAsync();
       if (status !== 'granted') {
-        console.log("Permissão de notificações recusada.");
+        console.log("[Setup] Permissão de notificações recusada.");
       }
-    };
-    iniciarNotificacoes();
+
+      // 3. Ativa animações de entrada
+      headerGlow.value = withTiming(1, { duration: 800 });
+
+      // 4. Inicia conexão Bluetooth
+      tentarConexaoAutomatica();
+    }
+
+    // Delay para garantir que a renderização da interface e permissões de SO estabilizaram
+    setTimeout(setupApp, 500);
 
     const subscription = AppState.addEventListener('change', nextAppState => {
       appState.current = nextAppState;
@@ -124,26 +149,9 @@ export default function HomeScreen() {
     });
   };
 
-  useEffect(() => {
-    const inicializarApp = async () => {
-      try {
-        const dados = await AsyncStorage.getItem('@veiculo_cadastrado');
-        if (dados !== null) {
-          const veiculoSalvo = JSON.parse(dados);
-          setCarroConfigurado(veiculoSalvo);
-          setTelemetry(prev => ({ ...prev, kmTotal: Number(veiculoSalvo.km) }));
-        }
-      } catch (e) { console.log("Erro ao carregar dados", e); }
-
-      dashboardOpacity.value = withTiming(1, { duration: 600 });
-      dashboardTranslate.value = withSpring(0, { damping: 18, stiffness: 120 });
-      headerGlow.value = withTiming(1, { duration: 800 });
-
-      tentarConexaoAutomatica();
-    };
-    inicializarApp();
-  }, []);
-
+  /**
+   * INICIALIZAÇÃO DE BLUETOOTH E OBD2
+   */
   async function tentarConexaoAutomatica() {
     try {
       setIsConnecting(true);
@@ -224,6 +232,9 @@ export default function HomeScreen() {
     }
   }
 
+  /**
+   * LOOP DE TELEMETRIA EM SEGUNDO PLANO
+   */
   useEffect(() => {
     let loopLento: ReturnType<typeof setInterval>;
 
@@ -303,6 +314,7 @@ export default function HomeScreen() {
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
+        {/* --- Header --- */}
         <View style={styles.header}>
           <View>
             <Text style={[styles.appName, { color: textColor }]}>HEALTHCAR</Text>
@@ -320,6 +332,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* --- Card Principal de Status do Veículo --- */}
         <View style={styles.carImageContainer}>
           <View style={[styles.diagnosticBox, { backgroundColor: cardColor, borderColor: borderColor }]}>
             
@@ -366,6 +379,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* --- Acesso ao Painel Tempo Real --- */}
         <View style={styles.centerSection}>
           <View style={styles.liveButtonsRow}>
             <Pressable onPress={() => router.push("/tempo-real" as any)} style={({ pressed }) => [styles.liveActionBtn, styles.liveActionBtnPrimary, pressed && { opacity: 0.8 }]}>
@@ -375,7 +389,8 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <Animated.View style={[styles.dashboard, dashboardStyle]}>
+        {/* --- Dashboard de Telemetria --- */}
+        <View style={styles.dashboard}>
           <View style={[styles.kmRow, { backgroundColor: cardColor, borderColor: borderColor }]}>
             <View style={styles.kmCard}>
               <MaterialIcons name="speed" size={14} color={subTextColor} />
@@ -412,8 +427,9 @@ export default function HomeScreen() {
             <DevBadge />
             <FuelChart onPress={() => router.push("/detalhes/consumo" as any)} />
           </View>
-        </Animated.View>
+        </View>
 
+        {/* --- Menu de Ferramentas Secundárias --- */}
         <View style={styles.toolsSection}>
           <Text style={[styles.toolsTitle, { color: subTextColor }]}>{t('ferramentas')}</Text>
           <View style={styles.toolsGrid}>
@@ -439,6 +455,7 @@ export default function HomeScreen() {
 
       </ScrollView>
 
+      {/* --- Modal de Divergência de KM --- */}
       <Modal visible={showKmModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { backgroundColor: cardColor, borderColor: borderColor }]}>
@@ -473,6 +490,7 @@ export default function HomeScreen() {
   );
 }
 
+// --- Estilos Estáticos ---
 const styles = StyleSheet.create({
   pillContainer: { position: 'absolute', top: 0, left: 20, right: 20, flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 30, zIndex: 100, gap: 10, elevation: 10, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
   pillInfo: { backgroundColor: '#00B4FF' },
