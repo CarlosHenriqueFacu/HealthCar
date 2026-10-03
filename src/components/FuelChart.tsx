@@ -1,43 +1,76 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useApp } from '../contexts/AppContext';
 
+/**
+ * @interface FuelChartProps
+ * @description Propriedades aceites pelo componente de gráfico de consumo.
+ */
 interface FuelChartProps {
+  /** Array numérico com o volume consumido (em litros) por período */
   data?: number[];
+  /** 
+   * Array de strings (Opcional). Se não fornecido, o componente utilizará 
+   * os rótulos de dias da semana baseados no idioma atual do sistema (PT/EN).
+   */
   labels?: string[];
-  onPress?: () => void; // NOVO: Adicionado suporte nativo a cliques
+  /** Callback executado ao interagir (tocar) na área do gráfico */
+  onPress?: () => void;
 }
 
 const DEFAULT_DATA = [32, 45, 28, 55, 40, 62, 38];
-const DEFAULT_LABELS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 
+/**
+ * Componente FuelChart
+ * @description Exibe um gráfico de barras vertical representando o consumo
+ * diário de combustível. Suporta injeção dinâmica de temas e internacionalização.
+ */
 export function FuelChart({ 
   data = DEFAULT_DATA, 
-  labels = DEFAULT_LABELS,
-  onPress // Extraindo a função de clique
+  labels,
+  onPress
 }: FuelChartProps) {
+  // Extração do estado global de tema e dicionário de traduções (t)
+  const { theme, t } = useApp();
+  
+  // Resolução da paleta dinâmica baseada no tema ativo
+  const isDark = theme === 'dark';
+  const cardColor = isDark ? '#12141A' : '#FFFFFF';
+  const borderColor = isDark ? '#1E2235' : '#E2E8F0';
+  const textColor = isDark ? '#F0F2FF' : '#0F172A';
+  const subTextColor = isDark ? '#8892A4' : '#64748B';
+  const trackColor = isDark ? '#1E2235' : '#CBD5E1';
+
+  // Determina os rótulos do eixo X de forma inteligente
+  // Usa o array fornecido por props OU pega do dicionário internacionalizado (Seg-Dom / Mon-Sun)
+  const chartLabels = labels || [t('seg'), t('ter'), t('qua'), t('qui'), t('sex'), t('sab'), t('dom')];
+
+  // Cálculo do valor máximo para normalização proporcional das barras
   const maxVal = Math.max(...data);
 
   return (
-    // Trocamos a View por Pressable para que a área inteira do gráfico seja clicável
     <Pressable 
       onPress={onPress}
       style={({ pressed }) => [
         styles.container,
-        pressed && { opacity: 0.8 } // Efeito visual sutil ao tocar
+        { backgroundColor: cardColor, borderColor: borderColor },
+        pressed && { opacity: 0.8 } // Feedback visual tátil
       ]}
     >
-      <Text style={styles.title}>Consumo Semanal</Text>
-      <Text style={styles.subtitle}>Litros por dia</Text>
+      <Text style={[styles.title, { color: textColor }]}>{t('consumoSemanal')}</Text>
+      <Text style={[styles.subtitle, { color: subTextColor }]}>{t('litrosPorDia')}</Text>
 
       <View style={styles.chartArea}>
         {data.map((val, i) => {
+          // Normaliza a altura da barra entre 0 e 100%
           const heightPct = (val / maxVal) * 100;
           const isMax = val === maxVal;
+          
           return (
             <View key={i} style={styles.barWrapper}>
-              <Text style={[styles.barValue, isMax && styles.barValueMax]}>
+              <Text style={[styles.barValue, { color: subTextColor }, isMax && styles.barValueMax]}>
                 {val}L
               </Text>
-              <View style={styles.barTrack}>
+              <View style={[styles.barTrack, { backgroundColor: trackColor }]}>
                 <View
                   style={[
                     styles.barFill,
@@ -46,7 +79,7 @@ export function FuelChart({
                   ]}
                 />
               </View>
-              <Text style={styles.barLabel}>{labels[i]}</Text>
+              <Text style={[styles.barLabel, { color: subTextColor }]}>{chartLabels[i]}</Text>
             </View>
           );
         })}
@@ -55,23 +88,20 @@ export function FuelChart({
   );
 }
 
+// Estilos base de layout da interface
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: "#12141A",
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#1E2235",
   },
   title: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#F0F2FF",
     marginBottom: 2,
   },
   subtitle: {
     fontSize: 11,
-    color: "#8892A4",
     marginBottom: 16,
   },
   chartArea: {
@@ -88,16 +118,15 @@ const styles = StyleSheet.create({
   },
   barValue: {
     fontSize: 9,
-    color: "#8892A4",
     marginBottom: 4,
   },
   barValueMax: {
     color: "#00B4FF",
+    fontWeight: "700",
   },
   barTrack: {
     width: "100%",
     height: 70,
-    backgroundColor: "#1E2235",
     borderRadius: 4,
     overflow: "hidden",
     justifyContent: "flex-end",
@@ -118,7 +147,6 @@ const styles = StyleSheet.create({
   },
   barLabel: {
     fontSize: 10,
-    color: "#8892A4",
     marginTop: 6,
   },
 });

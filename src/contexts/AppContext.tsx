@@ -92,6 +92,17 @@ const dicionario = {
     historicoOleo: 'Histórico de Óleo',
     prox: 'Próx.',
     historicoManutencao: 'Histórico de Manutenção',
+
+    // Gráfico Home
+    consumoSemanal: 'Consumo Semanal',
+    litrosPorDia: 'Litros por dia',
+    seg: 'Seg',
+    ter: 'Ter',
+    qua: 'Qua',
+    qui: 'Qui',
+    sex: 'Sex',
+    sab: 'Sáb',
+    dom: 'Dom',
   },
   en: {
     // Settings Screen
@@ -169,6 +180,17 @@ const dicionario = {
     historicoOleo: 'Oil History',
     prox: 'Next',
     historicoManutencao: 'Maintenance History',
+
+    // Gráfico Home
+    consumoSemanal: 'Weekly Consumption',
+    litrosPorDia: 'Liters per day',
+    seg: 'Mon',
+    ter: 'Tue',
+    qua: 'Wed',
+    qui: 'Thu',
+    sex: 'Fri',
+    sab: 'Sat',
+    dom: 'Sun',
   }
 };
 

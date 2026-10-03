@@ -1,16 +1,33 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useApp } from '../contexts/AppContext';
 
+/**
+ * @interface TelemetryCardProps
+ * @description Contrato de propriedades para o componente de exibição de telemetria.
+ */
 interface TelemetryCardProps {
+  /** Rótulo identificador do ícone vetorial da biblioteca MaterialIcons */
   icon: keyof typeof MaterialIcons.glyphMap;
+  /** Descrição textual da métrica monitorada */
   label: string;
+  /** Valor quantitativo ou qualitativo a ser renderizado */
   value: string;
+  /** Unidade de medida (opcional) associada ao valor numérico */
   unit?: string;
+  /** Cor hexadecimal dinâmica para destaque visual (ícone, valor e barra de progresso) */
   color?: string;
-  progress?: number; // 0–1 for bar display
-  onPress?: () => void; // NOVO: Propriedade para receber o clique
+  /** Representação percentual (0.0 a 1.0) do preenchimento da barra de progresso */
+  progress?: number;
+  /** Callback acionado em resposta ao evento de interação (toque) do utilizador */
+  onPress?: () => void;
 }
 
+/**
+ * Componente TelemetryCard
+ * @description Renderiza um cartão modular para exibição de métricas de telemetria OBD2.
+ * O componente suporta alternância dinâmica de tema e barra de progresso opcional.
+ */
 export function TelemetryCard({
   icon,
   label,
@@ -18,34 +35,44 @@ export function TelemetryCard({
   unit,
   color = "#00B4FF",
   progress,
-  onPress, // Extraindo a função de clique
+  onPress,
 }: TelemetryCardProps) {
+  // Extração do estado de tema global para injeção de cores dinâmicas
+  const { theme } = useApp();
+  
+  // Resolução da paleta de cores baseada no tema (Light/Dark Mode)
+  const isDark = theme === 'dark';
+  const cardBg = isDark ? '#12141A' : '#FFFFFF';
+  const cardBorder = isDark ? '#1E2235' : '#E2E8F0';
+  const labelColor = isDark ? '#8892A4' : '#64748B';
+  const trackColor = isDark ? '#1E2235' : '#CBD5E1';
+
   return (
-    // Transformamos a View externa em um Pressable para garantir o clique
     <Pressable 
       onPress={onPress} 
       style={({ pressed }) => [
         styles.card, 
-        pressed && { opacity: 0.7 } // Dá um efeito visual de clique escurecendo o card
+        { backgroundColor: cardBg, borderColor: cardBorder },
+        pressed && { opacity: 0.7 } // Feedback visual de interação tátil
       ]}
     >
-      {/* Icon Section - Full Width */}
+      {/* Container de representação gráfica (Ícone) */}
       <View style={styles.iconSection}>
         <MaterialIcons name={icon} size={56} color={color} />
       </View>
 
-      {/* Label Section */}
-      <Text style={styles.label}>{label}</Text>
+      {/* Rótulo identificador da métrica */}
+      <Text style={[styles.label, { color: labelColor }]}>{label}</Text>
 
-      {/* Value Section */}
+      {/* Exibição do valor acompanhado de sua unidade estrutural */}
       <View style={styles.valueRow}>
         <Text style={[styles.value, { color }]}>{value}</Text>
-        {unit && <Text style={styles.unit}>{unit}</Text>}
+        {unit && <Text style={[styles.unit, { color: labelColor }]}>{unit}</Text>}
       </View>
 
-      {/* Progress Bar */}
+      {/* Indicador linear de progresso (Renderização Condicional) */}
       {progress !== undefined && (
-        <View style={styles.progressTrack}>
+        <View style={[styles.progressTrack, { backgroundColor: trackColor }]}>
           <View
             style={[
               styles.progressFill,
@@ -58,14 +85,13 @@ export function TelemetryCard({
   );
 }
 
+// Estilos estruturais de interface (agnósticos ao tema)
 const styles = StyleSheet.create({
   card: {
     flex: 1,
-    backgroundColor: "#12141A",
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#1E2235",
     minWidth: 0,
     justifyContent: "flex-start",
     minHeight: 140,
@@ -79,7 +105,6 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 10,
-    color: "#8892A4",
     textTransform: "uppercase",
     letterSpacing: 0.5,
     marginBottom: 6,
@@ -100,11 +125,9 @@ const styles = StyleSheet.create({
   },
   unit: {
     fontSize: 10,
-    color: "#8892A4",
   },
   progressTrack: {
     height: 3,
-    backgroundColor: "#1E2235",
     borderRadius: 2,
     overflow: "hidden",
   },
