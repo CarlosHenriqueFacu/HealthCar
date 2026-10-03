@@ -326,9 +326,17 @@ export default function HomeScreen() {
             <MaterialCommunityIcons 
               name="car-sports" 
               size={120} 
-              color={isActive ? "#00B4FF" : (isDark ? "#1E2235" : "#E2E8F0")} 
-              style={{ zIndex: 2, opacity: isActive ? 1 : 0.4 }} 
+              color={isActive ? "#00B4FF" : (isDark ? "#475569" : "#CBD5E1")} 
+              style={{ zIndex: 2, opacity: isActive ? 1 : 0.8 }} 
             />
+
+            {/* Etiqueta suave de "Offline" no canto superior direito */}
+            {!isActive && (
+              <View style={[styles.diagBadge, { top: 16, right: 16, backgroundColor: cardColor, borderColor: borderColor }]}>
+                <MaterialIcons name="bluetooth-disabled" size={14} color={subTextColor} />
+                <Text style={[styles.diagBadgeText, { color: subTextColor }]}>{t('modoOffline')}</Text>
+              </View>
+            )}
             
             {isActive && <Animated.View style={[styles.hologramGlow, headerGlowStyle]} />}
 
