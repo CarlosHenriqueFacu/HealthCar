@@ -9,6 +9,9 @@ import {
   View,
 } from "react-native";
 
+// === ESTADO GLOBAL ===
+import { useApp } from '../contexts/AppContext';
+
 /* ==========================================================
    MANUTENÇÃO FUTURA: BANCO DE DADOS DE MANUTENÇÃO
    Estes arrays (OIL_HISTORY e MAINTENANCE_HISTORY) são mocks (dados falsos).
@@ -35,6 +38,18 @@ const MONTHLY_FUEL = [18, 22, 19, 25, 21, 28, 24, 20, 26, 23, 19, 22];
 const MONTHS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
 export default function ReportsScreen() {
+  // === ESTADO GLOBAL DE TEMA E IDIOMA ===
+  const { theme, t } = useApp();
+  
+  // === PALETA DE CORES DINÂMICA ===
+  const isDark = theme === 'dark';
+  const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
+  const cardColor = isDark ? '#12141A' : '#FFFFFF';
+  const textColor = isDark ? '#F0F2FF' : '#0F172A';
+  const subTextColor = isDark ? '#8892A4' : '#64748B';
+  const borderColor = isDark ? '#1E2235' : '#E2E8F0';
+  const trackColor = isDark ? '#1E2235' : '#CBD5E1';
+
   // MANUTENÇÃO: Este cálculo deve subtrair a quilometragem atual do veículo (lida via OBD2)
   // da meta de quilometragem da próxima troca para dar um valor real ao usuário.
   const kmToNextOil = 2400;
@@ -43,41 +58,41 @@ export default function ReportsScreen() {
   const maxFuel = Math.max(...MONTHLY_FUEL);
 
   return (
-    <ScreenContainer containerClassName="bg-background" edges={["top", "left", "right"]}>
+    <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
       
       {/* ================= CABEÇALHO SUPERIOR ================= */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: borderColor }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#F0F2FF" />
+          <MaterialIcons name="arrow-back" size={22} color={textColor} />
         </Pressable>
-        <Text style={styles.headerTitle}>Relatórios e Óleo</Text>
+        <Text style={[styles.headerTitle, { color: textColor }]}>{t('tituloRelatorios')}</Text>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         
         {/* ================= CARD DE ALERTA: PRÓXIMA TROCA DE ÓLEO ================= */}
-        <View style={styles.oilAlert}>
-          <View style={[styles.oilIconWrap, { backgroundColor: "#FFB30022" }]}>
+        <View style={[styles.oilAlert, { backgroundColor: cardColor, borderColor: isDark ? "#FFB30033" : "#FDE68A" }]}>
+          <View style={[styles.oilIconWrap, { backgroundColor: isDark ? "#FFB30022" : "#FEF3C7" }]}>
             <MaterialIcons name="opacity" size={24} color="#FFB300" />
           </View>
           <View style={styles.oilInfo}>
-            <Text style={styles.oilAlertTitle}>Próxima Troca de Óleo</Text>
-            <Text style={styles.oilAlertSub}>Faltam {kmToNextOil.toLocaleString("pt-BR")} km</Text>
+            <Text style={[styles.oilAlertTitle, { color: textColor }]}>{t('proximaTrocaOleo')}</Text>
+            <Text style={styles.oilAlertSub}>{t('faltamKm')} {kmToNextOil.toLocaleString("pt-BR")} km</Text>
           </View>
           <View style={styles.oilProgress}>
-            <View style={styles.oilProgressTrack}>
+            <View style={[styles.oilProgressTrack, { backgroundColor: trackColor }]}>
               {/* MANUTENÇÃO: A propriedade 'width' deve ser um cálculo: 
-                  (Km Rodados desde a última troca / Intervalo Total de Troca) * 100 */}
+                 (Km Rodados desde a última troca / Intervalo Total de Troca) * 100 */}
               <View style={[styles.oilProgressFill, { width: "52%" }]} />
             </View>
-            <Text style={styles.oilProgressLabel}>52% do intervalo</Text>
+            <Text style={[styles.oilProgressLabel, { color: subTextColor }]}>52% {t('doIntervalo')}</Text>
           </View>
         </View>
 
         {/* ================= GRÁFICO: CONSUMO MENSAL DE COMBUSTÍVEL ================= */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Consumo Mensal</Text>
-          <Text style={styles.sectionSub}>Litros abastecidos por mês (2025)</Text>
+        <View style={[styles.section, { backgroundColor: cardColor, borderColor: borderColor }]}>
+          <Text style={[styles.sectionTitle, { color: textColor }]}>{t('consumoMensal')}</Text>
+          <Text style={[styles.sectionSub, { color: subTextColor }]}>{t('litrosAbastecidos')}</Text>
           <View style={styles.monthlyChart}>
             {/* O .map() percorre os 12 meses e desenha as barras proporcionalmente */}
             {MONTHLY_FUEL.map((val, i) => {
@@ -85,8 +100,8 @@ export default function ReportsScreen() {
               const isMax = val === maxFuel;
               return (
                 <View key={i} style={styles.monthBar}>
-                  <Text style={[styles.monthVal, isMax && { color: "#00B4FF" }]}>{val}</Text>
-                  <View style={styles.monthTrack}>
+                  <Text style={[styles.monthVal, { color: subTextColor }, isMax && { color: "#00B4FF" }]}>{val}</Text>
+                  <View style={[styles.monthTrack, { backgroundColor: trackColor }]}>
                     <View
                       style={[
                         styles.monthFill,
@@ -95,7 +110,7 @@ export default function ReportsScreen() {
                       ]}
                     />
                   </View>
-                  <Text style={styles.monthLabel}>{MONTHS[i]}</Text>
+                  <Text style={[styles.monthLabel, { color: subTextColor }]}>{MONTHS[i]}</Text>
                 </View>
               );
             })}
@@ -103,20 +118,20 @@ export default function ReportsScreen() {
         </View>
 
         {/* ================= TIMELINE: HISTÓRICO DE ÓLEO ================= */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Histórico de Óleo</Text>
+        <View style={[styles.section, { backgroundColor: cardColor, borderColor: borderColor }]}>
+          <Text style={[styles.sectionTitle, { color: textColor }]}>{t('historicoOleo')}</Text>
           {OIL_HISTORY.map((item, i) => (
             <View key={i} style={styles.historyCard}>
               <View style={styles.historyLeft}>
                 <View style={[styles.historyDot, { backgroundColor: "#FFB300" }]} />
                 {/* Linha conectora entre os pontos (não renderiza no último item) */}
-                {i < OIL_HISTORY.length - 1 && <View style={styles.historyLine} />}
+                {i < OIL_HISTORY.length - 1 && <View style={[styles.historyLine, { backgroundColor: trackColor }]} />}
               </View>
               <View style={styles.historyContent}>
-                <Text style={styles.historyDate}>{item.date}</Text>
-                <Text style={styles.historyTitle}>{item.type}</Text>
-                <Text style={styles.historySub}>
-                  KM: {item.km} · Próx.: {item.next} km
+                <Text style={[styles.historyDate, { color: subTextColor }]}>{item.date}</Text>
+                <Text style={[styles.historyTitle, { color: textColor }]}>{item.type}</Text>
+                <Text style={[styles.historySub, { color: subTextColor }]}>
+                  KM: {item.km} · {t('prox')}: {item.next} km
                 </Text>
               </View>
             </View>
@@ -124,16 +139,16 @@ export default function ReportsScreen() {
         </View>
 
         {/* ================= LISTA: HISTÓRICO GERAL DE MANUTENÇÃO ================= */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Histórico de Manutenção</Text>
+        <View style={[styles.section, { backgroundColor: cardColor, borderColor: borderColor }]}>
+          <Text style={[styles.sectionTitle, { color: textColor }]}>{t('historicoManutencao')}</Text>
           {MAINTENANCE_HISTORY.map((item, i) => (
-            <View key={i} style={styles.mainCard}>
+            <View key={i} style={[styles.mainCard, { borderBottomColor: trackColor }]}>
               <View style={styles.mainLeft}>
-                <Text style={styles.mainDate}>{item.date}</Text>
+                <Text style={[styles.mainDate, { color: subTextColor }]}>{item.date}</Text>
                 <Text style={styles.mainKm}>{item.km} km</Text>
               </View>
               <View style={styles.mainCenter}>
-                <Text style={styles.mainService}>{item.service}</Text>
+                <Text style={[styles.mainService, { color: textColor }]}>{item.service}</Text>
               </View>
               <Text style={styles.mainCost}>{item.cost}</Text>
             </View>
@@ -152,24 +167,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#1E2235",
   },
   backBtn: { padding: 4, marginRight: 8 },
   headerTitle: {
     flex: 1,
     fontSize: 17,
     fontWeight: "700",
-    color: "#F0F2FF",
   },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, gap: 16, paddingBottom: 40 },
 
   oilAlert: {
-    backgroundColor: "#12141A",
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#FFB30033",
     flexDirection: "row",
     gap: 12,
     alignItems: "center",
@@ -182,13 +193,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   oilInfo: { flex: 1 },
-  oilAlertTitle: { fontSize: 14, fontWeight: "600", color: "#F0F2FF", marginBottom: 2 },
+  oilAlertTitle: { fontSize: 14, fontWeight: "600", marginBottom: 2 },
   oilAlertSub: { fontSize: 12, color: "#FFB300" },
   oilProgress: { alignItems: "flex-end", gap: 4 },
   oilProgressTrack: {
     width: 80,
     height: 4,
-    backgroundColor: "#1E2235",
     borderRadius: 2,
     overflow: "hidden",
   },
@@ -197,24 +207,20 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFB300",
     borderRadius: 2,
   },
-  oilProgressLabel: { fontSize: 9, color: "#8892A4" },
+  oilProgressLabel: { fontSize: 9 },
 
   section: {
-    backgroundColor: "#12141A",
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#1E2235",
     gap: 12,
   },
   sectionTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#F0F2FF",
   },
   sectionSub: {
     fontSize: 11,
-    color: "#8892A4",
     marginTop: -8,
   },
 
@@ -232,13 +238,11 @@ const styles = StyleSheet.create({
   },
   monthVal: {
     fontSize: 8,
-    color: "#8892A4",
     marginBottom: 3,
   },
   monthTrack: {
     width: "100%",
     height: 80,
-    backgroundColor: "#1E2235",
     borderRadius: 3,
     overflow: "hidden",
     justifyContent: "flex-end",
@@ -254,7 +258,6 @@ const styles = StyleSheet.create({
   },
   monthLabel: {
     fontSize: 8,
-    color: "#8892A4",
     marginTop: 4,
   },
 
@@ -275,14 +278,13 @@ const styles = StyleSheet.create({
   historyLine: {
     flex: 1,
     width: 1,
-    backgroundColor: "#1E2235",
     marginTop: 4,
     marginBottom: -8,
   },
   historyContent: { flex: 1, paddingBottom: 12 },
-  historyDate: { fontSize: 10, color: "#8892A4", marginBottom: 2 },
-  historyTitle: { fontSize: 13, fontWeight: "600", color: "#F0F2FF", marginBottom: 2 },
-  historySub: { fontSize: 11, color: "#8892A4" },
+  historyDate: { fontSize: 10, marginBottom: 2 },
+  historyTitle: { fontSize: 13, fontWeight: "600", marginBottom: 2 },
+  historySub: { fontSize: 11 },
 
   mainCard: {
     flexDirection: "row",
@@ -290,12 +292,11 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#1E2235",
   },
   mainLeft: { minWidth: 68, gap: 2 },
-  mainDate: { fontSize: 10, color: "#8892A4" },
+  mainDate: { fontSize: 10 },
   mainKm: { fontSize: 10, color: "#00B4FF" },
   mainCenter: { flex: 1 },
-  mainService: { fontSize: 12, color: "#F0F2FF" },
+  mainService: { fontSize: 12 },
   mainCost: { fontSize: 12, fontWeight: "600", color: "#00E676" },
 });

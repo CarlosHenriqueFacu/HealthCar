@@ -23,6 +23,9 @@ import Animated, {
 
 import RNBluetoothClassic from "react-native-bluetooth-classic";
 
+// === ESTADO GLOBAL ===
+import { useApp } from '../contexts/AppContext';
+
 // [ALTERAÇÃO NATIVA]: Extraindo o nosso Módulo Nativo em Java (OBDBluetoothModule).
 // A partir de agora, a comunicação serial pesada (leitura e escrita) passa por aqui, 
 // e não mais pela biblioteca RNBluetoothClassic.
@@ -37,6 +40,17 @@ const MOCK_DATA = {
 };
 
 export default function RealtimeScreen() {
+  // === ESTADO GLOBAL DE TEMA E IDIOMA ===
+  const { theme, t } = useApp();
+  
+  // === PALETA DE CORES DINÂMICA ===
+  const isDark = theme === 'dark';
+  const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
+  const textColor = isDark ? '#F0F2FF' : '#0F172A';
+  const borderColor = isDark ? '#1E2235' : '#E2E8F0';
+  const debugBg = isDark ? '#1A0000' : '#FEF2F2';
+  const debugBorder = isDark ? '#00E676' : '#F87171';
+
   // Estados para controlar os valores que aparecem na tela
   const [displaySpeed, setDisplaySpeed] = useState(0);
   const [displayRpm, setDisplayRpm] = useState(0);
@@ -226,18 +240,18 @@ export default function RealtimeScreen() {
   const speedometerStyle = useAnimatedStyle(() => ({ transform: [{ scale: speedometerScale.value }] }));
 
   return (
-    <ScreenContainer containerClassName="bg-background" edges={["top", "left", "right"]}>
-      <View style={styles.header}>
+    <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
+      <View style={[styles.header, { borderBottomColor: borderColor }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#F0F2FF" />
+          <MaterialIcons name="arrow-back" size={22} color={textColor} />
         </Pressable>
-        <Text style={styles.headerTitle}>Tempo Real</Text>
+        <Text style={[styles.headerTitle, { color: textColor }]}>{t('painelTempoReal')}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {/* Status de Conexão */}
-        <Animated.View style={[styles.liveBadge, headerGlowStyle]}>
+        <Animated.View style={[styles.liveBadge, headerGlowStyle, !isDark && { backgroundColor: '#E0F2FE', borderColor: '#BAE6FD' }]}>
           <View style={[styles.liveDot, isReading && { backgroundColor: "#00E676", shadowColor: "#00E676" }]} />
           <Text style={styles.liveBadgeText}>{statusMsg}</Text>
         </Animated.View>
@@ -250,19 +264,19 @@ export default function RealtimeScreen() {
         {/* Cards de Telemetria */}
         <View style={styles.primaryTelemetry}>
           <View style={styles.telemetryRow}>
-            <TelemetryCard icon="directions" label="KM Percorrido" value={displayKm.toFixed(1)} unit="km" color="#00B4FF" />
+            <TelemetryCard icon="directions" label={t('kmTotal')} value={displayKm.toFixed(1)} unit="km" color="#00B4FF" />
             <TelemetryCard icon="settings" label="RPM" value={displayRpm > 0 ? (displayRpm / 1000).toFixed(1) : "0.0"} unit="k" color="#00B4FF" />
           </View>
           <View style={styles.telemetryRow}>
-            <TelemetryCard icon="thermostat" label="Temperatura" value={`${displayTemp}`} unit="°C" color={displayTemp > 100 ? "#FF3D57" : displayTemp > 85 ? "#FFB300" : "#00E676"} />
-            <TelemetryCard icon="local-gas-station" label="Combustível" value={`${Math.round(MOCK_DATA.fuel * 100)}`} unit="%" color={MOCK_DATA.fuel < 0.2 ? "#FF3D57" : MOCK_DATA.fuel < 0.4 ? "#FFB300" : "#00E676"} progress={MOCK_DATA.fuel} />
+            <TelemetryCard icon="thermostat" label={t('temperatura')} value={`${displayTemp}`} unit="°C" color={displayTemp > 100 ? "#FF3D57" : displayTemp > 85 ? "#FFB300" : "#00E676"} />
+            <TelemetryCard icon="local-gas-station" label={t('combustivel')} value={`${Math.round(MOCK_DATA.fuel * 100)}`} unit="%" color={MOCK_DATA.fuel < 0.2 ? "#FF3D57" : MOCK_DATA.fuel < 0.4 ? "#FFB300" : "#00E676"} progress={MOCK_DATA.fuel} />
           </View>
         </View>
 
         {/* Log de Debug Visual */}
-        <View style={styles.debugSection}>
-          <Text style={styles.debugTitle}>RAIO-X DO BLUETOOTH (DEBUG)</Text>
-          <Text style={styles.debugText}>{debugLog}</Text>
+        <View style={[styles.debugSection, { backgroundColor: debugBg, borderColor: debugBorder }]}>
+          <Text style={[styles.debugTitle, { color: debugBorder }]}>RAIO-X DO BLUETOOTH (DEBUG)</Text>
+          <Text style={[styles.debugText, !isDark && { color: '#7F1D1D' }]}>{debugLog}</Text>
         </View>
 
         {/* Botão Voltar */}
@@ -276,9 +290,9 @@ export default function RealtimeScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#1E2235" },
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
   backBtn: { padding: 4, marginRight: 8 },
-  headerTitle: { flex: 1, fontSize: 17, fontWeight: "700", color: "#F0F2FF" },
+  headerTitle: { flex: 1, fontSize: 17, fontWeight: "700" },
   headerSpacer: { width: 30 },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, gap: 16, paddingBottom: 40 },
@@ -288,8 +302,8 @@ const styles = StyleSheet.create({
   speedometerWrapper: { alignItems: "center", paddingVertical: 16 },
   primaryTelemetry: { gap: 10 },
   telemetryRow: { flexDirection: "row", gap: 10 },
-  debugSection: { backgroundColor: "#1A0000", borderRadius: 12, padding: 16, borderWidth: 1, borderColor: "#00E676", marginTop: 10 },
-  debugTitle: { fontSize: 11, fontWeight: "800", color: "#00E676", marginBottom: 8, letterSpacing: 1 },
+  debugSection: { borderRadius: 12, padding: 16, borderWidth: 1, marginTop: 10 },
+  debugTitle: { fontSize: 11, fontWeight: "800", marginBottom: 8, letterSpacing: 1 },
   debugText: { fontSize: 13, color: "#FFF", fontFamily: "monospace", minHeight: 60 },
   stopBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#FF3D5722", borderWidth: 1, borderColor: "#FF3D5744", borderRadius: 14, paddingVertical: 12 },
   stopBtnText: { fontSize: 14, fontWeight: "600", color: "#FF3D57" },

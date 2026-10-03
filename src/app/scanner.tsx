@@ -13,6 +13,9 @@ import {
 } from "react-native";
 import RNBluetoothClassic from "react-native-bluetooth-classic";
 
+// === ESTADO GLOBAL ===
+import { useApp } from '../contexts/AppContext';
+
 // Importacao da ponte nativa Java desenvolvida para o TCC
 const { OBDBluetooth } = NativeModules;
 
@@ -20,9 +23,9 @@ const { OBDBluetooth } = NativeModules;
    DICIONARIO DE ERROS (DTCs) E SEVERIDADE
 ========================================================== */
 const SEVERITY_CONFIG = {
-  critical: { color: "#FF3D57", bg: "#FF3D5722", label: "Crítico", icon: "error" as const },
-  warning: { color: "#FFB300", bg: "#FFB30022", label: "Aviso", icon: "warning" as const },
-  resolved: { color: "#00E676", bg: "#00E67622", label: "Resolvido", icon: "check-circle" as const },
+  critical: { color: "#FF3D57", bg: "#FF3D5722", labelKey: "critico", icon: "error" as const },
+  warning: { color: "#FFB300", bg: "#FFB30022", labelKey: "aviso", icon: "warning" as const },
+  resolved: { color: "#00E676", bg: "#00E67622", labelKey: "resolvido", icon: "check-circle" as const },
 };
 
 const DTC_DICTIONARY: Record<string, { desc: string, system: string, severity: "critical" | "warning" }> = {
@@ -34,6 +37,17 @@ const DTC_DICTIONARY: Record<string, { desc: string, system: string, severity: "
 };
 
 export default function ScannerScreen() {
+  // === ESTADO GLOBAL DE TEMA E IDIOMA ===
+  const { theme, t } = useApp();
+  
+  // === PALETA DE CORES DINÂMICA ===
+  const isDark = theme === 'dark';
+  const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
+  const cardColor = isDark ? '#12141A' : '#FFFFFF';
+  const textColor = isDark ? '#F0F2FF' : '#0F172A';
+  const subTextColor = isDark ? '#8892A4' : '#64748B';
+  const borderColor = isDark ? '#1E2235' : '#E2E8F0';
+
   const [scanning, setScanning] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [faults, setFaults] = useState<any[]>([]);
@@ -175,7 +189,7 @@ export default function ScannerScreen() {
 
   function handleSchedule() {
     Alert.alert(
-      "Agendar Revisão",
+      t('agendarRevisao'),
       "Deseja agendar uma revisão na oficina mais próxima?",
       [
         { text: "Cancelar", style: "cancel" },
@@ -185,50 +199,50 @@ export default function ScannerScreen() {
   }
 
   return (
-    <ScreenContainer containerClassName="bg-background" edges={["top", "left", "right"]}>
-      <View style={styles.header}>
+    <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
+      <View style={[styles.header, { borderBottomColor: borderColor }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#F0F2FF" />
+          <MaterialIcons name="arrow-back" size={22} color={textColor} />
         </Pressable>
-        <Text style={styles.headerTitle}>Scanner OBD-II</Text>
-        <Pressable onPress={handleScan} style={styles.scanBtn} disabled={scanning}>
-          <MaterialIcons name="refresh" size={20} color={scanning ? "#8892A4" : "#00B4FF"} />
+        <Text style={[styles.headerTitle, { color: textColor }]}>{t('tituloScanner')}</Text>
+        <Pressable onPress={handleScan} style={[styles.scanBtn, !isDark && { backgroundColor: '#E0F2FE' }]} disabled={scanning}>
+          <MaterialIcons name="refresh" size={20} color={scanning ? subTextColor : "#00B4FF"} />
         </Pressable>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         
         {/* ================= CARD DE SAUDE DINAMICO ================= */}
-        <View style={styles.healthCard}>
+        <View style={[styles.healthCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
           <View style={styles.healthLeft}>
-            <Text style={styles.healthLabel}>Saúde do Veículo</Text>
+            <Text style={[styles.healthLabel, { color: subTextColor }]}>{t('saudeVeiculo')}</Text>
             <Text style={[styles.healthScore, isHealthy && { color: "#00E676" }]}>{healthScore}</Text>
-            <Text style={styles.healthUnit}>/ 100</Text>
+            <Text style={[styles.healthUnit, { color: subTextColor }]}>/ 100</Text>
           </View>
           <View style={styles.healthRight}>
-            <View style={styles.healthBar}>
+            <View style={[styles.healthBar, { backgroundColor: borderColor }]}>
               <View style={[
                 styles.healthFill, 
                 { width: `${healthScore}%` as any, backgroundColor: isHealthy ? "#00E676" : "#FFB300" }
               ]} />
             </View>
             <Text style={[styles.healthStatus, isHealthy && { color: "#00E676" }]}>
-              {isHealthy ? "Em perfeito estado" : "Atenção necessária"}
+              {isHealthy ? t('emPerfeitoEstado') : t('atencaoNecessaria')}
             </Text>
-            <Text style={styles.healthSub}>
-              {scanning ? "Analisando ECU..." : `${faults.length} erro(s) encontrado(s)`}
+            <Text style={[styles.healthSub, { color: subTextColor }]}>
+              {scanning ? t('analisandoEcu') : `${faults.length} ${t('errosEncontrados')}`}
             </Text>
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Códigos de Falha</Text>
+        <Text style={[styles.sectionTitle, { color: subTextColor }]}>{t('codigosFalha')}</Text>
         
         {/* ================= MENSAGEM SE NAO TIVER ERROS ================= */}
         {!scanning && faults.length === 0 && (
-          <View style={styles.emptyState}>
+          <View style={[styles.emptyState, { backgroundColor: cardColor, borderColor: borderColor }]}>
             <MaterialIcons name="check-circle" size={48} color="#00E676" style={{ opacity: 0.8 }} />
-            <Text style={styles.emptyTitle}>Nenhuma falha detectada!</Text>
-            <Text style={styles.emptyDesc}>A injeção eletrônica não reportou nenhum código de erro ativo ou pendente.</Text>
+            <Text style={[styles.emptyTitle, { color: textColor }]}>{t('nenhumaFalha')}</Text>
+            <Text style={[styles.emptyDesc, { color: subTextColor }]}>{t('nenhumaFalhaDesc')}</Text>
           </View>
         )}
 
@@ -236,19 +250,19 @@ export default function ScannerScreen() {
         {faults.map((fault, index) => {
           const cfg = SEVERITY_CONFIG[fault.severity as keyof typeof SEVERITY_CONFIG];
           return (
-            <View key={index} style={styles.faultCard}>
+            <View key={index} style={[styles.faultCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
               <View style={[styles.faultIconWrap, { backgroundColor: cfg.bg }]}>
                 <MaterialIcons name={cfg.icon} size={22} color={cfg.color} />
               </View>
               <View style={styles.faultInfo}>
                 <View style={styles.faultHeader}>
-                  <Text style={styles.faultCode}>{fault.code}</Text>
+                  <Text style={[styles.faultCode, { color: textColor }]}>{fault.code}</Text>
                   <View style={[styles.faultBadge, { backgroundColor: cfg.bg }]}>
-                    <Text style={[styles.faultBadgeText, { color: cfg.color }]}>{cfg.label}</Text>
+                    <Text style={[styles.faultBadgeText, { color: cfg.color }]}>{t(cfg.labelKey)}</Text>
                   </View>
                 </View>
-                <Text style={styles.faultDesc}>{fault.desc}</Text>
-                <Text style={styles.faultSystem}>{fault.system}</Text>
+                <Text style={[styles.faultDesc, { color: subTextColor }]}>{fault.desc}</Text>
+                <Text style={[styles.faultSystem, { color: subTextColor }]}>{fault.system}</Text>
               </View>
             </View>
           );
@@ -259,19 +273,19 @@ export default function ScannerScreen() {
           <>
             <Pressable onPress={handleClearErrors} disabled={clearing} style={({ pressed }) => [styles.clearBtn, pressed && { opacity: 0.8 }]}>
               <MaterialIcons name="delete-sweep" size={20} color="#FF3D57" />
-              <Text style={styles.clearBtnText}>{clearing ? "Apagando..." : "Apagar Memória de Falhas"}</Text>
+              <Text style={styles.clearBtnText}>{clearing ? t('apagando') : t('apagarMemoria')}</Text>
             </Pressable>
 
             <Pressable onPress={handleSchedule} style={({ pressed }) => [styles.scheduleBtn, pressed && { opacity: 0.8 }]}>
-              <MaterialIcons name="event" size={20} color="#0A0A0F" />
-              <Text style={styles.scheduleBtnText}>Agendar Revisão</Text>
+              <MaterialIcons name="event" size={20} color={isDark ? "#0A0A0F" : "#FFFFFF"} />
+              <Text style={[styles.scheduleBtnText, { color: isDark ? "#0A0A0F" : "#FFFFFF" }]}>{t('agendarRevisao')}</Text>
             </Pressable>
           </>
         )}
 
-        <Pressable onPress={handleScan} disabled={scanning} style={({ pressed }) => [styles.rescanBtn, pressed && { opacity: 0.7 }]}>
+        <Pressable onPress={handleScan} disabled={scanning} style={({ pressed }) => [styles.rescanBtn, { backgroundColor: cardColor, borderColor: isDark ? "#00B4FF44" : "#BAE6FD" }, pressed && { opacity: 0.7 }]}>
           <MaterialIcons name="wifi-tethering" size={18} color="#00B4FF" />
-          <Text style={styles.rescanBtnText}>{scanning ? "Escaneando a ECU..." : "Novo Escaneamento"}</Text>
+          <Text style={styles.rescanBtnText}>{scanning ? t('escaneandoEcu') : t('novoEscaneamento')}</Text>
         </Pressable>
 
       </ScrollView>
@@ -281,44 +295,44 @@ export default function ScannerScreen() {
 
 // ================= ESTILOS (CSS in JS) =================
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#1E2235" },
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
   backBtn: { padding: 4, marginRight: 8 },
-  headerTitle: { flex: 1, fontSize: 17, fontWeight: "700", color: "#F0F2FF" },
+  headerTitle: { flex: 1, fontSize: 17, fontWeight: "700" },
   scanBtn: { padding: 6, backgroundColor: "#00B4FF22", borderRadius: 8 },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, gap: 12, paddingBottom: 40 },
 
-  healthCard: { backgroundColor: "#12141A", borderRadius: 16, padding: 16, borderWidth: 1, borderColor: "#1E2235", flexDirection: "row", gap: 16, marginBottom: 4 },
+  healthCard: { borderRadius: 16, padding: 16, borderWidth: 1, flexDirection: "row", gap: 16, marginBottom: 4 },
   healthLeft: { alignItems: "center", justifyContent: "center", minWidth: 70 },
-  healthLabel: { fontSize: 10, color: "#8892A4", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 },
+  healthLabel: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 },
   healthScore: { fontSize: 42, fontWeight: "800", color: "#FFB300", fontVariant: ["tabular-nums"] },
-  healthUnit: { fontSize: 12, color: "#8892A4" },
+  healthUnit: { fontSize: 12 },
   healthRight: { flex: 1, justifyContent: "center", gap: 8 },
-  healthBar: { height: 6, backgroundColor: "#1E2235", borderRadius: 3, overflow: "hidden" },
-  healthFill: { height: "100%", backgroundColor: "#FFB300", borderRadius: 3 },
+  healthBar: { height: 6, borderRadius: 3, overflow: "hidden" },
+  healthFill: { height: "100%", borderRadius: 3 },
   healthStatus: { fontSize: 14, fontWeight: "600", color: "#FFB300" },
-  healthSub: { fontSize: 12, color: "#8892A4" },
+  healthSub: { fontSize: 12 },
 
-  sectionTitle: { fontSize: 12, fontWeight: "600", color: "#8892A4", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4, marginTop: 4 },
+  sectionTitle: { fontSize: 12, fontWeight: "600", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4, marginTop: 4 },
 
-  emptyState: { alignItems: "center", paddingVertical: 30, backgroundColor: "#12141A", borderRadius: 16, borderWidth: 1, borderColor: "#1E2235", borderStyle: "dashed", gap: 8 },
-  emptyTitle: { fontSize: 16, fontWeight: "700", color: "#F0F2FF", marginTop: 8 },
-  emptyDesc: { fontSize: 12, color: "#8892A4", textAlign: "center", paddingHorizontal: 20 },
+  emptyState: { alignItems: "center", paddingVertical: 30, borderRadius: 16, borderWidth: 1, borderStyle: "dashed", gap: 8 },
+  emptyTitle: { fontSize: 16, fontWeight: "700", marginTop: 8 },
+  emptyDesc: { fontSize: 12, textAlign: "center", paddingHorizontal: 20 },
 
-  faultCard: { backgroundColor: "#12141A", borderRadius: 14, padding: 14, borderWidth: 1, borderColor: "#1E2235", flexDirection: "row", gap: 12, alignItems: "flex-start" },
+  faultCard: { borderRadius: 14, padding: 14, borderWidth: 1, flexDirection: "row", gap: 12, alignItems: "flex-start" },
   faultIconWrap: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   faultInfo: { flex: 1 },
   faultHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
-  faultCode: { fontSize: 15, fontWeight: "700", color: "#F0F2FF", fontVariant: ["tabular-nums"] },
+  faultCode: { fontSize: 15, fontWeight: "700", fontVariant: ["tabular-nums"] },
   faultBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   faultBadgeText: { fontSize: 10, fontWeight: "600" },
-  faultDesc: { fontSize: 12, color: "#8892A4", lineHeight: 18, marginBottom: 2 },
-  faultSystem: { fontSize: 10, color: "#8892A4", textTransform: "uppercase", letterSpacing: 0.5 },
+  faultDesc: { fontSize: 12, lineHeight: 18, marginBottom: 2 },
+  faultSystem: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 },
 
   clearBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#FF3D5711", borderWidth: 1, borderColor: "#FF3D5744", borderRadius: 14, paddingVertical: 14, marginTop: 8 },
   clearBtnText: { fontSize: 14, fontWeight: "700", color: "#FF3D57" },
   scheduleBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#00B4FF", borderRadius: 14, paddingVertical: 14 },
-  scheduleBtnText: { fontSize: 15, fontWeight: "700", color: "#0A0A0F" },
-  rescanBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#12141A", borderRadius: 14, paddingVertical: 12, borderWidth: 1, borderColor: "#00B4FF44", marginTop: 8 },
+  scheduleBtnText: { fontSize: 15, fontWeight: "700" },
+  rescanBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, paddingVertical: 12, borderWidth: 1, marginTop: 8 },
   rescanBtnText: { fontSize: 14, fontWeight: "600", color: "#00B4FF" },
 });

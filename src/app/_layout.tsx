@@ -11,6 +11,9 @@ import { useColorScheme, View } from 'react-native';
 // Importamos o AsyncStorage para ler a memória do celular
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+// === NOVO: Importação do Provedor de Contexto Global (Tema e Idioma) ===
+import { AppProvider } from '../contexts/AppContext';
+
 // Segura a tela de splash nativa inicial para não piscar branco
 SplashScreen.preventAutoHideAsync();
 
@@ -50,11 +53,14 @@ export default function TabLayout() {
   }
 
   return (
-    <View style={{ flex: 1 }}>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        {/* O headerShown: false oculta aquela barra de título feia nativa do Android */}
-        <Stack screenOptions={{ headerShown: false }} />
-      </ThemeProvider>
-    </View>
+    // === NOVO: AppProvider envolve toda a aplicação para fornecer os dados dinâmicos ===
+    <AppProvider>
+      <View style={{ flex: 1 }}>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          {/* O headerShown: false oculta aquela barra de título feia nativa do Android */}
+          <Stack screenOptions={{ headerShown: false }} />
+        </ThemeProvider>
+      </View>
+    </AppProvider>
   );
 }
