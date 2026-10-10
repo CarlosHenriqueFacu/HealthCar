@@ -96,7 +96,6 @@ export default function HomeScreen() {
         const veiculoCadastrado = await AsyncStorage.getItem('@veiculo_cadastrado');
         
         // Se NÃO tem carro, redireciona imediatamente e aborta o resto da função!
-        // Isso impede que os pedidos de permissão apareçam antes da hora.
         if (veiculoCadastrado === null) {
           router.replace('/(auth)/cadastro' as any);
           return; 
@@ -120,7 +119,6 @@ export default function HomeScreen() {
       }
     }
 
-    // Delay super rápido apenas para garantir que a interface de navegação está pronta
     setTimeout(setupApp, 100);
 
     const subscription = AppState.addEventListener('change', nextAppState => {
@@ -366,7 +364,31 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* === DASHBOARD SEM ANIMAÇÃO DE OPACIDADE (CORRIGE BUG INVISÍVEL) === */}
+        {/* --- MOVIDO: Menu de Ferramentas Secundárias agora fica ACIMA do Dashboard --- */}
+        <View style={styles.toolsSection}>
+          <Text style={[styles.toolsTitle, { color: subTextColor }]}>{t('ferramentas')}</Text>
+          <View style={styles.toolsGrid}>
+            <Pressable style={({ pressed }) => [styles.toolCard, { backgroundColor: cardColor, borderColor: borderColor }, pressed && styles.toolCardPressed]} onPress={() => router.push("/scanner" as any)}>
+              <View style={[styles.toolIcon, { backgroundColor: isDark ? "#FF3D5722" : "#FFE4E6" }]}><MaterialIcons name="wifi-tethering-error" size={26} color="#FF3D57" /></View>
+              <Text style={[styles.toolCardTitle, { color: textColor }]}>{t('scanner')}</Text>
+              <Text style={[styles.toolCardSub, { color: subTextColor }]}>{t('scannerSub')}</Text>
+            </Pressable>
+            
+            <Pressable style={({ pressed }) => [styles.toolCard, { backgroundColor: cardColor, borderColor: borderColor }, pressed && styles.toolCardPressed]} onPress={() => router.push("/relatorios" as any)}>
+              <View style={[styles.toolIcon, { backgroundColor: isDark ? "#FFB30022" : "#FEF3C7" }]}><MaterialIcons name="history" size={26} color="#FFB300" /></View>
+              <Text style={[styles.toolCardTitle, { color: textColor }]}>{t('relatorios')}</Text>
+              <Text style={[styles.toolCardSub, { color: subTextColor }]}>{t('relatoriosSub')}</Text>
+            </Pressable>
+            
+            <Pressable style={({ pressed }) => [styles.toolCard, { backgroundColor: cardColor, borderColor: borderColor }, pressed && styles.toolCardPressed]} onPress={() => tentarConexaoAutomatica()}>
+              <View style={[styles.toolIcon, { backgroundColor: isDark ? "#00B4FF22" : "#E0F2FE" }]}><MaterialIcons name="bluetooth" size={26} color="#00B4FF" /></View>
+              <Text style={[styles.toolCardTitle, { color: textColor }]}>{t('reconectar')}</Text>
+              <Text style={[styles.toolCardSub, { color: subTextColor }]}>{t('reconectarSub')}</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* --- MOVIDO: Dashboard de Telemetria agora fica ABAIXO das Ferramentas --- */}
         <View style={styles.dashboard}>
           <View style={[styles.kmRow, { backgroundColor: cardColor, borderColor: borderColor }]}>
             <View style={styles.kmCard}>
@@ -403,29 +425,6 @@ export default function HomeScreen() {
           <View style={{ position: "relative" }}>
             <DevBadge />
             <FuelChart onPress={() => router.push("/detalhes/consumo" as any)} />
-          </View>
-        </View>
-
-        <View style={styles.toolsSection}>
-          <Text style={[styles.toolsTitle, { color: subTextColor }]}>{t('ferramentas')}</Text>
-          <View style={styles.toolsGrid}>
-            <Pressable style={({ pressed }) => [styles.toolCard, { backgroundColor: cardColor, borderColor: borderColor }, pressed && styles.toolCardPressed]} onPress={() => router.push("/scanner" as any)}>
-              <View style={[styles.toolIcon, { backgroundColor: isDark ? "#FF3D5722" : "#FFE4E6" }]}><MaterialIcons name="wifi-tethering-error" size={26} color="#FF3D57" /></View>
-              <Text style={[styles.toolCardTitle, { color: textColor }]}>{t('scanner')}</Text>
-              <Text style={[styles.toolCardSub, { color: subTextColor }]}>{t('scannerSub')}</Text>
-            </Pressable>
-            
-            <Pressable style={({ pressed }) => [styles.toolCard, { backgroundColor: cardColor, borderColor: borderColor }, pressed && styles.toolCardPressed]} onPress={() => router.push("/relatorios" as any)}>
-              <View style={[styles.toolIcon, { backgroundColor: isDark ? "#FFB30022" : "#FEF3C7" }]}><MaterialIcons name="history" size={26} color="#FFB300" /></View>
-              <Text style={[styles.toolCardTitle, { color: textColor }]}>{t('relatorios')}</Text>
-              <Text style={[styles.toolCardSub, { color: subTextColor }]}>{t('relatoriosSub')}</Text>
-            </Pressable>
-            
-            <Pressable style={({ pressed }) => [styles.toolCard, { backgroundColor: cardColor, borderColor: borderColor }, pressed && styles.toolCardPressed]} onPress={() => tentarConexaoAutomatica()}>
-              <View style={[styles.toolIcon, { backgroundColor: isDark ? "#00B4FF22" : "#E0F2FE" }]}><MaterialIcons name="bluetooth" size={26} color="#00B4FF" /></View>
-              <Text style={[styles.toolCardTitle, { color: textColor }]}>{t('reconectar')}</Text>
-              <Text style={[styles.toolCardSub, { color: subTextColor }]}>{t('reconectarSub')}</Text>
-            </Pressable>
           </View>
         </View>
 
@@ -497,7 +496,10 @@ const styles = StyleSheet.create({
   liveActionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 14, borderRadius: 16, borderWidth: 1 },
   liveActionBtnPrimary: { backgroundColor: "#00B4FF", borderColor: "#00B4FF" },
   liveActionBtnText: { fontSize: 14, fontWeight: "700", textTransform: 'uppercase', letterSpacing: 1 },
-  dashboard: { paddingHorizontal: 16, gap: 12, marginBottom: 8 },
+  
+  // === Ajuste de margens do Dashboard ===
+  dashboard: { paddingHorizontal: 16, gap: 12, marginBottom: 8, marginTop: 12 },
+  
   kmRow: { flexDirection: "row", borderRadius: 16, borderWidth: 1, overflow: "hidden" },
   kmCard: { flex: 1, padding: 16, alignItems: "center", gap: 2, position: "relative" },
   kmDivider: { width: 1, marginVertical: 12 },
@@ -506,7 +508,10 @@ const styles = StyleSheet.create({
   kmUnit: { fontSize: 11 },
   telemetryGrid: { flexDirection: "row", gap: 10 },
   batteryStatusText: { position: 'absolute', bottom: 10, alignSelf: 'center', fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
-  toolsSection: { paddingHorizontal: 16, marginTop: 12 },
+  
+  // === Ajuste de margens das Ferramentas ===
+  toolsSection: { paddingHorizontal: 16, marginTop: 0 },
+  
   toolsTitle: { fontSize: 13, fontWeight: "600", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 },
   toolsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   toolCard: { flex: 1, minWidth: (SCREEN_WIDTH - 52) / 3 - 4, borderRadius: 16, padding: 14, borderWidth: 1, position: "relative", overflow: "hidden" },
