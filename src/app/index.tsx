@@ -28,12 +28,11 @@ import { FuelChart } from "../components/FuelChart";
 import { ScreenContainer } from "../components/screen-container";
 import { TelemetryCard } from "../components/TelemetryCard";
 
-import RNBluetoothClassic from "react-native-bluetooth-classic";
-
-// === IMPLEMENTAÇÃO DE NOTIFICAÇÕES E ESTADO GLOBAL ===
 import * as Notifications from 'expo-notifications';
+import RNBluetoothClassic from "react-native-bluetooth-classic";
 import { useApp } from '../contexts/AppContext';
 
+// Configuração global de tratamento de notificações para que apareçam mesmo com o app em primeiro plano
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -46,11 +45,22 @@ Notifications.setNotificationHandler({
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
+/** 
+ * @constant TELEMETRY_IDLE 
+ * @description Estado nulo/inicial dos dados de telemetria antes da comunicação com a ECU.
+ */
 const TELEMETRY_IDLE = { speed: 0, rpm: 0, temp: 0, fuel: 0, kmTotal: 0, kmDay: 0, volt: 0 };
 
+/**
+ * Componente HomeScreen
+ * @description Dashboard central da aplicação. Gerencia a conexão Bluetooth,
+ * processamento de telemetria em tempo real, cálculo do odômetro virtual por offset e 
+ * disparos de alertas de segurança estruturais.
+ */
 export default function HomeScreen() {
   const { theme, t } = useApp();
   
+  // Resolução dinâmica da paleta de cores
   const isDark = theme === 'dark';
   const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
   const cardColor = isDark ? '#12141A' : '#FFFFFF';
@@ -59,27 +69,44 @@ export default function HomeScreen() {
   const borderColor = isDark ? '#1E2235' : '#E2E8F0';
   const iconBgColor = isDark ? '#1E2235' : '#F8FAFC';
 
+  // Estados operacionais e de telemetria
   const [isActive, setIsActive] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [telemetry, setTelemetry] = useState(TELEMETRY_IDLE);
   const [batteryStatus, setBatteryStatus] = useState("batDesconhecido");
   
+  // Persistência de configuração de veículo
   const [carroConfigurado, setCarroConfigurado] = useState({
     marca: 'Carregando...', veiculo: '', ano: '', motor: '', km: '0'
   });
 
+  // Estados de controle do Odômetro Virtual
+  const [virtualOdometro, setVirtualOdometro] = useState({
+    offset: 0,
+    lastObdKm: 0,
+    isCalibrated: false
+  });
+  
+  // Estados de UI Modais
   const [showKmModal, setShowKmModal] = useState(false);
-  const [kmObd, setKmObd] = useState("0");
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  
+  // Entradas e leituras brutas
+  const [kmObdRaw, setKmObdRaw] = useState(0); 
   const [kmInput, setKmInput] = useState("");
 
+  // Efeitos e Animações (Reanimated)
   const [pillConfig, setPillConfig] = useState({ message: '', type: 'info' });
   const pillTranslateY = useSharedValue(-150); 
   const headerGlow = useSharedValue(0);
-
   const appState = useRef(AppState.currentState);
 
   useKeepAwake();
 
+  /**
+   * @function showPill
+   * @description Aciona a animação de um alerta do tipo 'Pill' (Toast) no topo da tela.
+   */
   const showPill = (message: string, type: 'success' | 'error' | 'info') => {
     setPillConfig({ message, type });
     pillTranslateY.value = withSpring(50, { damping: 15, stiffness: 100 }); 
@@ -89,54 +116,63 @@ export default function HomeScreen() {
   const pillStyle = useAnimatedStyle(() => ({ transform: [{ translateY: pillTranslateY.value }] }));
   const headerGlowStyle = useAnimatedStyle(() => ({ opacity: headerGlow.value }));
 
-  // === LÓGICA DE INICIALIZAÇÃO CORRIGIDA ===
+  /**
+   * @function setupApp
+   * @description Inicialização assíncrona. Valida a existência de perfil de usuário local,
+   * requisita permissões de sistema operativo e aciona o handshake Bluetooth.
+   */
   useEffect(() => {
     async function setupApp() {
       try {
         const veiculoCadastrado = await AsyncStorage.getItem('@veiculo_cadastrado');
         
-        // Se NÃO tem carro, redireciona imediatamente e aborta o resto da função!
+        // Bloqueio de roteamento se não houver contexto de veículo
         if (veiculoCadastrado === null) {
           router.replace('/(auth)/cadastro' as any);
           return; 
         } 
 
-        // Se tem carro, carrega os dados e SÓ ENTÃO pede as permissões
         const veiculoSalvo = JSON.parse(veiculoCadastrado);
         setCarroConfigurado(veiculoSalvo);
         setTelemetry(prev => ({ ...prev, kmTotal: Number(veiculoSalvo.km) }));
 
-        const { status } = await Notifications.requestPermissionsAsync();
-        if (status !== 'granted') {
-          console.log("Permissão de notificações recusada.");
+        // Restauração de estado em cache do Odômetro
+        const savedOdo = await AsyncStorage.getItem('@virtual_odometro');
+        if (savedOdo !== null) {
+          setVirtualOdometro(JSON.parse(savedOdo));
         }
+
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status !== 'granted') console.log("[Permissões] Notificações Push recusadas.");
 
         headerGlow.value = withTiming(1, { duration: 800 });
         tentarConexaoAutomatica();
 
       } catch (e) { 
-        console.log("Erro ao inicializar", e); 
+        console.log("Erro fatal na inicialização:", e); 
       }
     }
 
     setTimeout(setupApp, 100);
-
-    const subscription = AppState.addEventListener('change', nextAppState => {
-      appState.current = nextAppState;
-    });
-
-    return () => {
-      subscription.remove();
-    };
+    const subscription = AppState.addEventListener('change', nextAppState => { appState.current = nextAppState; });
+    return () => { subscription.remove(); };
   }, []);
 
+  /**
+   * @function dispararAlerta
+   * @description Invoca a API nativa do dispositivo para renderizar notificações push.
+   */
   const dispararAlerta = async (titulo: string, mensagem: string) => {
     await Notifications.scheduleNotificationAsync({
-      content: { title: titulo, body: mensagem, sound: true },
-      trigger: null, 
+      content: { title: titulo, body: mensagem, sound: true }, trigger: null, 
     });
   };
 
+  /**
+   * @function tentarConexaoAutomatica
+   * @description Estabelece conexão com o scanner OBD-II pareado via Bluetooth Classic.
+   * Recupera o PID 0131 (Distance since DTCs cleared) e aplica a lógica de Offset.
+   */
   async function tentarConexaoAutomatica() {
     try {
       setIsConnecting(true);
@@ -171,35 +207,45 @@ export default function HomeScreen() {
           setIsActive(true); 
 
           try {
-            await obdDevice.write('01A6\r');
+            await obdDevice.write('0131\r');
             await new Promise(resolve => setTimeout(resolve, 500));
-            let respostaKm = await obdDevice.read();
+            let respostaObd = await obdDevice.read();
             
-            let kmLidoDoCarro = carroConfigurado.km; 
+            let obdRawValue = 0;
 
-            if (respostaKm && respostaKm.includes("41 A6")) {
-              const hexData = respostaKm.replace(/\s/g, '').split("41A6")[1];
-              if (hexData && hexData.length >= 8) {
+            if (respostaObd && respostaObd.includes("41 31")) {
+              const hexData = respostaObd.replace(/\s/g, '').split("4131")[1];
+              if (hexData && hexData.length >= 4) {
                  const A = parseInt(hexData.substring(0, 2), 16);
                  const B = parseInt(hexData.substring(2, 4), 16);
-                 const C = parseInt(hexData.substring(4, 6), 16);
-                 const D = parseInt(hexData.substring(6, 8), 16);
-                 
-                 const calcKm = (A * 16777216 + B * 65536 + C * 256 + D) / 10;
-                 kmLidoDoCarro = Math.round(calcKm).toString();
+                 obdRawValue = (A * 256) + B;
               }
             } else {
-              kmLidoDoCarro = "122989"; 
+              console.log("[OBD-II] Veículo bloqueou o PID 0131. Utilizando mock de fallback.");
+              obdRawValue = 16556;
             }
 
-            if (kmLidoDoCarro !== carroConfigurado.km && kmLidoDoCarro !== "0") {
-              setKmObd(kmLidoDoCarro);
-              setKmInput(kmLidoDoCarro);
-              setTimeout(() => setShowKmModal(true), 2000); 
+            setKmObdRaw(obdRawValue);
+
+            // Algoritmo de Auditoria e Offset do Odômetro Virtual
+            if (!virtualOdometro.isCalibrated) {
+              setKmInput(carroConfigurado.km);
+              setShowKmModal(true);
+            } else if (obdRawValue < virtualOdometro.lastObdKm) {
+              setKmInput(telemetry.kmTotal.toString());
+              setShowKmModal(true);
+              dispararAlerta("Recalibração Necessária", "Detectamos um reset na central do veículo. Por favor, confirme o KM do painel.");
+            } else {
+              const kmRealCalculado = virtualOdometro.offset + obdRawValue;
+              setTelemetry(prev => ({ ...prev, kmTotal: kmRealCalculado }));
+              
+              const odoDataAtualizado = { ...virtualOdometro, lastObdKm: obdRawValue };
+              await AsyncStorage.setItem('@virtual_odometro', JSON.stringify(odoDataAtualizado));
+              setVirtualOdometro(odoDataAtualizado);
             }
 
           } catch (erroLeitura) {
-            console.log("Falha ao comunicar requisição de KM: ", erroLeitura);
+            console.log("Falha ao transacionar dados OBD-II: ", erroLeitura);
           }
 
         } else {
@@ -216,9 +262,11 @@ export default function HomeScreen() {
     }
   }
 
+  /**
+   * @description Loop de Background de Telemetria Contínua
+   */
   useEffect(() => {
     let loopLento: ReturnType<typeof setInterval>;
-
     if (isActive) {
       loopLento = setInterval(async () => {
         try {
@@ -235,45 +283,68 @@ export default function HomeScreen() {
           let tempSimulada = 92;
 
           setTelemetry(prev => ({ 
-            ...prev, 
-            volt: voltSimulado,
-            fuel: fuelSimulado,
-            temp: tempSimulada 
+            ...prev, volt: voltSimulado, fuel: fuelSimulado, temp: tempSimulada 
           }));
 
           if (appState.current.match(/inactive|background/)) {
-            if (tempSimulada > 100) {
-              dispararAlerta("Atenção à Temperatura!", `O motor atingiu os ${tempSimulada}°C. Risco de sobreaquecimento.`);
-            }
-            if (voltSimulado < 12.0) {
-              dispararAlerta("Bateria Fraca", `A tensão desceu para ${voltSimulado}V. Verifique o alternador.`);
-            }
+            if (tempSimulada > 100) dispararAlerta("Atenção à Temperatura!", `O motor atingiu os ${tempSimulada}°C.`);
+            if (voltSimulado < 12.0) dispararAlerta("Bateria Fraca", `A tensão desceu para ${voltSimulado}V.`);
           }
-
         } catch (error) {
-          if (appState.current.match(/inactive|background/)) {
-            dispararAlerta("Sinal Perdido", "A comunicação Bluetooth com o veículo foi interrompida.");
-          }
+          if (appState.current.match(/inactive|background/)) dispararAlerta("Sinal Perdido", "Comunicação Bluetooth interrompida.");
           setIsActive(false);
         }
       }, 5000); 
     }
-
-    return () => {
-      if (loopLento) clearInterval(loopLento);
-    };
+    return () => { if (loopLento) clearInterval(loopLento); };
   }, [isActive]);
 
-  const salvarNovoKm = async () => {
+  // ======================================================================
+  // 🧪 BLOCO DE TESTE DE NOTIFICAÇÕES (MOCK DE 1 MINUTO)
+  // @todo Remover ou desativar este bloco no ambiente de produção.
+  // ======================================================================
+  useEffect(() => {
+    // Matriz contendo falhas reais de protocolo OBD-II
+    const MOCK_ERRORS = [
+      { title: "⚠️ Falha no Motor", message: "Código P0300 detectado: Falha de ignição em múltiplos cilindros." },
+      { title: "🌡️ Risco de Superaquecimento", message: "A temperatura do motor atingiu 106°C. Encoste o veículo imediatamente!" },
+      { title: "🔋 Alerta de Bateria", message: "Tensão caiu para 11.2V. O alternador pode ter parado de carregar." },
+      { title: "⛽ Injeção Eletrônica", message: "Código P0190: Sensor de pressão da flauta de combustível com mau funcionamento." },
+      { title: "💨 Sistema de Emissões", message: "Código P0420: Eficiência do catalisador abaixo do limite (Banco 1)." }
+    ];
+
+    // Engine de simulação temporal (Disparo a cada 60s)
+    const testLoop = setInterval(() => {
+      const randomError = MOCK_ERRORS[Math.floor(Math.random() * MOCK_ERRORS.length)];
+      dispararAlerta(randomError.title, randomError.message);
+      console.log("[MOCK_TEST] Notificação disparada no background:", randomError.title);
+    }, 60000);
+
+    return () => clearInterval(testLoop);
+  }, []);
+  // ======================================================================
+
+  /**
+   * @function calibrarOdometroVirtual
+   * @description Sincroniza a quilometragem do painel informada pelo usuário com a 
+   * leitura bruta da ECU, gerando e persistindo um novo Offset de cálculo.
+   */
+  const calibrarOdometroVirtual = async () => {
     try {
-      const atualizado = { ...carroConfigurado, km: kmInput };
-      await AsyncStorage.setItem('@veiculo_cadastrado', JSON.stringify(atualizado));
-      setCarroConfigurado(atualizado);
-      setTelemetry(prev => ({ ...prev, kmTotal: Number(kmInput) }));
+      const painelKmInformado = Number(kmInput);
+      const novoOffset = painelKmInformado - kmObdRaw;
+
+      const dadosOdometro = { offset: novoOffset, lastObdKm: kmObdRaw, isCalibrated: true };
+
+      await AsyncStorage.setItem('@virtual_odometro', JSON.stringify(dadosOdometro));
+      setVirtualOdometro(dadosOdometro);
+      setTelemetry(prev => ({ ...prev, kmTotal: painelKmInformado }));
       setShowKmModal(false);
-      showPill("Quilometragem atualizada com sucesso!", "success");
+      setShowDetailsModal(false);
+      showPill("Odômetro Virtual calibrado com sucesso!", "success");
+
     } catch (error) {
-      console.log("Erro ao salvar KM", error);
+      console.log("[Data Error] Falha ao persistir calibração no AsyncStorage:", error);
     }
   };
 
@@ -364,7 +435,6 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* --- MOVIDO: Menu de Ferramentas Secundárias agora fica ACIMA do Dashboard --- */}
         <View style={styles.toolsSection}>
           <Text style={[styles.toolsTitle, { color: subTextColor }]}>{t('ferramentas')}</Text>
           <View style={styles.toolsGrid}>
@@ -388,9 +458,16 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* --- MOVIDO: Dashboard de Telemetria agora fica ABAIXO das Ferramentas --- */}
         <View style={styles.dashboard}>
-          <View style={[styles.kmRow, { backgroundColor: cardColor, borderColor: borderColor }]}>
+          
+          <Pressable 
+            onPress={() => setShowDetailsModal(true)} 
+            style={({ pressed }) => [
+              styles.kmRow, 
+              { backgroundColor: cardColor, borderColor: borderColor },
+              pressed && { opacity: 0.8 }
+            ]}
+          >
             <View style={styles.kmCard}>
               <MaterialIcons name="speed" size={14} color={subTextColor} />
               <Text style={[styles.kmLabel, { color: subTextColor }]}>{t('kmTotal')}</Text>
@@ -405,7 +482,7 @@ export default function HomeScreen() {
               <Text style={styles.kmValue}>{telemetry.kmDay}</Text>
               <Text style={[styles.kmUnit, { color: subTextColor }]}>km</Text>
             </View>
-          </View>
+          </Pressable>
 
           <View style={styles.telemetryGrid}>
             <TelemetryCard icon="thermostat" label={t('temperatura')} value={isActive ? `${telemetry.temp}` : "--"} unit="°C" color={isActive ? (telemetry.temp > 100 ? "#FF3D57" : "#00E676") : subTextColor} onPress={() => router.push("/detalhes/temperatura" as any)} />
@@ -430,15 +507,22 @@ export default function HomeScreen() {
 
       </ScrollView>
 
+      {/* MODAL 1: CALIBRAÇÃO DO ODÔMETRO VIRTUAL */}
       <Modal visible={showKmModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { backgroundColor: cardColor, borderColor: borderColor }]}>
             <View style={[styles.modalIconBox, { backgroundColor: isDark ? "#00B4FF11" : "#E0F2FE" }]}><MaterialCommunityIcons name="speedometer" size={32} color="#00B4FF" /></View>
-            <Text style={[styles.modalTitle, { color: textColor }]}>{t('atencaoKm')}</Text>
-            <Text style={[styles.modalText, { color: subTextColor }]}>
-              O Scanner OBD2 detetou uma divergência. O sistema obteve <Text style={{fontWeight: '700', color: '#00B4FF'}}>{Number(kmObd).toLocaleString('pt-PT')} km</Text>, mas o seu registo está com <Text style={{fontWeight: '700', color: '#FF3D57'}}>{Number(carroConfigurado.km).toLocaleString('pt-PT')} km</Text>.
-            </Text>
-            <Text style={[styles.modalSubText, { color: subTextColor }]}>Confirme os KM atuais do painel do seu veículo para garantir a precisão dos relatórios de manutenção:</Text>
+            <Text style={[styles.modalTitle, { color: textColor }]}>Calibrar Odômetro</Text>
+            
+            {!virtualOdometro.isCalibrated ? (
+               <Text style={[styles.modalText, { color: subTextColor }]}>
+                 Para ativar o rastreamento preciso, informe a quilometragem exata que está exibida no painel do veículo neste momento.
+               </Text>
+            ) : (
+               <Text style={[styles.modalText, { color: subTextColor }]}>
+                 Um reset na central de injeção foi detectado. Para restaurar o cálculo contínuo, informe o KM atual do painel.
+               </Text>
+            )}
             
             <TextInput 
               style={[styles.modalInput, { backgroundColor: iconBgColor, color: textColor, borderColor: '#00B4FF' }]} 
@@ -449,15 +533,61 @@ export default function HomeScreen() {
             />
 
             <View style={styles.modalBtnRow}>
-              <Pressable style={[styles.modalBtnCancel, { borderColor: borderColor }]} onPress={() => setShowKmModal(false)}>
-                <Text style={[styles.modalBtnCancelText, { color: subTextColor }]}>{t('ignorar')}</Text>
-              </Pressable>
-              <Pressable style={styles.modalBtnConfirm} onPress={salvarNovoKm}>
-                <Text style={[styles.modalBtnConfirmText, { color: isDark ? "#0A0A0F" : "#FFFFFF" }]}>{t('atualizarSistema')}</Text>
+              {virtualOdometro.isCalibrated && (
+                <Pressable style={[styles.modalBtnCancel, { borderColor: borderColor }]} onPress={() => setShowKmModal(false)}>
+                  <Text style={[styles.modalBtnCancelText, { color: subTextColor }]}>{t('ignorar')}</Text>
+                </Pressable>
+              )}
+              <Pressable style={styles.modalBtnConfirm} onPress={calibrarOdometroVirtual}>
+                <Text style={[styles.modalBtnConfirmText, { color: isDark ? "#0A0A0F" : "#FFFFFF" }]}>Sincronizar</Text>
               </Pressable>
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* MODAL 2: DETALHES TÉCNICOS DO CÁLCULO */}
+      <Modal visible={showDetailsModal} transparent animationType="slide">
+        <Pressable style={styles.modalOverlay} onPress={() => setShowDetailsModal(false)}>
+          <Pressable style={[styles.modalBottomSheet, { backgroundColor: cardColor, borderColor: borderColor }]} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.bottomSheetHeader}>
+              <Text style={[styles.bottomSheetTitle, { color: textColor }]}>Detalhes do Odômetro Virtual</Text>
+              <MaterialCommunityIcons name="engine-outline" size={24} color="#00B4FF" />
+            </View>
+
+            <View style={styles.techDataRow}>
+              <Text style={[styles.techDataLabel, { color: subTextColor }]}>Leitura Bruta OBD2 (PID 0131):</Text>
+              <Text style={[styles.techDataValue, { color: textColor }]}>{kmObdRaw.toLocaleString("pt-PT")} km</Text>
+            </View>
+
+            <View style={styles.techDataRow}>
+              <Text style={[styles.techDataLabel, { color: subTextColor }]}>Offset de Calibração Salvo:</Text>
+              <Text style={[styles.techDataValue, { color: textColor }]}>{virtualOdometro.offset.toLocaleString("pt-PT")} km</Text>
+            </View>
+
+            <View style={[styles.techDataRow, { borderBottomWidth: 0, marginTop: 10 }]}>
+              <Text style={[styles.techDataLabel, { color: '#00B4FF', fontWeight: 'bold' }]}>Resultado Final (Painel APP):</Text>
+              <Text style={[styles.techDataValue, { color: '#00B4FF', fontWeight: 'bold', fontSize: 18 }]}>
+                {telemetry.kmTotal.toLocaleString("pt-PT")} km
+              </Text>
+            </View>
+
+            <View style={styles.modalBtnRow}>
+              <Pressable style={[styles.modalBtnCancel, { borderColor: borderColor }]} onPress={() => setShowDetailsModal(false)}>
+                <Text style={[styles.modalBtnCancelText, { color: subTextColor }]}>Fechar</Text>
+              </Pressable>
+              <Pressable 
+                style={[styles.modalBtnConfirm, { backgroundColor: '#FF3D57' }]} 
+                onPress={() => {
+                  setKmInput(telemetry.kmTotal.toString());
+                  setShowKmModal(true);
+                }}
+              >
+                <Text style={[styles.modalBtnConfirmText, { color: "#FFF" }]}>Forçar Recalibração</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
     </ScreenContainer>
@@ -497,9 +627,7 @@ const styles = StyleSheet.create({
   liveActionBtnPrimary: { backgroundColor: "#00B4FF", borderColor: "#00B4FF" },
   liveActionBtnText: { fontSize: 14, fontWeight: "700", textTransform: 'uppercase', letterSpacing: 1 },
   
-  // === Ajuste de margens do Dashboard ===
   dashboard: { paddingHorizontal: 16, gap: 12, marginBottom: 8, marginTop: 12 },
-  
   kmRow: { flexDirection: "row", borderRadius: 16, borderWidth: 1, overflow: "hidden" },
   kmCard: { flex: 1, padding: 16, alignItems: "center", gap: 2, position: "relative" },
   kmDivider: { width: 1, marginVertical: 12 },
@@ -509,9 +637,7 @@ const styles = StyleSheet.create({
   telemetryGrid: { flexDirection: "row", gap: 10 },
   batteryStatusText: { position: 'absolute', bottom: 10, alignSelf: 'center', fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
   
-  // === Ajuste de margens das Ferramentas ===
   toolsSection: { paddingHorizontal: 16, marginTop: 0 },
-  
   toolsTitle: { fontSize: 13, fontWeight: "600", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 },
   toolsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   toolCard: { flex: 1, minWidth: (SCREEN_WIDTH - 52) / 3 - 4, borderRadius: 16, padding: 14, borderWidth: 1, position: "relative", overflow: "hidden" },
@@ -522,16 +648,23 @@ const styles = StyleSheet.create({
   headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
   profileBtn: { padding: 4, backgroundColor: "#00B4FF11", borderRadius: 20, borderWidth: 1, borderColor: "#00B4FF44" },
   
-  modalOverlay: { flex: 1, backgroundColor: "#0A0A0FF0", justifyContent: "center", alignItems: "center", padding: 20 },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(10, 10, 15, 0.7)", justifyContent: "center", alignItems: "center", padding: 20 },
   modalBox: { width: "100%", borderRadius: 24, padding: 24, borderWidth: 1, alignItems: "center", shadowColor: "#00B4FF", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.2, shadowRadius: 30, elevation: 10 },
   modalIconBox: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: 16, borderWidth: 1, borderColor: "#00B4FF44" },
   modalTitle: { fontSize: 18, fontWeight: "800", marginBottom: 12 },
   modalText: { fontSize: 14, textAlign: "center", lineHeight: 22, marginBottom: 12 },
   modalSubText: { fontSize: 12, textAlign: "center", marginBottom: 20, opacity: 0.8 },
   modalInput: { width: "100%", borderRadius: 12, fontSize: 24, fontWeight: "700", textAlign: "center", paddingVertical: 16, marginBottom: 24, borderWidth: 1 },
-  modalBtnRow: { flexDirection: "row", gap: 12, width: "100%" },
+  modalBtnRow: { flexDirection: "row", gap: 12, width: "100%", marginTop: 10 },
   modalBtnCancel: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center", borderWidth: 1 },
   modalBtnCancelText: { fontWeight: "700", fontSize: 14 },
   modalBtnConfirm: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center", backgroundColor: "#00B4FF" },
   modalBtnConfirmText: { fontWeight: "800", fontSize: 14 },
+
+  modalBottomSheet: { width: "100%", borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, borderWidth: 1, borderBottomWidth: 0, position: 'absolute', bottom: 0 },
+  bottomSheetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
+  bottomSheetTitle: { fontSize: 18, fontWeight: "700" },
+  techDataRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#1E2235' },
+  techDataLabel: { fontSize: 14, fontWeight: "500" },
+  techDataValue: { fontSize: 16, fontWeight: "600", fontVariant: ["tabular-nums"] }
 });

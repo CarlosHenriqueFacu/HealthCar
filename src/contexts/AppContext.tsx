@@ -1,23 +1,36 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
+/** Tipagem estrita para os temas suportados pelo sistema */
 type Theme = 'dark' | 'light';
+
+/** Tipagem estrita para os idiomas suportados pela aplicação */
 type Language = 'pt' | 'en';
 
+/**
+ * @interface AppContextData
+ * @description Contrato de dados providos pelo contexto global da aplicação.
+ * Encapsula o estado do tema, idioma e os métodos modificadores persistentes.
+ */
 interface AppContextData {
   theme: Theme;
   language: Language;
   toggleTheme: () => void;
   toggleLanguage: () => void;
+  /** Função utilitária de internacionalização (i18n) */
   t: (key: string) => string;
 }
 
 const AppContext = createContext<AppContextData>({} as AppContextData);
 
-// Dicionário expandido abrangendo Configurações e Tela Inicial
+/**
+ * @constant dicionario
+ * @description Matriz estática de localização. Mapeia chaves identificadoras
+ * para strings traduzidas, suportando os escopos de todas as telas da aplicação.
+ */
 const dicionario = {
   pt: {
-    // Tela de Configurações
+    // --- Escopo: Tela de Configurações ---
     configuracoes: 'Configurações',
     conta: 'Conta e Login',
     contaSub: 'Gerenciar sessão ou desconectar',
@@ -29,7 +42,7 @@ const dicionario = {
     temaSub: 'Modo Escuro',
     temaSubClaro: 'Modo Claro',
     
-    // Tela Inicial (index.tsx)
+    // --- Escopo: Tela Inicial (Dashboard Central) ---
     sistemaOnline: 'Sistema Online',
     conectando: 'A conectar...',
     modoOffline: 'Modo Offline',
@@ -42,13 +55,13 @@ const dicionario = {
     combustivel: 'Combustível',
     bateria: 'Bateria',
     
-    // Status da Bateria
+    // --- Escopo: Métricas de Bateria ---
     batCarregando: 'A Carregar (Alternador)',
     batIdeal: 'Ideal',
     batFraca: 'Atenção (Fraca)',
     batDesconhecido: 'Desconhecido',
     
-    // Ferramentas
+    // --- Escopo: Menu de Ferramentas ---
     ferramentas: 'Ferramentas',
     scanner: 'Scanner de Falhas',
     scannerSub: 'Módulo Real Ativo',
@@ -57,13 +70,13 @@ const dicionario = {
     reconectar: 'Reconectar',
     reconectarSub: 'Tentar novamente',
     
-    // Alertas e Modais
+    // --- Escopo: Alertas do Sistema ---
     atencaoKm: 'Atenção à Quilometragem',
     ignorar: 'Ignorar',
     atualizarSistema: 'Atualizar Sistema',
     emImplementacao: 'EM IMPLEMENTAÇÃO',
     
-    // Scanner
+    // --- Escopo: Diagnóstico OBD-II (Scanner) ---
     tituloScanner: 'Scanner OBD-II',
     saudeVeiculo: 'Saúde do Veículo',
     emPerfeitoEstado: 'Em perfeito estado',
@@ -82,7 +95,7 @@ const dicionario = {
     aviso: 'Aviso',
     resolvido: 'Resolvido',
 
-    // Relatórios
+    // --- Escopo: Relatórios e Manutenção Preventiva ---
     tituloRelatorios: 'Relatórios e Óleo',
     proximaTrocaOleo: 'Próxima Troca de Óleo',
     faltamKm: 'Faltam',
@@ -93,7 +106,7 @@ const dicionario = {
     prox: 'Próx.',
     historicoManutencao: 'Histórico de Manutenção',
 
-    // Gráfico Home
+    // --- Escopo: Gráficos da Home e Detalhes de Consumo ---
     consumoSemanal: 'Consumo Semanal',
     litrosPorDia: 'Litros por dia',
     seg: 'Seg',
@@ -103,9 +116,53 @@ const dicionario = {
     sex: 'Sex',
     sab: 'Sáb',
     dom: 'Dom',
+
+    // --- Escopo: Detalhes Técnicos - Temperatura ---
+    temperaturaMotor: 'Temperatura do Motor',
+    temperaturaAtual: 'Temperatura Atual',
+    normal: 'Normal',
+    minima: 'Mínima',
+    media: 'Média',
+    maxima: 'Máxima',
+    oscilacaoTermica: 'Oscilação Térmica (24h)',
+    dadosHorarios: 'Dados Horários',
+
+    // --- Escopo: Detalhes Técnicos - RPM ---
+    rpmAtual: 'RPM Atual',
+    doMaximo: 'do máximo',
+    pico: 'Pico',
+    picosPorPeriodo: 'Picos por Período (24h)',
+    detalhesPorPeriodo: 'Detalhes por Período',
+
+    // --- Escopo: Detalhes Técnicos - Combustível ---
+    nivelAtual: 'Nível Atual',
+    deAutonomia: 'de autonomia',
+    totalSemana: 'Total Semana',
+    mediaDiaria: 'Média Diária',
+    historicoAbastecimentos: 'Histórico de Abastecimentos',
+    abastecimentoCompleto: 'Abastecimento completo',
+    nenhumAbastecimento: 'Nenhum abastecimento registrado',
+    consumoDiario: 'Consumo Diário',
+
+    // --- Escopo: Detalhes Técnicos - Bateria ---
+    carga: 'Carga',
+    saude: 'Saúde',
+    historicoCarga: 'Histórico de Carga',
+
+    // --- Escopo: Eficiência Energética ---
+    total: 'Total',
+    eficiencia: 'Eficiência',
+    consumoVsEficiencia: 'Consumo vs Eficiência',
+    consumoL: 'Consumo (L)',
+    eficienciaKml: 'Eficiência (km/l)',
+    detalhesDiarios: 'Detalhes Diários',
+    consumo: 'Consumo',
+    melhorDia: 'Melhor Dia',
+    piorDia: 'Pior Dia',
   },
+  
   en: {
-    // Settings Screen
+    // --- Escopo: Tela de Configurações ---
     configuracoes: 'Settings',
     conta: 'Account & Login',
     contaSub: 'Manage session or logout',
@@ -117,7 +174,7 @@ const dicionario = {
     temaSub: 'Dark Mode',
     temaSubClaro: 'Light Mode',
     
-    // Home Screen (index.tsx)
+    // --- Escopo: Tela Inicial (Dashboard Central) ---
     sistemaOnline: 'System Online',
     conectando: 'Connecting...',
     modoOffline: 'Offline Mode',
@@ -130,13 +187,13 @@ const dicionario = {
     combustivel: 'Fuel',
     bateria: 'Battery',
     
-    // Battery Status
+    // --- Escopo: Métricas de Bateria ---
     batCarregando: 'Charging (Alternator)',
     batIdeal: 'Ideal',
     batFraca: 'Warning (Weak)',
     batDesconhecido: 'Unknown',
     
-    // Tools
+    // --- Escopo: Menu de Ferramentas ---
     ferramentas: 'Tools',
     scanner: 'Fault Scanner',
     scannerSub: 'Active Real Module',
@@ -145,13 +202,13 @@ const dicionario = {
     reconectar: 'Reconnect',
     reconectarSub: 'Try again',
     
-    // Alerts and Modals
+    // --- Escopo: Alertas do Sistema ---
     atencaoKm: 'Mileage Alert',
     ignorar: 'Ignore',
     atualizarSistema: 'Update System',
     emImplementacao: 'IN PROGRESS',
 
-    // Scanner
+    // --- Escopo: Diagnóstico OBD-II (Scanner) ---
     tituloScanner: 'OBD-II Scanner',
     saudeVeiculo: 'Vehicle Health',
     emPerfeitoEstado: 'In perfect condition',
@@ -170,7 +227,7 @@ const dicionario = {
     aviso: 'Warning',
     resolvido: 'Resolved',
 
-    // Relatórios
+    // --- Escopo: Relatórios e Manutenção Preventiva ---
     tituloRelatorios: 'Reports & Oil',
     proximaTrocaOleo: 'Next Oil Change',
     faltamKm: 'Remaining',
@@ -181,7 +238,7 @@ const dicionario = {
     prox: 'Next',
     historicoManutencao: 'Maintenance History',
 
-    // Gráfico Home
+    // --- Escopo: Gráficos da Home e Detalhes de Consumo ---
     consumoSemanal: 'Weekly Consumption',
     litrosPorDia: 'Liters per day',
     seg: 'Mon',
@@ -191,13 +248,62 @@ const dicionario = {
     sex: 'Fri',
     sab: 'Sat',
     dom: 'Sun',
+
+    // --- Escopo: Detalhes Técnicos - Temperatura ---
+    temperaturaMotor: 'Engine Temperature',
+    temperaturaAtual: 'Current Temperature',
+    normal: 'Normal',
+    minima: 'Minimum',
+    media: 'Avg',
+    maxima: 'Maximum',
+    oscilacaoTermica: 'Thermal Oscillation (24h)',
+    dadosHorarios: 'Hourly Data',
+
+    // --- Escopo: Detalhes Técnicos - RPM ---
+    rpmAtual: 'Current RPM',
+    doMaximo: 'of max',
+    pico: 'Peak',
+    picosPorPeriodo: 'Peaks by Period (24h)',
+    detalhesPorPeriodo: 'Details by Period',
+
+    // --- Escopo: Detalhes Técnicos - Combustível ---
+    nivelAtual: 'Current Level',
+    deAutonomia: 'of range',
+    totalSemana: 'Weekly Total',
+    mediaDiaria: 'Daily Avg',
+    historicoAbastecimentos: 'Refueling History',
+    abastecimentoCompleto: 'Full tank refuel',
+    nenhumAbastecimento: 'No refueling recorded',
+    consumoDiario: 'Daily Consumption',
+
+    // --- Escopo: Detalhes Técnicos - Bateria ---
+    carga: 'Charge',
+    saude: 'Health',
+    historicoCarga: 'Charge History',
+
+    // --- Escopo: Eficiência Energética ---
+    total: 'Total',
+    eficiencia: 'Efficiency',
+    consumoVsEficiencia: 'Consumption vs Efficiency',
+    consumoL: 'Consumption (L)',
+    eficienciaKml: 'Efficiency (km/l)',
+    detalhesDiarios: 'Daily Details',
+    consumo: 'Consumption',
+    melhorDia: 'Best Day',
+    piorDia: 'Worst Day',
   }
 };
 
+/**
+ * Provedor Global de Contexto (AppProvider)
+ * @description Encapsula a árvore de componentes injetando dependências globais.
+ * Gerencia a persistência (AsyncStorage) e alternância de Tema e Idioma.
+ */
 export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   const [theme, setTheme] = useState<Theme>('dark');
   const [language, setLanguage] = useState<Language>('pt');
 
+  // Inicialização assíncrona para resgatar configurações salvas localmente
   useEffect(() => {
     async function carregarPreferencias() {
       const savedTheme = await AsyncStorage.getItem('@app_theme');
@@ -208,18 +314,25 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     carregarPreferencias();
   }, []);
 
+  /** Comuta o esquema de cores e persiste a escolha no hardware */
   const toggleTheme = async () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
     setTheme(newTheme);
     await AsyncStorage.setItem('@app_theme', newTheme);
   };
 
+  /** Altera o locale ativo e persiste a escolha no hardware */
   const toggleLanguage = async () => {
     const newLang = language === 'pt' ? 'en' : 'pt';
     setLanguage(newLang);
     await AsyncStorage.setItem('@app_lang', newLang);
   };
 
+  /**
+   * Resolução da chave de tradução (i18n).
+   * @param {string} key Chave de busca no dicionário.
+   * @returns {string} Retorna o valor traduzido ou a própria chave como fallback seguro.
+   */
   const t = (key: string) => {
     return dicionario[language][key as keyof typeof dicionario['pt']] || key;
   };
@@ -231,4 +344,8 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
+/**
+ * Hook utilitário (useApp)
+ * @description Facilita o consumo do contexto em qualquer nó da árvore React.
+ */
 export const useApp = () => useContext(AppContext);

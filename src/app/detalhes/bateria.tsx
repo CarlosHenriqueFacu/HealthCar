@@ -1,21 +1,14 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-
-// Importação do componente de container base (Caminho corrigido para a nova arquitetura)
-import { ScreenContainer } from "../../components/screen-container";
-
-// Ícones e roteamento nativo do Expo
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-
-// Biblioteca para desenhar gráficos vetoriais complexos (O círculo da bateria)
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Svg, { Circle, Defs, LinearGradient, Stop } from "react-native-svg";
+import { ScreenContainer } from "../../components/screen-container";
+import { useApp } from "../../contexts/AppContext";
 
-/* ==========================================================
-   DADOS SIMULADOS (MOCK)
-   Estes dados servem para a demonstração visual.
-   No futuro, podem ser substituídos por dados reais lidos
-   do banco de dados SQLite/Firebase.
-========================================================== */
+/**
+ * @constant BATTERY_DATA
+ * @description Mock de dados agregados do sistema elétrico, particionados em períodos.
+ */
 const BATTERY_DATA = [
   { time: "08:00", charge: 100, health: 98 },
   { time: "10:00", charge: 95, health: 98 },
@@ -26,44 +19,51 @@ const BATTERY_DATA = [
   { time: "20:00", charge: 62, health: 95 },
 ];
 
+/**
+ * Componente BatteryDetailsScreen
+ * @description Apresenta análise do estado e saúde da bateria.
+ * Utiliza geometria de círculos SVG (strokeDasharray) para representação visual da carga em tempo real.
+ */
 export default function BatteryDetailsScreen() {
-  // Variáveis de estado atuais (Para exibição no topo da tela)
+  const { theme, t } = useApp();
+
+  const isDark = theme === 'dark';
+  const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
+  const cardColor = isDark ? '#12141A' : '#FFFFFF';
+  const textColor = isDark ? '#F0F2FF' : '#0F172A';
+  const subTextColor = isDark ? '#8892A4' : '#64748B';
+  const borderColor = isDark ? '#1E2235' : '#E2E8F0';
+  const primaryColor = "#4CAF50"; // Verde (Saúde/Carga)
+  const secondaryColor = "#FF9800"; // Laranja (Média)
+
   const currentCharge = 62;
   const currentHealth = 95;
-
-  // Lógica JS: Calcula a média de carga somando todos os valores do BATTERY_DATA e dividindo pela quantidade
   const avgCharge = Math.round(BATTERY_DATA.reduce((sum, d) => sum + d.charge, 0) / BATTERY_DATA.length);
 
   return (
-    <ScreenContainer containerClassName="bg-background" edges={["top", "left", "right"]}>
+    <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
       
-      {/* ================= HEADER (CABEÇALHO) ================= */}
-      <View style={styles.header}>
-        {/* Botão de Voltar: Usa o router.back() para retornar à tela anterior sem criar novas rotas */}
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color="#F0F2FF" />
+      <View style={[styles.header, { borderBottomColor: borderColor }]}>
+        <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}>
+          <MaterialIcons name="arrow-back" size={24} color={textColor} />
         </Pressable>
-        <Text style={styles.headerTitle}>Bateria</Text>
+        <Text style={[styles.headerTitle, { color: textColor }]}>{t('bateria')}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
-        {/* ================= GRÁFICO CIRCULAR (SVG) ================= */}
         <View style={styles.circleContainer}>
           <Svg width={200} height={200} viewBox="0 0 200 200">
             <Defs>
-              {/* Cria o efeito de gradiente verde para a linha da bateria */}
               <LinearGradient id="batteryGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <Stop offset="0%" stopColor="#4CAF50" />
+                <Stop offset="0%" stopColor={primaryColor} />
                 <Stop offset="100%" stopColor="#8BC34A" />
               </LinearGradient>
             </Defs>
             
-            {/* Círculo de Fundo (A trilha cinza escura) */}
-            <Circle cx={100} cy={100} r={90} fill="none" stroke="#1E2235" strokeWidth={8} />
+            <Circle cx={100} cy={100} r={90} fill="none" stroke={borderColor} strokeWidth={8} opacity={isDark ? 1 : 0.5} />
             
-            {/* Círculo de Progresso (A linha verde que acompanha a carga) */}
             <Circle
               cx={100}
               cy={100}
@@ -71,185 +71,76 @@ export default function BatteryDetailsScreen() {
               fill="none"
               stroke="url(#batteryGrad)"
               strokeWidth={8}
-              /* MATEMÁTICA DO SVG: 
-                 Calcula o preenchimento da linha baseado na porcentagem (currentCharge).
-                 180 * Math.PI é a circunferência total do círculo. */
               strokeDasharray={`${(currentCharge / 100) * (180 * Math.PI)} ${180 * Math.PI}`}
               strokeLinecap="round"
-              transform="rotate(-90 100 100)" // Gira o círculo para a linha começar de cima
+              transform="rotate(-90 100 100)"
             />
           </Svg>
           
-          {/* Textos que ficam centralizados dentro do círculo */}
           <View style={styles.circleContent}>
-            <Text style={styles.circleValue}>{currentCharge}%</Text>
-            <Text style={styles.circleLabel}>Carga</Text>
+            <Text style={[styles.circleValue, { color: primaryColor }]}>{currentCharge}%</Text>
+            <Text style={[styles.circleLabel, { color: subTextColor }]}>{t('carga')}</Text>
           </View>
         </View>
 
-        {/* ================= CARDS DE ESTATÍSTICAS ================= */}
         <View style={styles.statsRow}>
-          {/* Card de Saúde da Bateria */}
-          <View style={styles.statCard}>
-            <MaterialIcons name="favorite" size={20} color="#4CAF50" />
-            <Text style={styles.statLabel}>Saúde</Text>
-            <Text style={styles.statValue}>{currentHealth}%</Text>
+          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
+            <MaterialIcons name="favorite" size={20} color={primaryColor} />
+            <Text style={[styles.statLabel, { color: subTextColor }]}>{t('saude')}</Text>
+            <Text style={[styles.statValue, { color: primaryColor }]}>{currentHealth}%</Text>
           </View>
           
-          {/* Card de Média de Carga */}
-          <View style={styles.statCard}>
-            <MaterialIcons name="trending-down" size={20} color="#FF9800" />
-            <Text style={styles.statLabel}>Média</Text>
-            <Text style={styles.statValue}>{avgCharge}%</Text>
+          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
+            <MaterialIcons name="trending-down" size={20} color={secondaryColor} />
+            <Text style={[styles.statLabel, { color: subTextColor }]}>{t('media')}</Text>
+            <Text style={[styles.statValue, { color: secondaryColor }]}>{avgCharge}%</Text>
           </View>
         </View>
 
-        {/* ================= TIMELINE (HISTÓRICO) ================= */}
-        <View style={styles.timelineContainer}>
-          <Text style={styles.timelineTitle}>Histórico de Carga</Text>
+        <View style={[styles.timelineContainer, { backgroundColor: cardColor, borderColor: borderColor }]}>
+          <Text style={[styles.timelineTitle, { color: textColor }]}>{t('historicoCarga')}</Text>
           
-          {/* O método .map() percorre o array BATTERY_DATA e "desenha" uma linha na tela para cada item */}
           {BATTERY_DATA.map((data, i) => (
-            <View key={`battery-${i}`} style={styles.timelineItem}>
-              <View style={styles.timelineDot} />
+            <View key={`battery-${i}`} style={[styles.timelineItem, { borderBottomColor: borderColor }]}>
+              <View style={[styles.timelineDot, { backgroundColor: primaryColor }]} />
               <View style={styles.timelineContent}>
-                <Text style={styles.timelineTime}>{data.time}</Text>
+                <Text style={[styles.timelineTime, { color: textColor }]}>{data.time}</Text>
                 
-                {/* Barrinha horizontal de progresso de cada horário */}
-                <View style={styles.timelineBar}>
-                  <View
-                    style={[
-                      styles.timelineBarFill,
-                      { width: `${data.charge}%` }, // O CSS width é dinâmico baseado na carga
-                    ]}
-                  />
+                <View style={[styles.timelineBar, { backgroundColor: isDark ? "#1E2235" : "#CBD5E1" }]}>
+                  <View style={[styles.timelineBarFill, { width: `${data.charge}%` as any, backgroundColor: primaryColor }]} />
                 </View>
               </View>
-              <Text style={styles.timelineValue}>{data.charge}%</Text>
+              <Text style={[styles.timelineValue, { color: primaryColor }]}>{data.charge}%</Text>
             </View>
           ))}
-
         </View>
       </ScrollView>
     </ScreenContainer>
   );
 }
 
-// ================= ESTILOS (CSS in JS) =================
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1E2235",
-  },
-  backBtn: { padding: 4, marginRight: 8 },
-  headerTitle: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#F0F2FF",
-  },
-  headerSpacer: { width: 30 },
-
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
+  backBtn: { padding: 8, marginLeft: -8, marginRight: 8, borderRadius: 20 },
+  headerTitle: { flex: 1, fontSize: 18, fontWeight: "700" },
+  headerSpacer: { width: 40 },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, gap: 16, paddingBottom: 40 },
-
-  circleContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 20,
-  },
-  circleContent: {
-    position: "absolute",
-    alignItems: "center",
-  },
-  circleValue: {
-    fontSize: 48,
-    fontWeight: "800",
-    color: "#4CAF50",
-  },
-  circleLabel: {
-    fontSize: 12,
-    color: "#8892A4",
-  },
-
-  statsRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: "#12141A",
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#1E2235",
-    alignItems: "center",
-    gap: 8,
-  },
-  statLabel: {
-    fontSize: 11,
-    color: "#8892A4",
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#4CAF50",
-  },
-
-  timelineContainer: {
-    backgroundColor: "#12141A",
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#1E2235",
-  },
-  timelineTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#F0F2FF",
-    marginBottom: 12,
-  },
-  timelineItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1E2235",
-  },
-  timelineDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#4CAF50",
-  },
-  timelineContent: {
-    flex: 1,
-    gap: 4,
-  },
-  timelineTime: {
-    fontSize: 12,
-    color: "#8892A4",
-    fontWeight: "600",
-  },
-  timelineBar: {
-    height: 4,
-    backgroundColor: "#1E2235",
-    borderRadius: 2,
-    overflow: "hidden",
-  },
-  timelineBarFill: {
-    height: "100%",
-    backgroundColor: "#4CAF50",
-    borderRadius: 2,
-  },
-  timelineValue: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#4CAF50",
-  },
+  circleContainer: { alignItems: "center", justifyContent: "center", paddingVertical: 20 },
+  circleContent: { position: "absolute", alignItems: "center" },
+  circleValue: { fontSize: 48, fontWeight: "800" },
+  circleLabel: { fontSize: 12, marginTop: -4 },
+  statsRow: { flexDirection: "row", gap: 10 },
+  statCard: { flex: 1, borderRadius: 12, padding: 12, borderWidth: 1, alignItems: "center", gap: 8 },
+  statLabel: { fontSize: 11 },
+  statValue: { fontSize: 18, fontWeight: "700" },
+  timelineContainer: { borderRadius: 16, padding: 16, borderWidth: 1 },
+  timelineTitle: { fontSize: 13, fontWeight: "600", marginBottom: 12 },
+  timelineItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1 },
+  timelineDot: { width: 8, height: 8, borderRadius: 4 },
+  timelineContent: { flex: 1, gap: 6 },
+  timelineTime: { fontSize: 12, fontWeight: "600" },
+  timelineBar: { height: 4, borderRadius: 2, overflow: "hidden" },
+  timelineBarFill: { height: "100%", borderRadius: 2 },
+  timelineValue: { fontSize: 12, fontWeight: "700" },
 });
