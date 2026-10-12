@@ -4,6 +4,7 @@ import {
   AppState,
   Dimensions,
   Modal,
+  NativeModules,
   PermissionsAndroid,
   Platform,
   Pressable,
@@ -158,6 +159,31 @@ export default function HomeScreen() {
     return () => { subscription.remove(); };
   }, []);
 
+// ======================================================================
+  // 🧪 INICIALIZAÇÃO FORÇADA DO FOREGROUND SERVICE PARA TESTES
+  // Aciona a ponte nativa em Java para "enganar" o Android e iniciar 
+  // o serviço fixo (monitoramento) independentemente da conexão Bluetooth.
+  // ======================================================================
+  useEffect(() => {
+    async function startTestService() {
+      try {
+        // Acessa o módulo Java diretamente pelo núcleo do React Native
+        const { OBDBluetooth } = NativeModules;
+        
+        if (OBDBluetooth && OBDBluetooth.startForegroundMonitorTest) {
+            await OBDBluetooth.startForegroundMonitorTest();
+            console.log("Foreground Service ativado manualmente para testes.");
+        } else {
+            console.log("Módulo OBDBluetooth ou método de teste não encontrado.");
+        }
+      } catch (error) {
+        console.error("Erro ao ativar Foreground Service de teste:", error);
+      }
+    }
+    startTestService();
+  }, []);
+  // ======================================================================
+
   /**
    * @function dispararAlerta
    * @description Invoca a API nativa do dispositivo para renderizar notificações push.
@@ -298,6 +324,7 @@ export default function HomeScreen() {
     }
     return () => { if (loopLento) clearInterval(loopLento); };
   }, [isActive]);
+
 
   // ======================================================================
   // 🧪 BLOCO DE TESTE DE NOTIFICAÇÕES (MOCK DE 1 MINUTO)
