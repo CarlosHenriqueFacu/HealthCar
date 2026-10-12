@@ -46,22 +46,11 @@ Notifications.setNotificationHandler({
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-/** 
- * @constant TELEMETRY_IDLE 
- * @description Estado nulo/inicial dos dados de telemetria antes da comunicação com a ECU.
- */
 const TELEMETRY_IDLE = { speed: 0, rpm: 0, temp: 0, fuel: 0, kmTotal: 0, kmDay: 0, volt: 0 };
 
-/**
- * Componente HomeScreen
- * @description Dashboard central da aplicação. Gerencia a conexão Bluetooth,
- * processamento de telemetria em tempo real, cálculo do odômetro virtual por offset e 
- * disparos de alertas de segurança estruturais.
- */
 export default function HomeScreen() {
   const { theme, t } = useApp();
   
-  // Resolução dinâmica da paleta de cores
   const isDark = theme === 'dark';
   const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
   const cardColor = isDark ? '#12141A' : '#FFFFFF';
@@ -70,33 +59,27 @@ export default function HomeScreen() {
   const borderColor = isDark ? '#1E2235' : '#E2E8F0';
   const iconBgColor = isDark ? '#1E2235' : '#F8FAFC';
 
-  // Estados operacionais e de telemetria
   const [isActive, setIsActive] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [telemetry, setTelemetry] = useState(TELEMETRY_IDLE);
   const [batteryStatus, setBatteryStatus] = useState("batDesconhecido");
   
-  // Persistência de configuração de veículo
   const [carroConfigurado, setCarroConfigurado] = useState({
     marca: 'Carregando...', veiculo: '', ano: '', motor: '', km: '0'
   });
 
-  // Estados de controle do Odômetro Virtual
   const [virtualOdometro, setVirtualOdometro] = useState({
     offset: 0,
     lastObdKm: 0,
     isCalibrated: false
   });
   
-  // Estados de UI Modais
   const [showKmModal, setShowKmModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   
-  // Entradas e leituras brutas
   const [kmObdRaw, setKmObdRaw] = useState(0); 
   const [kmInput, setKmInput] = useState("");
 
-  // Efeitos e Animações (Reanimated)
   const [pillConfig, setPillConfig] = useState({ message: '', type: 'info' });
   const pillTranslateY = useSharedValue(-150); 
   const headerGlow = useSharedValue(0);
@@ -104,10 +87,6 @@ export default function HomeScreen() {
 
   useKeepAwake();
 
-  /**
-   * @function showPill
-   * @description Aciona a animação de um alerta do tipo 'Pill' (Toast) no topo da tela.
-   */
   const showPill = (message: string, type: 'success' | 'error' | 'info') => {
     setPillConfig({ message, type });
     pillTranslateY.value = withSpring(50, { damping: 15, stiffness: 100 }); 
@@ -117,17 +96,11 @@ export default function HomeScreen() {
   const pillStyle = useAnimatedStyle(() => ({ transform: [{ translateY: pillTranslateY.value }] }));
   const headerGlowStyle = useAnimatedStyle(() => ({ opacity: headerGlow.value }));
 
-  /**
-   * @function setupApp
-   * @description Inicialização assíncrona. Valida a existência de perfil de usuário local,
-   * requisita permissões de sistema operativo e aciona o handshake Bluetooth.
-   */
   useEffect(() => {
     async function setupApp() {
       try {
         const veiculoCadastrado = await AsyncStorage.getItem('@veiculo_cadastrado');
         
-        // Bloqueio de roteamento se não houver contexto de veículo
         if (veiculoCadastrado === null) {
           router.replace('/(auth)/cadastro' as any);
           return; 
@@ -137,7 +110,6 @@ export default function HomeScreen() {
         setCarroConfigurado(veiculoSalvo);
         setTelemetry(prev => ({ ...prev, kmTotal: Number(veiculoSalvo.km) }));
 
-        // Restauração de estado em cache do Odômetro
         const savedOdo = await AsyncStorage.getItem('@virtual_odometro');
         if (savedOdo !== null) {
           setVirtualOdometro(JSON.parse(savedOdo));
@@ -159,51 +131,18 @@ export default function HomeScreen() {
     return () => { subscription.remove(); };
   }, []);
 
-// ======================================================================
-  // 🧪 INICIALIZAÇÃO FORÇADA DO FOREGROUND SERVICE PARA TESTES
-  // Aciona a ponte nativa em Java para "enganar" o Android e iniciar 
-  // o serviço fixo (monitoramento) independentemente da conexão Bluetooth.
-  // ======================================================================
-  useEffect(() => {
-    async function startTestService() {
-      try {
-        // Acessa o módulo Java diretamente pelo núcleo do React Native
-        const { OBDBluetooth } = NativeModules;
-        
-        if (OBDBluetooth && OBDBluetooth.startForegroundMonitorTest) {
-            await OBDBluetooth.startForegroundMonitorTest();
-            console.log("Foreground Service ativado manualmente para testes.");
-        } else {
-            console.log("Módulo OBDBluetooth ou método de teste não encontrado.");
-        }
-      } catch (error) {
-        console.error("Erro ao ativar Foreground Service de teste:", error);
-      }
-    }
-    startTestService();
-  }, []);
-  // ======================================================================
-
-  /**
-   * @function dispararAlerta
-   * @description Invoca a API nativa do dispositivo para renderizar notificações push.
-   */
   const dispararAlerta = async (titulo: string, mensagem: string) => {
     await Notifications.scheduleNotificationAsync({
       content: { title: titulo, body: mensagem, sound: true }, trigger: null, 
     });
   };
 
-  /**
-   * @function tentarConexaoAutomatica
-   * @description Estabelece conexão com o scanner OBD-II pareado via Bluetooth Classic.
-   * Recupera o PID 0131 (Distance since DTCs cleared) e aplica a lógica de Offset.
-   */
   async function tentarConexaoAutomatica() {
     try {
       setIsConnecting(true);
       showPill(t('conectando'), "info");
 
+      // 1. PRIMEIRO: Garantimos que o usuário deu as permissões necessárias
       if (Platform.OS === 'android' && Platform.Version >= 31) {
         const granted = await PermissionsAndroid.requestMultiple([
           PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
@@ -214,6 +153,18 @@ export default function HomeScreen() {
           setIsConnecting(false);
           return;
         }
+      }
+
+      // 🛡️ CORREÇÃO DO CRASH: SÓ iniciamos o serviço de testes em segundo plano 
+      // DEPOIS que a permissão acima foi concedida. Isso evita o SecurityException.
+      try {
+        const { OBDBluetooth } = NativeModules;
+        if (OBDBluetooth && OBDBluetooth.startForegroundMonitorTest) {
+            await OBDBluetooth.startForegroundMonitorTest();
+            console.log("Foreground Service ativado em segurança para testes.");
+        }
+      } catch (error) {
+        console.error("Erro ao ativar Foreground Service:", error);
       }
 
       const enabled = await RNBluetoothClassic.isBluetoothEnabled();
@@ -253,7 +204,6 @@ export default function HomeScreen() {
 
             setKmObdRaw(obdRawValue);
 
-            // Algoritmo de Auditoria e Offset do Odômetro Virtual
             if (!virtualOdometro.isCalibrated) {
               setKmInput(carroConfigurado.km);
               setShowKmModal(true);
@@ -288,9 +238,6 @@ export default function HomeScreen() {
     }
   }
 
-  /**
-   * @description Loop de Background de Telemetria Contínua
-   */
   useEffect(() => {
     let loopLento: ReturnType<typeof setInterval>;
     if (isActive) {
@@ -328,10 +275,8 @@ export default function HomeScreen() {
 
   // ======================================================================
   // 🧪 BLOCO DE TESTE DE NOTIFICAÇÕES (MOCK DE 1 MINUTO)
-  // @todo Remover ou desativar este bloco no ambiente de produção.
   // ======================================================================
   useEffect(() => {
-    // Matriz contendo falhas reais de protocolo OBD-II
     const MOCK_ERRORS = [
       { title: "⚠️ Falha no Motor", message: "Código P0300 detectado: Falha de ignição em múltiplos cilindros." },
       { title: "🌡️ Risco de Superaquecimento", message: "A temperatura do motor atingiu 106°C. Encoste o veículo imediatamente!" },
@@ -340,7 +285,6 @@ export default function HomeScreen() {
       { title: "💨 Sistema de Emissões", message: "Código P0420: Eficiência do catalisador abaixo do limite (Banco 1)." }
     ];
 
-    // Engine de simulação temporal (Disparo a cada 60s)
     const testLoop = setInterval(() => {
       const randomError = MOCK_ERRORS[Math.floor(Math.random() * MOCK_ERRORS.length)];
       dispararAlerta(randomError.title, randomError.message);
@@ -351,11 +295,6 @@ export default function HomeScreen() {
   }, []);
   // ======================================================================
 
-  /**
-   * @function calibrarOdometroVirtual
-   * @description Sincroniza a quilometragem do painel informada pelo usuário com a 
-   * leitura bruta da ECU, gerando e persistindo um novo Offset de cálculo.
-   */
   const calibrarOdometroVirtual = async () => {
     try {
       const painelKmInformado = Number(kmInput);
