@@ -1,7 +1,7 @@
 import { ScreenContainer } from "@/components/screen-container";
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Alert,
   NativeModules,
@@ -13,21 +13,24 @@ import {
 } from "react-native";
 import RNBluetoothClassic from "react-native-bluetooth-classic";
 
-// === ESTADO GLOBAL ===
 import { useApp } from '../contexts/AppContext';
 
-// Importacao da ponte nativa Java desenvolvida para o TCC
 const { OBDBluetooth } = NativeModules;
 
-/* ==========================================================
-   DICIONARIO DE ERROS (DTCs) E SEVERIDADE
-========================================================== */
+/**
+ * @constant SEVERITY_CONFIG
+ * @description Mapeamento de UI para a severidade das falhas (DTCs).
+ */
 const SEVERITY_CONFIG = {
   critical: { color: "#FF3D57", bg: "#FF3D5722", labelKey: "critico", icon: "error" as const },
   warning: { color: "#FFB300", bg: "#FFB30022", labelKey: "aviso", icon: "warning" as const },
   resolved: { color: "#00E676", bg: "#00E67622", labelKey: "resolvido", icon: "check-circle" as const },
 };
 
+/**
+ * @constant DTC_DICTIONARY
+ * @description Dicionário local para tradução de códigos hexadecimais em diagnósticos humanos.
+ */
 const DTC_DICTIONARY: Record<string, { desc: string, system: string, severity: "critical" | "warning" }> = {
   "P0300": { desc: "Falha de ignição aleatória detectada", system: "Motor", severity: "critical" },
   "P0420": { desc: "Eficiência do catalisador abaixo do limiar", system: "Emissões", severity: "warning" },
@@ -36,11 +39,14 @@ const DTC_DICTIONARY: Record<string, { desc: string, system: string, severity: "
   "P0500": { desc: "Mau funcionamento do sensor de velocidade", system: "Transmissão", severity: "critical" },
 };
 
+/**
+ * @component ScannerScreen
+ * @description Interface de diagnóstico OBD-II. Realiza varreduras ativas de DTCs (Diagnostic Trouble Codes)
+ * na ECU do veículo seguindo o protocolo ISO 15765-4 (CAN) e permite a limpeza da memória de falhas.
+ */
 export default function ScannerScreen() {
-  // === ESTADO GLOBAL DE TEMA E IDIOMA ===
   const { theme, t } = useApp();
   
-  // === PALETA DE CORES DINÂMICA ===
   const isDark = theme === 'dark';
   const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
   const cardColor = isDark ? '#12141A' : '#FFFFFF';
@@ -55,25 +61,18 @@ export default function ScannerScreen() {
   const healthScore = Math.max(0, 100 - (faults.length * 13));
   const isHealthy = faults.length === 0 && !scanning;
 
-  // Cleanup garantido ao sair da tela do scanner
-  useEffect(() => {
-    return () => {
-      if (OBDBluetooth) {
-        OBDBluetooth.disconnect().catch(() => {});
-      }
-    };
-  }, []);
-
-  /* ==========================================================
-     HELPER: CONECTAR AO SCANNER
-  ========================================================== */
+  /**
+   * @method connectToScanner
+   * @description Estabelece conexão e inicializa o protocolo do microcontrolador ELM327.
+   * Utilizado apenas como fallback caso o socket já não esteja aberto pela HomeScreen.
+   */
   async function connectToScanner() {
     const devices = await RNBluetoothClassic.getBondedDevices();
     const obdDevice = devices.find((d: any) => 
       d.name && (
         d.name.toUpperCase().includes("OBD") || 
         d.name.toUpperCase().includes("ELM") ||
-        d.name.toUpperCase().includes("VLINK")
+        d.name.toUpperCase().includes("V-LINK")
       )
     );
     
@@ -81,29 +80,35 @@ export default function ScannerScreen() {
     
     await OBDBluetooth.connect(obdDevice.address);
     
-    // Acorda o scanner antes de ler
+    // Handshake de inicialização do ELM327
     await OBDBluetooth.sendCommand("ATZ");
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise(resolve => setTimeout(resolve, 1000));
     await OBDBluetooth.sendCommand("ATE0");
     await OBDBluetooth.sendCommand("ATSP0");
-    await OBDBluetooth.sendCommand("0100"); // Sincroniza a rede CAN
+    await OBDBluetooth.sendCommand("0100"); 
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
 
-  /* ==========================================================
-     CEREBRO DO OBD-II: LEITURA E TRADUCAO DE DTCs
-  ========================================================== */
+  /**
+   * @method handleScan
+   * @description Solicita os códigos de falha armazenados na ECU utilizando o Mode 03.
+   * Tenta utilizar o socket ativo; caso inativo, realiza reconexão transparente.
+   */
   async function handleScan() {
     setScanning(true);
     setFaults([]); 
 
     try {
-      await connectToScanner(); // Abre a porta e inicializa
-
-      const resp = await OBDBluetooth.sendCommand("03");
+      let resp;
+      try {
+        resp = await OBDBluetooth.sendCommand("03");
+      } catch (err) {
+        await connectToScanner();
+        resp = await OBDBluetooth.sendCommand("03");
+      }
       
       if (!resp || String(resp).includes("TIMEOUT") || String(resp).includes("INCOMPLETO")) {
-        throw new Error("Sem resposta do scanner");
+        throw new Error("Timeout na resposta da ECU");
       }
 
       const codes = parseDTC(String(resp));
@@ -117,20 +122,20 @@ export default function ScannerScreen() {
       
       setFaults(newFaults);
     } catch (error) {
-      Alert.alert("Erro de Leitura", "Não foi possível ler a ECU. Verifique se o scanner está conectado e a ignição ligada.");
+      Alert.alert("Erro de Leitura", "Falha de comunicação com a ECU. Verifique se a ignição do veículo está ligada.");
+      console.log("[Scanner Error]", error);
     } finally {
-      // Libera o Bluetooth para outros usos
-      await OBDBluetooth.disconnect().catch(() => {});
       setScanning(false);
     }
   }
 
-  /* ==========================================================
-     CEREBRO DO OBD-II: LIMPEZA DE ERROS
-  ========================================================== */
+  /**
+   * @method handleClearErrors
+   * @description Solicita a exclusão da memória de falhas da ECU utilizando o Mode 04.
+   */
   async function handleClearErrors() {
     Alert.alert(
-      "Atenção!",
+      "Atenção de Segurança",
       "Isso enviará um comando para a ECU apagar a memória de falhas e desligar a luz de injeção. Deseja prosseguir?",
       [
         { text: "Cancelar", style: "cancel" },
@@ -140,14 +145,17 @@ export default function ScannerScreen() {
           onPress: async () => {
             setClearing(true);
             try {
-              await connectToScanner(); // Precisa conectar para apagar também!
-              await OBDBluetooth.sendCommand("04");
+              try {
+                await OBDBluetooth.sendCommand("04");
+              } catch (err) {
+                await connectToScanner();
+                await OBDBluetooth.sendCommand("04");
+              }
               setFaults([]);
-              Alert.alert("Sucesso", "A memória de falhas foi apagada com sucesso.");
+              Alert.alert("Sucesso", "A memória de falhas foi apagada e a luz de injeção foi resetada.");
             } catch (e) {
-              Alert.alert("Erro de Comunicação", "Falha ao enviar comando de limpeza para a ECU.");
+              Alert.alert("Erro de Comunicação", "O veículo recusou o comando de limpeza.");
             } finally {
-              await OBDBluetooth.disconnect().catch(() => {});
               setClearing(false);
             }
           }
@@ -156,35 +164,66 @@ export default function ScannerScreen() {
     );
   }
 
-  /* ==========================================================
-     TRADUTOR HEXADECIMAL -> DTC (P0000)
-  ========================================================== */
+  /**
+   * @method parseDTC
+   * @description Decodifica a resposta hexadecimal bruta do ELM327 (Mode 03) para o padrão SAE J2012 (ex: P0300).
+   * Trata o byte de contagem de DTCs e ignora os bytes de padding (0x55 / 0xAA) do protocolo CAN (ISO 15765-4).
+   * @param {string} response - Buffer bruto recebido do scanner.
+   * @returns {string[]} Array contendo as strings dos códigos decodificados.
+   */
   function parseDTC(response: string): string[] {
-    if (!response || response.includes("NO DATA") || response.includes("OK")) return [];
+    if (!response || response.includes("NO DATA") || response.includes("OK") || response.includes("SEARCHING") || response.includes("ERROR")) {
+      return [];
+    }
     
-    const cleanResp = response.replace(/\s/g, "").toUpperCase();
+    // Remove espaços e caracteres de controle
+    const cleanResp = response.replace(/[\s\r\n>]/g, "").toUpperCase();
+    
+    // O prefixo '43' indica resposta de sucesso para o Mode '03'
     const index = cleanResp.indexOf("43");
     if (index === -1) return [];
 
-    const hexData = cleanResp.substring(index + 2);
-    const codes = [];
+    let hexData = cleanResp.substring(index + 2);
+    if (hexData.length < 2) return [];
 
+    // No protocolo CAN (ISO 15765-4), o primeiro byte (2 caracteres hex) após '43' é a quantidade de DTCs.
+    // Exemplo sem falhas com padding CAN: "43 00 55 55 55 55 55" -> hexData começa com "00".
+    const dtcCount = parseInt(hexData.substring(0, 2), 16);
+    if (isNaN(dtcCount) || dtcCount === 0) {
+      return [];
+    }
+
+    // Avança os 2 caracteres do byte contador e recorta exatamente a quantidade de DTCs informada pela ECU
+    hexData = hexData.substring(2, 2 + (dtcCount * 4));
+
+    const codes: string[] = [];
+
+    // Lê os códigos em blocos de 4 caracteres hexadecimais (2 bytes por DTC)
     for (let i = 0; i < hexData.length; i += 4) {
       const dtcHex = hexData.substring(i, i + 4);
-      if (dtcHex.length === 4 && dtcHex !== "0000") {
+      
+      // Ignora pares vazios (0000) ou bytes de preenchimento de frame CAN (5555, AAAA, 0055)
+      if (
+        dtcHex.length === 4 && 
+        dtcHex !== "0000" && 
+        dtcHex !== "5555" && 
+        dtcHex !== "AAAA" && 
+        dtcHex !== "0055"
+      ) {
         const firstChar = dtcHex[0];
         let letter = "P";
         let secondDigit = "0";
 
         if (["0","1","2","3"].includes(firstChar)) { letter = "P"; secondDigit = firstChar; }
-        else if (["4","5","6","7"].includes(firstChar)) { letter = "C"; secondDigit = (parseInt(firstChar) - 4).toString(); }
+        else if (["4","5","6","7"].includes(firstChar)) { letter = "C"; secondDigit = (parseInt(firstChar, 16) - 4).toString(); }
         else if (["8","9","A","B"].includes(firstChar)) { letter = "B"; secondDigit = (parseInt(firstChar, 16) - 8).toString(); }
         else if (["C","D","E","F"].includes(firstChar)) { letter = "U"; secondDigit = (parseInt(firstChar, 16) - 12).toString(); }
 
         codes.push(`${letter}${secondDigit}${dtcHex.substring(1)}`);
       }
     }
-    return codes;
+    
+    return Array.from(new Set(codes)).filter(c => c.length === 5 && !c.includes("UNDEFINED"));
   }
 
   function handleSchedule() {
@@ -193,7 +232,7 @@ export default function ScannerScreen() {
       "Deseja agendar uma revisão na oficina mais próxima?",
       [
         { text: "Cancelar", style: "cancel" },
-        { text: "Agendar", onPress: () => Alert.alert("Sucesso", "Revisão agendada!") },
+        { text: "Agendar", onPress: () => Alert.alert("Sucesso", "Solicitação enviada para a oficina mecânica.") },
       ]
     );
   }
@@ -248,7 +287,7 @@ export default function ScannerScreen() {
 
         {/* ================= LISTA DE ERROS ================= */}
         {faults.map((fault, index) => {
-          const cfg = SEVERITY_CONFIG[fault.severity as keyof typeof SEVERITY_CONFIG];
+          const cfg = SEVERITY_CONFIG[fault.severity as keyof typeof SEVERITY_CONFIG] || SEVERITY_CONFIG.warning;
           return (
             <View key={index} style={[styles.faultCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
               <View style={[styles.faultIconWrap, { backgroundColor: cfg.bg }]}>

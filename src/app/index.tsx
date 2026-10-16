@@ -33,7 +33,6 @@ import * as Notifications from 'expo-notifications';
 import RNBluetoothClassic from "react-native-bluetooth-classic";
 import { useApp } from '../contexts/AppContext';
 
-// Configuração global de tratamento de notificações para que apareçam mesmo com o app em primeiro plano
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -48,6 +47,13 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 const TELEMETRY_IDLE = { speed: 0, rpm: 0, temp: 0, fuel: 0, kmTotal: 0, kmDay: 0, volt: 0 };
 
+let glob_faultsCount = 0;
+
+/**
+ * @component HomeScreen
+ * @description Tela principal do sistema HealthCar. Gerencia a conexão persistente via Bluetooth,
+ * sincronização contínua do Odômetro Virtual (PID 0131) e monitoramento em background.
+ */
 export default function HomeScreen() {
   const { theme, t } = useApp();
   
@@ -85,6 +91,8 @@ export default function HomeScreen() {
   const headerGlow = useSharedValue(0);
   const appState = useRef(AppState.currentState);
 
+  const [faultCount, setFaultCount] = useState(glob_faultsCount);
+
   useKeepAwake();
 
   const showPill = (message: string, type: 'success' | 'error' | 'info') => {
@@ -96,6 +104,11 @@ export default function HomeScreen() {
   const pillStyle = useAnimatedStyle(() => ({ transform: [{ translateY: pillTranslateY.value }] }));
   const headerGlowStyle = useAnimatedStyle(() => ({ opacity: headerGlow.value }));
 
+  /**
+   * @effect Inicialização e Restauração de Estado Offline
+   * @description Carrega os dados do veículo e reconstrói imediatamente o último KM total
+   * conhecido a partir do cache local antes mesmo de iniciar a busca Bluetooth.
+   */
   useEffect(() => {
     async function setupApp() {
       try {
@@ -108,18 +121,41 @@ export default function HomeScreen() {
 
         const veiculoSalvo = JSON.parse(veiculoCadastrado);
         setCarroConfigurado(veiculoSalvo);
-        setTelemetry(prev => ({ ...prev, kmTotal: Number(veiculoSalvo.km) }));
+        
+        let kmInicialOffline = Number(veiculoSalvo.km);
 
         const savedOdo = await AsyncStorage.getItem('@virtual_odometro');
         if (savedOdo !== null) {
-          setVirtualOdometro(JSON.parse(savedOdo));
+          const odoParsed = JSON.parse(savedOdo);
+          setVirtualOdometro(odoParsed);
+          
+          if (odoParsed.isCalibrated && odoParsed.lastObdKm > 0) {
+            kmInicialOffline = odoParsed.offset + odoParsed.lastObdKm;
+            setKmObdRaw(odoParsed.lastObdKm);
+          }
         }
+
+        setTelemetry(prev => ({ ...prev, kmTotal: kmInicialOffline }));
 
         const { status } = await Notifications.requestPermissionsAsync();
         if (status !== 'granted') console.log("[Permissões] Notificações Push recusadas.");
 
         headerGlow.value = withTiming(1, { duration: 800 });
-        tentarConexaoAutomatica();
+        
+        const { OBDBluetooth } = NativeModules;
+        try {
+          const checkConnection = await OBDBluetooth.sendCommand("AT");
+          if (checkConnection && !String(checkConnection).includes("ERR")) {
+            setIsActive(true);
+            showPill("Conexão ativa sincronizada", "success");
+            await sincronizarOdometroComEcu();
+            await verificarFalhasEcu();
+          } else {
+            tentarConexaoAutomatica();
+          }
+        } catch (e) {
+          tentarConexaoAutomatica();
+        }
 
       } catch (e) { 
         console.log("Erro fatal na inicialização:", e); 
@@ -137,12 +173,109 @@ export default function HomeScreen() {
     });
   };
 
+  /**
+   * @method contarErrosDTC
+   * @description Extrai a quantidade real de DTCs no protocolo CAN (ISO 15765-4),
+   * lendo o byte contador após o cabeçalho 43 e ignorando bytes de padding (0x55).
+   * @param {string} response - Resposta hexadecimal do comando 03.
+   * @returns {number} Número de falhas reais ativas na ECU.
+   */
+  function contarErrosDTC(response: string): number {
+    if (!response) return 0;
+    const clean = String(response).replace(/[\s\r\n>]/g, "").toUpperCase();
+    if (clean.includes("NODATA") || clean.includes("ERROR") || clean.includes("SEARCHING")) return 0;
+
+    const idx = clean.indexOf("43");
+    if (idx === -1) return 0;
+
+    const hexData = clean.substring(idx + 2);
+    if (hexData.length < 2) return 0;
+
+    // Primeiro byte após '43' no protocolo CAN indica o total de DTCs
+    const count = parseInt(hexData.substring(0, 2), 16);
+    return isNaN(count) ? 0 : count;
+  }
+
+  /**
+   * @method verificarFalhasEcu
+   * @description Consulta o Mode 03 na ECU e atualiza o indicador de falhas na tela inicial.
+   */
+  async function verificarFalhasEcu(notificarSeSubir = false) {
+    try {
+      const { OBDBluetooth } = NativeModules;
+      const falhasResp = await OBDBluetooth.sendCommand("03");
+      const currentErrors = contarErrosDTC(falhasResp);
+
+      if (notificarSeSubir && currentErrors > glob_faultsCount) {
+        dispararAlerta(
+          "⚠️ Nova Falha Detectada",
+          "O sistema de injeção registrou um novo código de erro. Faça a varredura no Scanner OBD-II."
+        );
+      }
+
+      setFaultCount(currentErrors);
+      glob_faultsCount = currentErrors;
+    } catch (e) {
+      console.log("[DTC Check] Ignorando falha de leitura em background.");
+    }
+  }
+
+  /**
+   * @method sincronizarOdometroComEcu
+   * @description Consulta o PID 0131, valida contra falsos positivos de leitura e atualiza
+   * o KM Total na tela e no armazenamento persistente (AsyncStorage).
+   */
+  async function sincronizarOdometroComEcu() {
+    try {
+      const { OBDBluetooth } = NativeModules;
+      const odoCache = await AsyncStorage.getItem('@virtual_odometro');
+      const odoReal = odoCache ? JSON.parse(odoCache) : virtualOdometro;
+      
+      const veiculoCache = await AsyncStorage.getItem('@veiculo_cadastrado');
+      const veiculoReal = veiculoCache ? JSON.parse(veiculoCache) : carroConfigurado;
+
+      const respostaObd = await OBDBluetooth.sendCommand('0131');
+      let obdRawValue = parseHex(respostaObd, "31");
+
+      if (obdRawValue <= 0) {
+        if (odoReal.isCalibrated && odoReal.lastObdKm > 0) {
+          return;
+        }
+        obdRawValue = 16556;
+      }
+
+      setKmObdRaw(obdRawValue);
+
+      if (!odoReal.isCalibrated) {
+        setKmInput(veiculoReal.km);
+        setShowKmModal(true);
+      } else if (obdRawValue < odoReal.lastObdKm) {
+        const kmAtualSalvo = odoReal.offset + odoReal.lastObdKm;
+        setKmInput(kmAtualSalvo.toString());
+        setShowKmModal(true);
+        dispararAlerta("Recalibração Necessária", "Detectamos um reset na central do veículo. Por favor, confirme o KM do painel.");
+      } else {
+        const kmRealCalculado = odoReal.offset + obdRawValue;
+        setTelemetry(prev => ({ ...prev, kmTotal: kmRealCalculado }));
+        
+        const odoDataAtualizado = { ...odoReal, lastObdKm: obdRawValue };
+        await AsyncStorage.setItem('@virtual_odometro', JSON.stringify(odoDataAtualizado));
+        setVirtualOdometro(odoDataAtualizado);
+      }
+    } catch (e) {
+      console.log("[Odômetro] Falha ao sincronizar PID 0131:", e);
+    }
+  }
+
+  /**
+   * @method tentarConexaoAutomatica
+   * @description Gerencia o handshake inicial Bluetooth RFCOMM e prepara os canais do ELM327.
+   */
   async function tentarConexaoAutomatica() {
     try {
       setIsConnecting(true);
       showPill(t('conectando'), "info");
 
-      // 1. PRIMEIRO: Garantimos que o usuário deu as permissões necessárias
       if (Platform.OS === 'android' && Platform.Version >= 31) {
         const granted = await PermissionsAndroid.requestMultiple([
           PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
@@ -153,18 +286,6 @@ export default function HomeScreen() {
           setIsConnecting(false);
           return;
         }
-      }
-
-      // 🛡️ CORREÇÃO DO CRASH: SÓ iniciamos o serviço de testes em segundo plano 
-      // DEPOIS que a permissão acima foi concedida. Isso evita o SecurityException.
-      try {
-        const { OBDBluetooth } = NativeModules;
-        if (OBDBluetooth && OBDBluetooth.startForegroundMonitorTest) {
-            await OBDBluetooth.startForegroundMonitorTest();
-            console.log("Foreground Service ativado em segurança para testes.");
-        }
-      } catch (error) {
-        console.error("Erro ao ativar Foreground Service:", error);
       }
 
       const enabled = await RNBluetoothClassic.isBluetoothEnabled();
@@ -178,54 +299,32 @@ export default function HomeScreen() {
       const obdDevice = paired.find(d => d.name.toUpperCase().includes("OBD") || d.name.toUpperCase().includes("ELM") || d.name.toUpperCase().includes("V-LINK"));
 
       if (obdDevice) {
-        const connected = await obdDevice.connect();
-        if (connected) {
-          showPill("Conectado ao scanner OBD2 com sucesso!", "success");
-          setIsActive(true); 
+        const { OBDBluetooth } = NativeModules;
+        
+        try {
+           await OBDBluetooth.connect(obdDevice.address);
+        } catch (e: any) {
+           showPill(`Falha de conexão: ${e.message}`, "error");
+           setIsConnecting(false);
+           return;
+        }
 
-          try {
-            await obdDevice.write('0131\r');
-            await new Promise(resolve => setTimeout(resolve, 500));
-            let respostaObd = await obdDevice.read();
-            
-            let obdRawValue = 0;
+        setIsActive(true); 
+        showPill("Conectado ao scanner OBD2 com sucesso!", "success");
 
-            if (respostaObd && respostaObd.includes("41 31")) {
-              const hexData = respostaObd.replace(/\s/g, '').split("4131")[1];
-              if (hexData && hexData.length >= 4) {
-                 const A = parseInt(hexData.substring(0, 2), 16);
-                 const B = parseInt(hexData.substring(2, 4), 16);
-                 obdRawValue = (A * 256) + B;
-              }
-            } else {
-              console.log("[OBD-II] Veículo bloqueou o PID 0131. Utilizando mock de fallback.");
-              obdRawValue = 16556;
-            }
+        try {
+          await OBDBluetooth.sendCommand("ATZ");
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          await OBDBluetooth.sendCommand("ATE0");
+          await OBDBluetooth.sendCommand("ATSP0");
+          await OBDBluetooth.sendCommand("0100");
+          await new Promise(resolve => setTimeout(resolve, 1000));
 
-            setKmObdRaw(obdRawValue);
+          await sincronizarOdometroComEcu();
+          await verificarFalhasEcu(false);
 
-            if (!virtualOdometro.isCalibrated) {
-              setKmInput(carroConfigurado.km);
-              setShowKmModal(true);
-            } else if (obdRawValue < virtualOdometro.lastObdKm) {
-              setKmInput(telemetry.kmTotal.toString());
-              setShowKmModal(true);
-              dispararAlerta("Recalibração Necessária", "Detectamos um reset na central do veículo. Por favor, confirme o KM do painel.");
-            } else {
-              const kmRealCalculado = virtualOdometro.offset + obdRawValue;
-              setTelemetry(prev => ({ ...prev, kmTotal: kmRealCalculado }));
-              
-              const odoDataAtualizado = { ...virtualOdometro, lastObdKm: obdRawValue };
-              await AsyncStorage.setItem('@virtual_odometro', JSON.stringify(odoDataAtualizado));
-              setVirtualOdometro(odoDataAtualizado);
-            }
-
-          } catch (erroLeitura) {
-            console.log("Falha ao transacionar dados OBD-II: ", erroLeitura);
-          }
-
-        } else {
-          showPill("Falha ao conectar.", "error");
+        } catch (erroLeitura) {
+          console.log("Falha ao transacionar dados OBD-II: ", erroLeitura);
           setIsActive(false);
         }
       } else {
@@ -238,11 +337,77 @@ export default function HomeScreen() {
     }
   }
 
+  /**
+   * @method parseHex
+   * @description Decodifica respostas hexadecimais do Mode 01 para valores decimais.
+   */
+  function parseHex(response: string, pid: string): number {
+    if (!response) return 0;
+    const strResp = String(response).replace(/[\s>]/g, "").toUpperCase();
+    if (strResp.includes("ERROR") || strResp.includes("NODATA") || strResp.includes("SEARCHING")) return 0;
+
+    const target = "41" + pid;
+    const index = strResp.indexOf(target);
+    
+    if (index !== -1) {
+      const dataHex = strResp.substring(index + 4);
+      try {
+        if (pid === "0C" && dataHex.length >= 4) {
+          const A = parseInt(dataHex.substring(0, 2), 16);
+          const B = parseInt(dataHex.substring(2, 4), 16);
+          return Math.round(((A * 256) + B) / 4);
+        } 
+        else if (pid === "05" && dataHex.length >= 2) {
+          return parseInt(dataHex.substring(0, 2), 16) - 40;
+        }
+        else if (pid === "2F" && dataHex.length >= 2) {
+          const A = parseInt(dataHex.substring(0, 2), 16);
+          return Math.round((A * 100) / 255);
+        }
+        else if (pid === "31" && dataHex.length >= 4) {
+          const A = parseInt(dataHex.substring(0, 2), 16);
+          const B = parseInt(dataHex.substring(2, 4), 16);
+          return (A * 256) + B;
+        }
+      } catch (e) {
+        return 0;
+      }
+    }
+    return 0;
+  }
+
+  /**
+   * @effect Loop de Monitoramento e Atualização Contínua
+   * @description Atualiza telemetria básica a cada 5s e revalida quilometragem (PID 0131), combustível (012F) e DTCs a cada 30s.
+   */
   useEffect(() => {
     let loopLento: ReturnType<typeof setInterval>;
+    let slowCycleCounter = 0;
+
     if (isActive) {
       loopLento = setInterval(async () => {
         try {
+          const { OBDBluetooth } = NativeModules;
+          
+          let rpmLido = 0;
+          let tempLida = 0;
+          let fuelLido = 0;
+          
+          try {
+            const respRPM = await OBDBluetooth.sendCommand("010C");
+            rpmLido = parseHex(respRPM, "0C");
+          } catch (e) {}
+          
+          try {
+            const respTemp = await OBDBluetooth.sendCommand("0105");
+            tempLida = parseHex(respTemp, "05");
+          } catch (e) {}
+
+          try {
+            const respFuel = await OBDBluetooth.sendCommand("012F");
+            fuelLido = parseHex(respFuel, "2F");
+          } catch (e) {}
+
           let voltSimulado = 12.6; 
           let statusBat = "batDesconhecido";
           
@@ -252,15 +417,24 @@ export default function HomeScreen() {
           
           setBatteryStatus(statusBat);
 
-          let fuelSimulado = 0.72; 
-          let tempSimulada = 92;
-
           setTelemetry(prev => ({ 
-            ...prev, volt: voltSimulado, fuel: fuelSimulado, temp: tempSimulada 
+            ...prev, 
+            rpm: rpmLido > 0 ? rpmLido : prev.rpm, 
+            volt: voltSimulado, 
+            fuel: fuelLido > 0 ? fuelLido / 100 : (prev.fuel > 0 ? prev.fuel : 0.72), 
+            temp: tempLida > 0 ? tempLida : prev.temp 
           }));
 
+          // Ciclo de 30 segundos (6 iterações de 5s): Atualiza KM em movimento e checa falhas reais
+          slowCycleCounter++;
+          if (slowCycleCounter >= 6) {
+            slowCycleCounter = 0;
+            await sincronizarOdometroComEcu();
+            await verificarFalhasEcu(true);
+          }
+
           if (appState.current.match(/inactive|background/)) {
-            if (tempSimulada > 100) dispararAlerta("Atenção à Temperatura!", `O motor atingiu os ${tempSimulada}°C.`);
+            if (tempLida > 100) dispararAlerta("Atenção à Temperatura!", `O motor atingiu os ${tempLida}°C.`);
             if (voltSimulado < 12.0) dispararAlerta("Bateria Fraca", `A tensão desceu para ${voltSimulado}V.`);
           }
         } catch (error) {
@@ -272,37 +446,30 @@ export default function HomeScreen() {
     return () => { if (loopLento) clearInterval(loopLento); };
   }, [isActive]);
 
-
-  // ======================================================================
-  // 🧪 BLOCO DE TESTE DE NOTIFICAÇÕES (MOCK DE 1 MINUTO)
-  // ======================================================================
-  useEffect(() => {
-    const MOCK_ERRORS = [
-      { title: "⚠️ Falha no Motor", message: "Código P0300 detectado: Falha de ignição em múltiplos cilindros." },
-      { title: "🌡️ Risco de Superaquecimento", message: "A temperatura do motor atingiu 106°C. Encoste o veículo imediatamente!" },
-      { title: "🔋 Alerta de Bateria", message: "Tensão caiu para 11.2V. O alternador pode ter parado de carregar." },
-      { title: "⛽ Injeção Eletrônica", message: "Código P0190: Sensor de pressão da flauta de combustível com mau funcionamento." },
-      { title: "💨 Sistema de Emissões", message: "Código P0420: Eficiência do catalisador abaixo do limite (Banco 1)." }
-    ];
-
-    const testLoop = setInterval(() => {
-      const randomError = MOCK_ERRORS[Math.floor(Math.random() * MOCK_ERRORS.length)];
-      dispararAlerta(randomError.title, randomError.message);
-      console.log("[MOCK_TEST] Notificação disparada no background:", randomError.title);
-    }, 60000);
-
-    return () => clearInterval(testLoop);
-  }, []);
-  // ======================================================================
-
+  /**
+   * @method calibrarOdometroVirtual
+   * @description Calcula o novo Offset com base no KM real do painel informado pelo usuário
+   * e persiste tanto no objeto de calibração quanto no cadastro base do veículo.
+   */
   const calibrarOdometroVirtual = async () => {
     try {
       const painelKmInformado = Number(kmInput);
-      const novoOffset = painelKmInformado - kmObdRaw;
+      if (isNaN(painelKmInformado) || painelKmInformado <= 0) {
+        showPill("Informe uma quilometragem válida.", "error");
+        return;
+      }
 
-      const dadosOdometro = { offset: novoOffset, lastObdKm: kmObdRaw, isCalibrated: true };
+      const baseObd = kmObdRaw > 0 ? kmObdRaw : virtualOdometro.lastObdKm;
+      const novoOffset = painelKmInformado - baseObd;
+
+      const dadosOdometro = { offset: novoOffset, lastObdKm: baseObd, isCalibrated: true };
 
       await AsyncStorage.setItem('@virtual_odometro', JSON.stringify(dadosOdometro));
+      
+      const veiculoAtualizado = { ...carroConfigurado, km: painelKmInformado.toString() };
+      await AsyncStorage.setItem('@veiculo_cadastrado', JSON.stringify(veiculoAtualizado));
+      setCarroConfigurado(veiculoAtualizado);
+
       setVirtualOdometro(dadosOdometro);
       setTelemetry(prev => ({ ...prev, kmTotal: painelKmInformado }));
       setShowKmModal(false);
@@ -319,6 +486,15 @@ export default function HomeScreen() {
       <Text style={styles.devBadgeText}>{t('emImplementacao')}</Text>
     </View>
   );
+
+  // Cores dinâmicas do emblema central para integração com tema claro e escuro
+  const hubAccentColor = !isActive
+    ? (isDark ? "#475569" : "#94A3B8")
+    : (faultCount === 0 ? "#00B4FF" : "#FF3D57");
+  const hubOuterBg = !isActive
+    ? (isDark ? "#1E223566" : "#F1F5F9")
+    : (faultCount === 0 ? (isDark ? "#00B4FF14" : "#E0F2FE") : (isDark ? "#FF3D5714" : "#FFE4E6"));
+  const hubInnerBg = isDark ? "#161924" : "#FFFFFF";
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
@@ -350,12 +526,19 @@ export default function HomeScreen() {
         <View style={styles.carImageContainer}>
           <View style={[styles.diagnosticBox, { backgroundColor: cardColor, borderColor: borderColor }]}>
             
-            <MaterialCommunityIcons 
-              name="car-sports" 
-              size={120} 
-              color={isActive ? "#00B4FF" : (isDark ? "#475569" : "#CBD5E1")} 
-              style={{ zIndex: 2, opacity: isActive ? 1 : 0.8 }} 
-            />
+            {/* EMBLEMA CENTRAL INTEGRADO AO TEMA (Substitui a mancha oval azul) */}
+            <View style={[styles.centralHubOuter, { backgroundColor: hubOuterBg, borderColor: `${hubAccentColor}33` }]}>
+              <View style={[styles.centralHubInner, { backgroundColor: hubInnerBg, borderColor: `${hubAccentColor}55` }]}>
+                <MaterialIcons 
+                  name="directions-car" 
+                  size={36} 
+                  color={hubAccentColor} 
+                />
+                <Text style={[styles.centralHubStatus, { color: hubAccentColor }]}>
+                  {isActive ? (faultCount === 0 ? "TELEMETRIA ATIVA" : "VERIFICAR ECU") : "AGUARDANDO OBD"}
+                </Text>
+              </View>
+            </View>
 
             {!isActive && (
               <View style={[styles.diagBadge, { top: 16, right: 16, backgroundColor: cardColor, borderColor: borderColor }]}>
@@ -363,8 +546,6 @@ export default function HomeScreen() {
                 <Text style={[styles.diagBadgeText, { color: subTextColor }]}>{t('modoOffline')}</Text>
               </View>
             )}
-            
-            {isActive && <Animated.View style={[styles.hologramGlow, headerGlowStyle]} />}
 
             {isActive && (
               <>
@@ -374,20 +555,24 @@ export default function HomeScreen() {
                 </Animated.View>
 
                 <Animated.View style={[styles.diagBadge, { top: 16, right: 16, backgroundColor: cardColor, borderColor: borderColor }, headerGlowStyle]}>
-                  <MaterialCommunityIcons name="engine-outline" size={14} color="#00E676" />
-                  <Text style={[styles.diagBadgeText, { color: textColor }]}>{t('motorOk')}</Text>
+                  <MaterialCommunityIcons name="engine-outline" size={14} color={faultCount === 0 ? "#00E676" : "#FF3D57"} />
+                  <Text style={[styles.diagBadgeText, { color: textColor }]}>
+                     {faultCount === 0 ? t('motorOk') : 'Atenção'}
+                  </Text>
                 </Animated.View>
 
-                <Animated.View style={[styles.diagBadge, { bottom: 64, right: 16, backgroundColor: cardColor, borderColor: borderColor }, headerGlowStyle]}>
-                  <MaterialIcons name="warning" size={14} color="#00E676" />
-                  <Text style={[styles.diagBadgeText, { color: textColor }]}>{t('zeroErros')}</Text>
+                <Animated.View style={[styles.diagBadge, { bottom: 16, right: 16, backgroundColor: cardColor, borderColor: borderColor }, headerGlowStyle]}>
+                  <MaterialIcons name={faultCount === 0 ? "check-circle" : "warning"} size={14} color={faultCount === 0 ? "#00E676" : "#FF3D57"} />
+                  <Text style={[styles.diagBadgeText, { color: textColor }]}>
+                    {faultCount === 0 ? t('zeroErros') : `${faultCount} Erro(s)`}
+                  </Text>
                 </Animated.View>
               </>
             )}
 
             <View style={styles.carLabel}>
-              <Text style={[styles.carModel, { color: textColor, textShadowColor: isDark ? "#000" : "transparent" }]}>{carroConfigurado.marca} {carroConfigurado.veiculo}</Text>
-              <Text style={[styles.carYear, { color: subTextColor, textShadowColor: isDark ? "#000" : "transparent" }]}>{carroConfigurado.ano} {carroConfigurado.motor ? `· Motor ${carroConfigurado.motor}` : ''}</Text>
+              <Text style={[styles.carModel, { color: textColor }]}>{carroConfigurado.marca} {carroConfigurado.veiculo}</Text>
+              <Text style={[styles.carYear, { color: subTextColor }]}>{carroConfigurado.ano} {carroConfigurado.motor ? `· Motor ${carroConfigurado.motor}` : ''}</Text>
             </View>
           </View>
         </View>
@@ -486,7 +671,7 @@ export default function HomeScreen() {
                </Text>
             ) : (
                <Text style={[styles.modalText, { color: subTextColor }]}>
-                 Um reset na central de injeção foi detectado. Para restaurar o cálculo contínuo, informe o KM atual do painel.
+                 Ajuste ou confirme a quilometragem atual exibida no painel do veículo para sincronizar o cálculo.
                </Text>
             )}
             
@@ -578,14 +763,17 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 11 },
   
   carImageContainer: { alignItems: "center", marginHorizontal: 20, marginBottom: 4, position: "relative", marginTop: 12 },
-  diagnosticBox: { width: SCREEN_WIDTH - 40, height: 190, borderRadius: 16, borderWidth: 1, alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" },
-  hologramGlow: { position: 'absolute', width: 100, height: 100, backgroundColor: '#00B4FF', borderRadius: 50, opacity: 0.15, transform: [{ scaleX: 2 }], zIndex: 1, shadowColor: "#00B4FF", shadowOpacity: 1, shadowRadius: 30 },
+  diagnosticBox: { width: SCREEN_WIDTH - 40, height: 195, borderRadius: 16, borderWidth: 1, alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" },
   
-  diagBadge: { position: "absolute", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 4, zIndex: 3 },
+  centralHubOuter: { width: 118, height: 118, borderRadius: 59, borderWidth: 1, alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  centralHubInner: { width: 94, height: 94, borderRadius: 47, borderWidth: 1, alignItems: "center", justifyContent: "center", gap: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 },
+  centralHubStatus: { fontSize: 7, fontWeight: "800", letterSpacing: 0.6, textAlign: "center" },
+
+  diagBadge: { position: "absolute", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 4, elevation: 3, zIndex: 3 },
   diagBadgeText: { fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
   carLabel: { position: "absolute", bottom: 12, left: 16, zIndex: 3 },
-  carModel: { fontSize: 16, fontWeight: "700", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
-  carYear: { fontSize: 11, textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+  carModel: { fontSize: 16, fontWeight: "700" },
+  carYear: { fontSize: 11 },
   
   centerSection: { alignItems: "center", paddingVertical: 16 },
   liveButtonsRow: { flexDirection: "row", gap: 10, alignItems: "center", width: "100%", paddingHorizontal: 20 },
@@ -598,7 +786,7 @@ const styles = StyleSheet.create({
   kmCard: { flex: 1, padding: 16, alignItems: "center", gap: 2, position: "relative" },
   kmDivider: { width: 1, marginVertical: 12 },
   kmLabel: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 4 },
-  kmValue: { fontSize: 26, fontWeight: "700", color: "#00D4FF", fontVariant: ["tabular-nums"], letterSpacing: 1, textShadowColor: "#00B4FF", textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 8 },
+  kmValue: { fontSize: 26, fontWeight: "700", color: "#00D4FF", fontVariant: ["tabular-nums"], letterSpacing: 1 },
   kmUnit: { fontSize: 11 },
   telemetryGrid: { flexDirection: "row", gap: 10 },
   batteryStatusText: { position: 'absolute', bottom: 10, alignSelf: 'center', fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
