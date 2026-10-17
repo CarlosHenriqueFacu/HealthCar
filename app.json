@@ -39,7 +39,7 @@
           "imageWidth": 76
         }
       ],
-     [
+      [
         "expo-build-properties",
         {
           "android": {
@@ -56,8 +56,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "2601f189-a319-436e-9b24-26945f7f0682"
+        "projectId": "c57622fc-3a87-48ea-85fa-dfb33cbb3a31"
       }
-    }
+    },
+    "owner": "carlos008"
   }
 }

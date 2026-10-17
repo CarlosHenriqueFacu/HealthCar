@@ -2,18 +2,23 @@ import { Image } from 'expo-image';
 import * as SplashScreen from 'expo-splash-screen';
 import { useState } from 'react';
 import { Dimensions, StyleSheet, View } from 'react-native';
-import Animated, { Easing, Keyframe } from 'react-native-reanimated';
-import { scheduleOnRN } from 'react-native-worklets';
+import Animated, { Easing, Keyframe, runOnJS } from 'react-native-reanimated';
 
+// Constantes globais de configuração das animações
 const INITIAL_SCALE_FACTOR = Dimensions.get('screen').height / 90;
 const DURATION = 600;
 
+/**
+ * Componente responsável pela sobreposição de Splash animada na inicialização.
+ * Gerencia a transição suave de ocultação da tela de carregamento nativa.
+ */
 export function AnimatedSplashOverlay() {
   const [animate, setAnimate] = useState(false);
   const [visible, setVisible] = useState(true);
 
   if (!visible) return null;
 
+  // Keyframe de animação de saída da Splash Screen
   const splashKeyframe = new Keyframe({
     0: {
       transform: [{ scale: 1 }],
@@ -39,8 +44,9 @@ export function AnimatedSplashOverlay() {
     <Animated.View
       entering={splashKeyframe.duration(DURATION).withCallback((finished) => {
         'worklet';
+        // Utiliza runOnJS para atualizar o estado do React com segurança no ambiente nativo
         if (finished) {
-          scheduleOnRN(setVisible, false);
+          runOnJS(setVisible)(false);
         }
       })}
       style={styles.splashOverlay}>
@@ -59,6 +65,7 @@ export function AnimatedSplashOverlay() {
   );
 }
 
+// Configurações de Keyframes para os elementos visuais do ícone
 const keyframe = new Keyframe({
   0: {
     transform: [{ scale: INITIAL_SCALE_FACTOR }],
@@ -95,6 +102,9 @@ const glowKeyframe = new Keyframe({
   },
 });
 
+/**
+ * Componente do Ícone Animado principal utilizado na interface do aplicativo.
+ */
 export function AnimatedIcon() {
   return (
     <View style={styles.iconContainer}>
@@ -110,6 +120,7 @@ export function AnimatedIcon() {
   );
 }
 
+// Estilos visuais do componente organizados e padronizados
 const styles = StyleSheet.create({
   imageContainer: {
     justifyContent: 'center',
