@@ -2,6 +2,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -13,19 +14,31 @@ import {
 
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
+import { getAuthErrorMessage, loginWithEmail } from '../../services/firebase';
 
 export default function LoginScreen() {
   const router = useRouter();
   
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleLogin = () => {
-    // Futura integração com o Firebase entrará aqui
-    console.log("Tentativa de login com:", email);
-    alert('Logado com sucesso!');
-    // Retorna para a tela principal (Index)
-    router.back(); 
+  const handleLogin = async () => {
+    if (!email.trim() || !senha) {
+      Alert.alert('Campos obrigatórios', 'Informe seu e-mail e sua senha.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await loginWithEmail(email, senha);
+      router.back();
+    } catch (error) {
+      console.error('[Login] Falha ao autenticar com e-mail:', error);
+      Alert.alert('Não foi possível entrar', getAuthErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -65,6 +78,7 @@ export default function LoginScreen() {
               placeholderTextColor="#8892A4"
               keyboardType="email-address"
               autoCapitalize="none"
+              autoComplete="email"
               value={email}
               onChangeText={setEmail}
             />
@@ -77,6 +91,7 @@ export default function LoginScreen() {
               placeholder="Senha"
               placeholderTextColor="#8892A4"
               secureTextEntry
+              autoComplete="password"
               value={senha}
               onChangeText={setSenha}
             />
@@ -91,9 +106,15 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           {/* ================= BOTÃO DE ENTRAR ================= */}
-          <TouchableOpacity style={styles.primaryBtn} onPress={handleLogin}>
-            <ThemedText style={styles.primaryBtnText}>Entrar</ThemedText>
-            <MaterialIcons name="login" size={20} color="#0A0A0F" />
+          <TouchableOpacity
+            style={[styles.primaryBtn, isSubmitting && styles.disabledBtn]}
+            onPress={handleLogin}
+            disabled={isSubmitting}
+          >
+            <ThemedText style={styles.primaryBtnText}>
+              {isSubmitting ? 'Entrando...' : 'Entrar'}
+            </ThemedText>
+            {!isSubmitting && <MaterialIcons name="login" size={20} color="#0A0A0F" />}
           </TouchableOpacity>
 
           {/* ================= CRIAR CONTA ================= */}
@@ -218,6 +239,9 @@ const styles = StyleSheet.create({
     color: '#0A0A0F',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  disabledBtn: {
+    opacity: 0.6,
   },
   registerContainer: {
     flexDirection: 'row',

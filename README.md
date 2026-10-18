@@ -41,6 +41,41 @@ This command will move the starter code to the **app-example** directory and cre
 - If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
 - Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
 
+## Firebase Authentication
+
+O app usa o Firebase JS SDK para cadastro, login e redefinição de senha por e-mail, com a sessão persistida no dispositivo.
+
+1. No Firebase Console, abra o projeto e adicione um **app Web**. Copie os valores da configuração fornecida pelo Firebase.
+2. Em **Authentication > Sign-in method**, habilite **E-mail/senha**.
+3. Copie `.env.example` para `.env` e preencha as variáveis com os valores do app Web:
+
+   ```env
+   EXPO_PUBLIC_FIREBASE_API_KEY=
+   EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=
+   EXPO_PUBLIC_FIREBASE_PROJECT_ID=
+   EXPO_PUBLIC_FIREBASE_APP_ID=
+   ```
+
+4. No Firebase Console, crie o **Cloud Firestore** em **Firestore Database**. Depois publique as regras deste projeto. Com o Firebase CLI instalado e autenticado:
+
+   ```bash
+   npx firebase-tools login
+   npx firebase-tools deploy --only firestore:rules --project healthcar-e7526
+   ```
+
+   Como alternativa, copie o conteúdo de `firestore.rules` na aba **Regras** do Firestore Console e publique.
+
+5. Instale as dependências, reinicie o Expo para carregar o `.env` e abra o app Android:
+
+   ```bash
+   npm install
+   npx expo start --clear
+   ```
+
+6. Para testar, crie uma conta pela tela de cadastro. Em **Authentication > Usuários**, confirme que a conta foi criada. Em **Firestore Database > Dados**, confirme o documento `users/{UID}` e os campos `email`, `displayName` e `vehicle`. Saia em **Configurações > Sair da conta** e entre novamente com o mesmo e-mail e senha.
+
+O Firebase Authentication armazena as contas e credenciais. O perfil e os dados do veículo são gravados no Cloud Firestore e também no armazenamento local do dispositivo. As regras permitem que cada pessoa leia e altere somente o documento associado ao próprio UID. Não versione o arquivo `.env`.
+
 ## Learn more
 
 To learn more about developing your project with Expo, look at the following resources:

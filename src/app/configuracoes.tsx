@@ -1,10 +1,12 @@
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ScreenContainer } from '../components/screen-container';
 
+import { useAuth } from '../contexts/AuthContext';
 import { useApp } from '../contexts/AppContext';
+import { getAuthErrorMessage, signOutCurrentUser } from '../services/firebase';
 
 /**
  * Tela de Configurações (Settings Screen)
@@ -16,6 +18,7 @@ import { useApp } from '../contexts/AppContext';
 export default function ConfiguracoesScreen() {
   // Extração das variáveis de estado e métodos do contexto global (Context API)
   const { theme, language, toggleTheme, toggleLanguage, t } = useApp();
+  const { user } = useAuth();
 
   // Estados locais para controlar a abertura/fechamento das janelas de escolha (Modais)
   const [showLangModal, setShowLangModal] = useState(false);
@@ -51,6 +54,28 @@ export default function ConfiguracoesScreen() {
     setShowThemeModal(false);
   };
 
+  const handleAccountPress = () => {
+    if (!user) {
+      router.push('/(auth)/login' as any);
+      return;
+    }
+
+    Alert.alert('Sair da conta?', 'Você poderá entrar novamente quando quiser.', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Sair',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await signOutCurrentUser();
+          } catch (error) {
+            Alert.alert('Não foi possível sair', getAuthErrorMessage(error));
+          }
+        },
+      },
+    ]);
+  };
+
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
       
@@ -71,12 +96,16 @@ export default function ConfiguracoesScreen() {
         {/* Opção: Conta e Login */}
         <Pressable 
           style={({ pressed }) => [styles.menuItem, { borderBottomColor: borderColor }, pressed && styles.menuItemPressed]} 
-          onPress={() => router.push('/(auth)/login' as any)}
+          onPress={handleAccountPress}
         >
           <MaterialIcons name="account-circle" size={28} color="#00B4FF" />
           <View style={styles.menuTextContainer}>
-            <Text style={[styles.menuTitle, { color: textColor }]}>{t('conta')}</Text>
-            <Text style={[styles.menuSub, { color: subTextColor }]}>{t('contaSub')}</Text>
+            <Text style={[styles.menuTitle, { color: textColor }]}>
+              {user ? 'Sair da conta' : t('conta')}
+            </Text>
+            <Text style={[styles.menuSub, { color: subTextColor }]}>
+              {user?.email ?? t('contaSub')}
+            </Text>
           </View>
           <MaterialIcons name="chevron-right" size={24} color={subTextColor} />
         </Pressable>

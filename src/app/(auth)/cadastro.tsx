@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -18,6 +19,13 @@ import {
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { BluetoothTutorialModal } from '../../components/ui/BluetoothTutorialModal';
+import { useAuth } from '../../contexts/AuthContext';
+import {
+  getAuthErrorMessage,
+  registerWithEmail,
+  saveUserProfile,
+} from '../../services/firebase';
+import type { User } from 'firebase/auth';
 
 // ============================================================================
 // CONSTANTES DE DADOS ESTRUTURADOS
@@ -28,6 +36,7 @@ const OPCOES_MOTOR = ['1.0', '1.0 Turbo', '1.3', '1.4', '1.6', '1.8', '2.0', '2.
 
 export default function CadastroScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   
   // ============================================================================
   // ESTADOS GLOBAIS DA INTERFACE
@@ -46,6 +55,8 @@ export default function CadastroScreen() {
 
   // Estado arquitetural: Define se o usuário está criando ou editando um perfil
   const [isEditing, setIsEditing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [newlyRegisteredUser, setNewlyRegisteredUser] = useState<User | null>(null);
 
   const [showBluetoothModal, setShowBluetoothModal] = useState(false);
   const [selectModalConfig, setSelectModalConfig] = useState({ visible: false, type: '', title: '', data: [] as string[] });
@@ -94,8 +105,43 @@ export default function CadastroScreen() {
   };
 
   const handleCadastro = async () => {
+    if (!isEditing && (!nome.trim() || !sobrenome.trim() || !email.trim() || !senha)) {
+      Alert.alert(
+        'Campos obrigatórios',
+        'Informe nome, sobrenome, e-mail e senha para criar sua conta.',
+      );
+      return;
+    }
+
+    if (!isEditing && senha.length < 6) {
+      Alert.alert('Senha inválida', 'A senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
+      let authenticatedUser = user ?? newlyRegisteredUser;
+      if (!isEditing && !authenticatedUser) {
+        authenticatedUser = await registerWithEmail(
+          email,
+          senha,
+          `${nome.trim()} ${sobrenome.trim()}`,
+        );
+        setNewlyRegisteredUser(authenticatedUser);
+      }
+
       const dadosVeiculo = { marca, veiculo, motor, ano, km, combustivel };
+
+      if (authenticatedUser) {
+        await saveUserProfile(authenticatedUser, {
+          displayName:
+            authenticatedUser.displayName ?? `${nome.trim()} ${sobrenome.trim()}`.trim(),
+          firstName: nome.trim() || undefined,
+          lastName: sobrenome.trim() || undefined,
+          email: authenticatedUser.email ?? email.trim(),
+          vehicle: dadosVeiculo,
+        });
+      }
       
       // Persistência local obrigatória dos parâmetros do veículo
       await AsyncStorage.setItem('@veiculo_cadastrado', JSON.stringify(dadosVeiculo));
@@ -109,7 +155,10 @@ export default function CadastroScreen() {
         setShowBluetoothModal(true);
       }
     } catch (error) {
-      console.error("Exceção não tratada durante o processo de persistência: ", error);
+      console.error('[Cadastro] Falha ao criar conta ou salvar perfil:', error);
+      Alert.alert('Não foi possível salvar', getAuthErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -159,12 +208,12 @@ export default function CadastroScreen() {
 
               <View style={styles.inputContainer}>
                 <MaterialIcons name="email" size={20} color="#8892A4" style={styles.icon} />
-                <TextInput style={styles.input} placeholder="E-mail" placeholderTextColor="#8892A4" keyboardType="email-address" autoCapitalize="none" value={email} onChangeText={setEmail} />
+                <TextInput style={styles.input} placeholder="E-mail" placeholderTextColor="#8892A4" keyboardType="email-address" autoCapitalize="none" autoComplete="email" value={email} onChangeText={setEmail} />
               </View>
 
               <View style={styles.inputContainer}>
                 <MaterialIcons name="lock" size={20} color="#8892A4" style={styles.icon} />
-                <TextInput style={styles.input} placeholder="Senha" placeholderTextColor="#8892A4" secureTextEntry value={senha} onChangeText={setSenha} />
+                <TextInput style={styles.input} placeholder="Senha" placeholderTextColor="#8892A4" secureTextEntry autoComplete="new-password" value={senha} onChangeText={setSenha} />
               </View>
             </>
           )}
@@ -213,11 +262,25 @@ export default function CadastroScreen() {
           </View>
 
           {/* ================= AÇÃO PRINCIPAL ================= */}
-          <TouchableOpacity style={styles.primaryBtn} onPress={handleCadastro}>
+          <TouchableOpacity
+            style={[styles.primaryBtn, isSubmitting && styles.disabledBtn]}
+            onPress={handleCadastro}
+            disabled={isSubmitting}
+          >
             <ThemedText style={styles.primaryBtnText}>
-              {isEditing ? "Salvar Alterações" : "Salvar e Conectar Scanner"}
+              {isSubmitting
+                ? 'Salvando...'
+                : isEditing
+                  ? 'Salvar Alterações'
+                  : 'Criar conta e conectar scanner'}
             </ThemedText>
-            <MaterialIcons name={isEditing ? "save" : "bluetooth-connected"} size={20} color="#0A0A0F" />
+            {!isSubmitting && (
+              <MaterialIcons
+                name={isEditing ? 'save' : 'bluetooth-connected'}
+                size={20}
+                color="#0A0A0F"
+              />
+            )}
           </TouchableOpacity>
 
         </ScrollView>
@@ -271,6 +334,7 @@ const styles = StyleSheet.create({
   inputSelector: { flex: 1, color: '#F0F2FF', fontSize: 15, paddingHorizontal: 12, paddingTop: 16 },
   inputSelectorPlaceholder: { color: '#8892A4' },
   primaryBtn: { flexDirection: 'row', backgroundColor: '#00B4FF', height: 54, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 24, gap: 8 },
+  disabledBtn: { opacity: 0.6 },
   primaryBtnText: { color: '#0A0A0F', fontWeight: 'bold', fontSize: 16 },
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.6)' },
   modalContent: { backgroundColor: '#12141A', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '60%', borderWidth: 1, borderColor: '#1E2235' },
