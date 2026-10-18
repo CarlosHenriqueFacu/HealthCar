@@ -44,7 +44,7 @@
         {
           "android": {
             "newArchEnabled": false,
-            "kotlinVersion": "2.4.0"
+            "kotlinVersion": "1.9.24"
           }
         }
       ]

@@ -2,7 +2,7 @@
 
 buildscript {
   ext {
-    kotlinVersion = "2.4.0"
+    kotlinVersion = "1.9.24"
   }
   repositories {
     google()
@@ -21,6 +21,15 @@ allprojects {
     google()
     mavenCentral()
     maven { url 'https://www.jitpack.io' }
+  }
+  
+  // TRAVA DO GOOGLE PLAY SERVICES:
+  configurations.all {
+      resolutionStrategy.eachDependency { details ->
+          if (details.requested.group == 'com.google.android.gms' && details.requested.name.contains('play-services-measurement')) {
+              details.useVersion '21.6.0'
+          }
+      }
   }
 }
 
