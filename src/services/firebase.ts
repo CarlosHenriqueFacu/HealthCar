@@ -16,10 +16,17 @@ import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app';
 import { doc, getFirestore, serverTimestamp, setDoc } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+  apiKey:
+    process.env.EXPO_PUBLIC_FIREBASE_API_KEY ??
+    'AIzaSyAFKm0_UlANuUbhVJG3tvIN8-pr6WsVwGI',
+  authDomain:
+    process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ??
+    'healthcar-e7526.firebaseapp.com',
+  projectId:
+    process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? 'healthcar-e7526',
+  appId:
+    process.env.EXPO_PUBLIC_FIREBASE_APP_ID ??
+    '1:475693557968:web:246906fb7dd1de45bdd6d5',
 };
 
 const requiredConfigKeys = [

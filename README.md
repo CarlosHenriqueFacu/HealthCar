@@ -47,7 +47,7 @@ O app usa o Firebase JS SDK para cadastro, login e redefinição de senha por e-
 
 1. No Firebase Console, abra o projeto e adicione um **app Web**. Copie os valores da configuração fornecida pelo Firebase.
 2. Em **Authentication > Sign-in method**, habilite **E-mail/senha**.
-3. Copie `.env.example` para `.env` e preencha as variáveis com os valores do app Web:
+3. A configuração do app Web do projeto já está definida como padrão no app, portanto o APK compilado funciona sem `.env` ou variáveis cadastradas no EAS. Se precisar usar outro app Firebase durante o desenvolvimento local, copie `.env.example` para `.env` e preencha as variáveis para substituir esses padrões:
 
    ```env
    EXPO_PUBLIC_FIREBASE_API_KEY=
@@ -55,6 +55,8 @@ O app usa o Firebase JS SDK para cadastro, login e redefinição de senha por e-
    EXPO_PUBLIC_FIREBASE_PROJECT_ID=
    EXPO_PUBLIC_FIREBASE_APP_ID=
    ```
+
+   Esses valores de configuração do Firebase são incluídos no bundle do app e não são senhas. Proteja os dados usando as regras do Firestore e as configurações de Authentication do Firebase; nunca coloque credenciais privadas em variáveis `EXPO_PUBLIC_`.
 
 4. No Firebase Console, crie o **Cloud Firestore** em **Firestore Database**. Depois publique as regras deste projeto. Com o Firebase CLI instalado e autenticado:
 
@@ -71,6 +73,8 @@ O app usa o Firebase JS SDK para cadastro, login e redefinição de senha por e-
    npm install
    npx expo start --clear
    ```
+
+   Para gerar o APK de teste, use `eas build --platform android --profile preview`. A configuração Firebase padrão já será incluída mesmo sem variáveis configuradas no ambiente do EAS.
 
 6. Para testar, crie uma conta pela tela de cadastro. Em **Authentication > Usuários**, confirme que a conta foi criada. Em **Firestore Database > Dados**, confirme o documento `users/{UID}` e os campos `email`, `displayName` e `vehicle`. Saia em **Configurações > Sair da conta** e entre novamente com o mesmo e-mail e senha.
 
