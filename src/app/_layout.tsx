@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { useColorScheme, View } from 'react-native';
 
 import { AppProvider } from '../contexts/AppContext';
+import { AuthProvider } from '../contexts/AuthContext';
 
 /**
  * Previne o fechamento automático da Splash Screen nativa.
@@ -71,11 +72,13 @@ export default function TabLayout() {
 
   return (
     <AppProvider>
-      <View style={{ flex: 1 }}>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <Stack screenOptions={{ headerShown: false }} />
-        </ThemeProvider>
-      </View>
+      <AuthProvider>
+        <View style={{ flex: 1 }}>
+          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <Stack screenOptions={{ headerShown: false }} />
+          </ThemeProvider>
+        </View>
+      </AuthProvider>
     </AppProvider>
   );
 }
