@@ -20,6 +20,8 @@ import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { BluetoothTutorialModal } from '../../components/ui/BluetoothTutorialModal';
 import { useAuth } from '../../contexts/AuthContext';
+import { AppPalette } from '../../constants/theme';
+import { useApp } from '../../contexts/AppContext';
 import {
   getAuthErrorMessage,
   registerWithEmail,
@@ -37,6 +39,8 @@ const OPCOES_MOTOR = ['1.0', '1.0 Turbo', '1.3', '1.4', '1.6', '1.8', '2.0', '2.
 export default function CadastroScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { theme } = useApp();
+  const colors = AppPalette[theme];
   
   // ============================================================================
   // ESTADOS GLOBAIS DA INTERFACE
@@ -171,21 +175,21 @@ export default function CadastroScreen() {
   // RENDERIZAÇÃO DA INTERFACE (VIEW)
   // ============================================================================
   return (
-    <ThemedView style={styles.container}>
+    <ThemedView style={[styles.container, { backgroundColor: colors.background }]}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-              <MaterialIcons name="arrow-back" size={24} color="#F0F2FF" />
+            <TouchableOpacity onPress={() => router.back()} style={[styles.backBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <MaterialIcons name="arrow-back" size={24} color={colors.text} />
             </TouchableOpacity>
-            <ThemedText type="title" style={styles.titulo}>
+            <ThemedText type="title" style={[styles.titulo, { color: colors.text }]}>
               {isEditing ? "Editar Veículo" : "Configurar App"}
             </ThemedText>
             <View style={{ width: 24 }} />
           </View>
 
-          <ThemedText style={styles.descricao}>
+          <ThemedText style={[styles.descricao, { color: colors.textSecondary }]}>
             {isEditing 
               ? "Atualize as especificações técnicas do seu veículo para manter a precisão da telemetria."
               : "Configure seu perfil e selecione as características do seu veículo para calibrar a telemetria."}
@@ -194,80 +198,80 @@ export default function CadastroScreen() {
           {/* ================= SESSÃO OMITIDA CONDICIONALMENTE NA EDIÇÃO ================= */}
           {!isEditing && (
             <>
-              <ThemedText style={styles.sectionTitle}>Dados Pessoais</ThemedText>
+              <ThemedText style={[styles.sectionTitle, { color: colors.primary }]}>Dados Pessoais</ThemedText>
               
               <View style={styles.row}>
-                <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
-                  <MaterialIcons name="person" size={20} color="#8892A4" style={styles.icon} />
-                  <TextInput style={styles.input} placeholder="Nome" placeholderTextColor="#8892A4" value={nome} onChangeText={setNome} />
+                <View style={[styles.inputContainer, { flex: 1, marginRight: 8, backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <MaterialIcons name="person" size={20} color={colors.textSecondary} style={styles.icon} />
+                  <TextInput style={[styles.input, { color: colors.text }]} placeholder="Nome" placeholderTextColor={colors.textSecondary} value={nome} onChangeText={setNome} />
                 </View>
-                <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
-                  <TextInput style={[styles.input, { paddingLeft: 16 }]} placeholder="Sobrenome" placeholderTextColor="#8892A4" value={sobrenome} onChangeText={setSobrenome} />
+                <View style={[styles.inputContainer, { flex: 1, marginLeft: 8, backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <TextInput style={[styles.input, { paddingLeft: 16, color: colors.text }]} placeholder="Sobrenome" placeholderTextColor={colors.textSecondary} value={sobrenome} onChangeText={setSobrenome} />
                 </View>
               </View>
 
-              <View style={styles.inputContainer}>
-                <MaterialIcons name="email" size={20} color="#8892A4" style={styles.icon} />
-                <TextInput style={styles.input} placeholder="E-mail" placeholderTextColor="#8892A4" keyboardType="email-address" autoCapitalize="none" autoComplete="email" value={email} onChangeText={setEmail} />
+              <View style={[styles.inputContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <MaterialIcons name="email" size={20} color={colors.textSecondary} style={styles.icon} />
+                <TextInput style={[styles.input, { color: colors.text }]} placeholder="E-mail" placeholderTextColor={colors.textSecondary} keyboardType="email-address" autoCapitalize="none" autoComplete="email" value={email} onChangeText={setEmail} />
               </View>
 
-              <View style={styles.inputContainer}>
-                <MaterialIcons name="lock" size={20} color="#8892A4" style={styles.icon} />
-                <TextInput style={styles.input} placeholder="Senha" placeholderTextColor="#8892A4" secureTextEntry autoComplete="new-password" value={senha} onChangeText={setSenha} />
+              <View style={[styles.inputContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <MaterialIcons name="lock" size={20} color={colors.textSecondary} style={styles.icon} />
+                <TextInput style={[styles.input, { color: colors.text }]} placeholder="Senha" placeholderTextColor={colors.textSecondary} secureTextEntry autoComplete="new-password" value={senha} onChangeText={setSenha} />
               </View>
             </>
           )}
 
           {/* ================= SESSÃO: DADOS DO VEÍCULO ================= */}
-          <ThemedText style={styles.sectionTitle}>Especificações do Veículo</ThemedText>
+          <ThemedText style={[styles.sectionTitle, { color: colors.primary }]}>Especificações do Veículo</ThemedText>
 
           <TouchableOpacity 
-            style={styles.inputContainer} 
+            style={[styles.inputContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}
             activeOpacity={0.7}
             onPress={() => openSelect('marca', 'Selecione a Montadora', OPCOES_MARCA)}
           >
-            <MaterialIcons name="directions-car" size={20} color="#8892A4" style={styles.icon} />
-            <Text style={[styles.inputSelector, !marca && styles.inputSelectorPlaceholder]}>
+            <MaterialIcons name="directions-car" size={20} color={colors.textSecondary} style={styles.icon} />
+            <Text style={[styles.inputSelector, { color: marca ? colors.text : colors.textSecondary }, !marca && styles.inputSelectorPlaceholder]}>
               {marca ? marca : "Montadora (Ex: Chevrolet)"}
             </Text>
-            <MaterialIcons name="arrow-drop-down" size={24} color="#8892A4" style={{ paddingRight: 12 }} />
+            <MaterialIcons name="arrow-drop-down" size={24} color={colors.textSecondary} style={{ paddingRight: 12 }} />
           </TouchableOpacity>
 
-          <View style={styles.inputContainer}>
-            <MaterialIcons name="sell" size={20} color="#8892A4" style={styles.icon} />
-            <TextInput style={styles.input} placeholder="Modelo (Ex: Onix)" placeholderTextColor="#8892A4" value={veiculo} onChangeText={setVeiculo} />
+          <View style={[styles.inputContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <MaterialIcons name="sell" size={20} color={colors.textSecondary} style={styles.icon} />
+            <TextInput style={[styles.input, { color: colors.text }]} placeholder="Modelo (Ex: Onix)" placeholderTextColor={colors.textSecondary} value={veiculo} onChangeText={setVeiculo} />
           </View>
 
           <View style={styles.row}>
-            <TouchableOpacity style={[styles.inputContainer, { flex: 1, marginRight: 8 }]} activeOpacity={0.7} onPress={() => openSelect('motor', 'Selecione o Motor', OPCOES_MOTOR)}>
-              <MaterialIcons name="build" size={20} color="#8892A4" style={styles.icon} />
-              <Text style={[styles.inputSelector, !motor && styles.inputSelectorPlaceholder]}>{motor ? motor : "Motor"}</Text>
+            <TouchableOpacity style={[styles.inputContainer, { flex: 1, marginRight: 8, backgroundColor: colors.surface, borderColor: colors.border }]} activeOpacity={0.7} onPress={() => openSelect('motor', 'Selecione o Motor', OPCOES_MOTOR)}>
+              <MaterialIcons name="build" size={20} color={colors.textSecondary} style={styles.icon} />
+              <Text style={[styles.inputSelector, { color: motor ? colors.text : colors.textSecondary }, !motor && styles.inputSelectorPlaceholder]}>{motor ? motor : "Motor"}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]} activeOpacity={0.7} onPress={() => openSelect('combustivel', 'Combustível', OPCOES_COMBUSTIVEL)}>
-              <MaterialIcons name="local-gas-station" size={20} color="#8892A4" style={styles.icon} />
-              <Text style={[styles.inputSelector, !combustivel && styles.inputSelectorPlaceholder]}>{combustivel ? combustivel : "Tipo"}</Text>
+            <TouchableOpacity style={[styles.inputContainer, { flex: 1, marginLeft: 8, backgroundColor: colors.surface, borderColor: colors.border }]} activeOpacity={0.7} onPress={() => openSelect('combustivel', 'Combustível', OPCOES_COMBUSTIVEL)}>
+              <MaterialIcons name="local-gas-station" size={20} color={colors.textSecondary} style={styles.icon} />
+              <Text style={[styles.inputSelector, { color: combustivel ? colors.text : colors.textSecondary }, !combustivel && styles.inputSelectorPlaceholder]}>{combustivel ? combustivel : "Tipo"}</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.row}>
-            <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
-              <MaterialIcons name="date-range" size={20} color="#8892A4" style={styles.icon} />
-              <TextInput style={styles.input} placeholder="Ano" placeholderTextColor="#8892A4" keyboardType="numeric" maxLength={4} value={ano} onChangeText={setAno} />
+            <View style={[styles.inputContainer, { flex: 1, marginRight: 8, backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <MaterialIcons name="date-range" size={20} color={colors.textSecondary} style={styles.icon} />
+              <TextInput style={[styles.input, { color: colors.text }]} placeholder="Ano" placeholderTextColor={colors.textSecondary} keyboardType="numeric" maxLength={4} value={ano} onChangeText={setAno} />
             </View>
-            <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
-              <MaterialIcons name="speed" size={20} color="#8892A4" style={styles.icon} />
-              <TextInput style={styles.input} placeholder="Km Atual" placeholderTextColor="#8892A4" keyboardType="numeric" value={km} onChangeText={setKm} />
+            <View style={[styles.inputContainer, { flex: 1, marginLeft: 8, backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <MaterialIcons name="speed" size={20} color={colors.textSecondary} style={styles.icon} />
+              <TextInput style={[styles.input, { color: colors.text }]} placeholder="Km Atual" placeholderTextColor={colors.textSecondary} keyboardType="numeric" value={km} onChangeText={setKm} />
             </View>
           </View>
 
           {/* ================= AÇÃO PRINCIPAL ================= */}
           <TouchableOpacity
-            style={[styles.primaryBtn, isSubmitting && styles.disabledBtn]}
+            style={[styles.primaryBtn, { backgroundColor: colors.primary }, isSubmitting && styles.disabledBtn]}
             onPress={handleCadastro}
             disabled={isSubmitting}
           >
-            <ThemedText style={styles.primaryBtnText}>
+            <ThemedText style={[styles.primaryBtnText, { color: '#FFFFFF' }]}>
               {isSubmitting
                 ? 'Salvando...'
                 : isEditing
@@ -278,7 +282,7 @@ export default function CadastroScreen() {
               <MaterialIcons
                 name={isEditing ? 'save' : 'bluetooth-connected'}
                 size={20}
-                color="#0A0A0F"
+                color="#FFFFFF"
               />
             )}
           </TouchableOpacity>
@@ -288,12 +292,12 @@ export default function CadastroScreen() {
 
       {/* ================= COMPONENTES SOBREPOSTOS (MODAIS) ================= */}
       <Modal visible={selectModalConfig.visible} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+        <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{selectModalConfig.title}</Text>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>{selectModalConfig.title}</Text>
               <TouchableOpacity onPress={() => setSelectModalConfig({ ...selectModalConfig, visible: false })}>
-                <MaterialIcons name="close" size={24} color="#F0F2FF" />
+                <MaterialIcons name="close" size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
             
@@ -302,7 +306,7 @@ export default function CadastroScreen() {
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity style={styles.modalItem} onPress={() => handleSelectOption(item)}>
-                  <Text style={styles.modalItemText}>{item}</Text>
+                  <Text style={[styles.modalItemText, { color: colors.primary }]}>{item}</Text>
                 </TouchableOpacity>
               )}
             />
@@ -332,7 +336,7 @@ const styles = StyleSheet.create({
   icon: { paddingLeft: 16 },
   input: { flex: 1, color: '#F0F2FF', fontSize: 15, paddingHorizontal: 12, height: '100%' },
   inputSelector: { flex: 1, color: '#F0F2FF', fontSize: 15, paddingHorizontal: 12, paddingTop: 16 },
-  inputSelectorPlaceholder: { color: '#8892A4' },
+  inputSelectorPlaceholder: {},
   primaryBtn: { flexDirection: 'row', backgroundColor: '#00B4FF', height: 54, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 24, gap: 8 },
   disabledBtn: { opacity: 0.6 },
   primaryBtnText: { color: '#0A0A0F', fontWeight: 'bold', fontSize: 16 },

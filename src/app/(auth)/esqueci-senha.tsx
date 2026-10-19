@@ -1,12 +1,17 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { Alert, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
+import { ScreenContainer } from '../../components/screen-container';
+import { ScreenHeader } from '../../components/ScreenHeader';
 import { ThemedText } from '../../components/themed-text';
-import { ThemedView } from '../../components/themed-view';
+import { AppPalette } from '../../constants/theme';
+import { useApp } from '../../contexts/AppContext';
 import { getAuthErrorMessage, sendPasswordReset } from '../../services/firebase';
 
 export default function EsqueciSenhaScreen() {
+  const { theme } = useApp();
+  const colors = AppPalette[theme];
   const [email, setEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -18,12 +23,13 @@ export default function EsqueciSenhaScreen() {
 
     setIsSubmitting(true);
     try {
-      await sendPasswordReset(email);
+      await sendPasswordReset(email.trim());
       Alert.alert(
         'E-mail enviado',
         'Se houver uma conta para esse endereço, você receberá instruções para redefinir a senha.',
       );
     } catch (error) {
+      console.error('[PasswordReset] Falha ao enviar instruções:', error);
       Alert.alert('Não foi possível enviar', getAuthErrorMessage(error));
     } finally {
       setIsSubmitting(false);
@@ -31,66 +37,110 @@ export default function EsqueciSenhaScreen() {
   };
 
   return (
-    <ThemedView style={styles.container}>
-      <ThemedText type="title">Recuperar Senha</ThemedText>
-      <ThemedText style={styles.description}>
-        Informe o e-mail associado à sua conta para receber as instruções de redefinição.
-      </ThemedText>
-      <View style={styles.inputContainer}>
-        <MaterialIcons name="email" size={20} color="#8892A4" />
-        <TextInput
-          style={styles.input}
-          placeholder="E-mail"
-          placeholderTextColor="#8892A4"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoComplete="email"
-          value={email}
-          onChangeText={setEmail}
-        />
-      </View>
-      <TouchableOpacity
-        style={[styles.button, isSubmitting && styles.disabledButton]}
-        onPress={handleResetPassword}
-        disabled={isSubmitting}
+    <ScreenContainer edges={['top', 'left', 'right']}>
+      <ScreenHeader title="Recuperar senha" />
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <ThemedText style={styles.buttonText}>
-          {isSubmitting ? 'Enviando...' : 'Enviar instruções'}
+        <View style={[styles.iconCircle, { backgroundColor: colors.surfaceMuted }]}>
+          <MaterialIcons name="lock-reset" size={30} color={colors.primary} />
+        </View>
+        <ThemedText style={[styles.title, { color: colors.text }]}>Vamos recuperar seu acesso</ThemedText>
+        <ThemedText style={[styles.description, { color: colors.textSecondary }]}>
+          Informe o e-mail associado à sua conta. Enviaremos instruções para criar uma nova senha.
         </ThemedText>
-      </TouchableOpacity>
-    </ThemedView>
+        <View style={[styles.inputContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <MaterialIcons name="email" size={20} color={colors.textSecondary} />
+          <TextInput
+            style={[styles.input, { color: colors.text }]}
+            placeholder="Seu e-mail"
+            placeholderTextColor={colors.textSecondary}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            accessibilityLabel="E-mail da conta"
+            value={email}
+            onChangeText={setEmail}
+          />
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          disabled={isSubmitting}
+          onPress={handleResetPassword}
+          style={({ pressed }) => [
+            styles.button,
+            { backgroundColor: colors.primary },
+            (pressed || isSubmitting) && styles.pressed,
+          ]}
+        >
+          <ThemedText style={styles.buttonText}>
+            {isSubmitting ? 'Enviando...' : 'Enviar instruções'}
+          </ThemedText>
+          {!isSubmitting && <MaterialIcons name="arrow-forward" size={20} color="#FFFFFF" />}
+        </Pressable>
+      </ScrollView>
+    </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  content: {
+    flexGrow: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 40,
   },
-  description: { color: '#8892A4', textAlign: 'center', marginTop: 12, marginBottom: 24 },
+  iconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  title: {
+    fontSize: 25,
+    lineHeight: 32,
+    fontWeight: '700',
+  },
+  description: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 10,
+    marginBottom: 28,
+  },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#12141A',
     borderWidth: 1,
-    borderColor: '#1E2235',
-    borderRadius: 12,
-    height: 54,
+    borderRadius: 16,
+    minHeight: 56,
     paddingHorizontal: 16,
-    width: '100%',
   },
-  input: { flex: 1, color: '#F0F2FF', fontSize: 15, paddingHorizontal: 12, height: '100%' },
+  input: {
+    flex: 1,
+    fontSize: 15,
+    paddingHorizontal: 12,
+    height: '100%',
+  },
   button: {
-    backgroundColor: '#00B4FF',
-    height: 54,
-    borderRadius: 12,
+    minHeight: 56,
+    borderRadius: 16,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 20,
-    width: '100%',
+    gap: 8,
+    marginTop: 18,
   },
-  buttonText: { color: '#0A0A0F', fontWeight: 'bold', fontSize: 16 },
-  disabledButton: { opacity: 0.6 },
+  buttonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  pressed: {
+    opacity: 0.7,
+  },
 });
