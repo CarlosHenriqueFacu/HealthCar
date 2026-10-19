@@ -1,187 +1,301 @@
-import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
-import { Platform, Pressable, ScrollView, StyleSheet, useColorScheme } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MaterialIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-// MANUTENÇÃO FUTURA: Todos os atalhos '@/' foram trocados por '../' para encontrar as pastas corretamente
-import { ExternalLink } from '../components/external-link';
-import { ThemedText } from '../components/themed-text';
-import { ThemedView } from '../components/themed-view';
-import { Collapsible } from '../components/ui/collapsible';
-import { WebBadge } from '../components/web-badge';
+import { ScreenContainer } from '../components/screen-container';
+import { ScreenHeader } from '../components/ScreenHeader';
+import { AppPalette } from '../constants/theme';
+import { useApp } from '../contexts/AppContext';
 
-// MANUTENÇÃO FUTURA: Importação direta do arquivo Colors e remoção do hook inexistente 'use-theme'
-import { BottomTabInset, Colors, MaxContentWidth, Spacing } from '../constants/theme';
+interface VehicleProfile {
+  marca?: string;
+  veiculo?: string;
+  ano?: string;
+  km?: string;
+  motor?: string;
+  combustivel?: string;
+}
 
-export default function TabTwoScreen() {
-  const safeAreaInsets = useSafeAreaInsets();
-  const insets = {
-    ...safeAreaInsets,
-    bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
+export default function VehicleHubScreen() {
+  const { theme, t } = useApp();
+  const colors = AppPalette[theme];
+  const [vehicle, setVehicle] = useState<VehicleProfile | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadVehicle = async () => {
+      try {
+        const savedVehicle = await AsyncStorage.getItem('@veiculo_cadastrado');
+        if (savedVehicle && isMounted) {
+          const parsed: unknown = JSON.parse(savedVehicle);
+          if (isVehicleProfile(parsed)) setVehicle(parsed);
+        }
+      } catch (error) {
+        console.error('[VehicleHub] Falha ao carregar o veículo salvo:', error);
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    };
+
+    void loadVehicle();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const goTo = (path: '/tempo-real' | '/scanner' | '/relatorios') => {
+    router.push(path);
   };
-  
-  // MANUTENÇÃO FUTURA: Lógica nativa de cor
-  const scheme = useColorScheme();
-  const themeColors = Colors[scheme === 'unspecified' ? 'light' : scheme];
 
-  const contentPlatformStyle = Platform.select({
-    android: {
-      paddingTop: insets.top,
-      paddingLeft: insets.left,
-      paddingRight: insets.right,
-      paddingBottom: insets.bottom,
-    },
-    web: {
-      paddingTop: Spacing.six,
-      paddingBottom: Spacing.four,
-    },
-  });
+  const vehicleName = [vehicle?.marca, vehicle?.veiculo].filter(Boolean).join(' ');
 
   return (
-    <ScrollView
-      style={[styles.scrollView, { backgroundColor: (themeColors as any).background }]}
-      contentInset={insets}
-      contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
-      <ThemedView style={styles.container}>
-        <ThemedView style={styles.titleContainer}>
-          <ThemedText type="subtitle">Explore</ThemedText>
-          <ThemedText style={styles.centerText} themeColor="textSecondary">
-            This starter app includes example{'\n'}code to help you get started.
-          </ThemedText>
+    <ScreenContainer edges={['top', 'left', 'right']}>
+      <ScreenHeader title={t('centralVeiculo')} />
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Text style={[styles.eyebrow, { color: colors.textSecondary }]}>{t('saudeManutencao')}</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{t('hubTitulo')}</Text>
+        <Text style={[styles.description, { color: colors.textSecondary }]}>{t('hubDescricao')}</Text>
 
-          <ExternalLink href="https://docs.expo.dev" asChild>
-            <Pressable style={({ pressed }) => pressed && styles.pressed}>
-              {/* MANUTENÇÃO FUTURA: Aplicado o bypass no 'type' para evitar a linha vermelha */}
-              <ThemedView {...{ type: "backgroundElement" } as any} style={styles.linkButton}>
-                <ThemedText type="link">Expo documentation</ThemedText>
-                <SymbolView
-                  tintColor={(themeColors as any).text}
-                  name={{ ios: 'arrow.up.right.square', android: 'link', web: 'link' }}
-                  size={12}
-                />
-              </ThemedView>
-            </Pressable>
-          </ExternalLink>
-        </ThemedView>
+        <View style={[styles.vehicleCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={[styles.vehicleIcon, { backgroundColor: colors.surfaceMuted }]}>
+            <MaterialIcons name="directions-car" size={25} color={colors.primary} />
+          </View>
+          <View style={styles.vehicleInfo}>
+            <Text style={[styles.vehicleLabel, { color: colors.textSecondary }]}>{t('veiculoCadastrado')}</Text>
+            {isLoading ? (
+              <ActivityIndicator size="small" color={colors.primary} style={styles.loading} />
+            ) : (
+              <>
+                <Text style={[styles.vehicleName, { color: colors.text }]}>
+                  {vehicleName || t('nenhumVeiculoCadastrado')}
+                </Text>
+                <Text style={[styles.vehicleMeta, { color: colors.textSecondary }]}>
+                  {vehicle ? [vehicle.ano, vehicle.motor, vehicle.combustivel].filter(Boolean).join(' · ') : t('configurarParaMonitoramento')}
+                </Text>
+              </>
+            )}
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('configurarVeiculo')}
+            onPress={() => router.push('/(auth)/cadastro')}
+            hitSlop={8}
+            style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
+          >
+            <MaterialIcons name="edit" size={19} color={colors.primary} />
+          </Pressable>
+        </View>
 
-        <ThemedView style={styles.sectionsWrapper}>
-          <Collapsible title="File-based routing">
-            <ThemedText type="small">
-              This app has two screens: <ThemedText type="code">src/app/index.tsx</ThemedText> and{' '}
-              <ThemedText type="code">src/app/explore.tsx</ThemedText>
-            </ThemedText>
-            <ThemedText type="small">
-              The layout file in <ThemedText type="code">src/app/_layout.tsx</ThemedText> sets up
-              the tab navigator.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/router/introduction">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
+        <View style={styles.sectionHeading}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>{t('oQueDesejaFazer')}</Text>
+          <Text style={[styles.sectionCaption, { color: colors.textSecondary }]}>{t('atalhos')}</Text>
+        </View>
 
-          <Collapsible title="Android, iOS, and web support">
-            <ThemedView {...{ type: "backgroundElement" } as any} style={styles.collapsibleContent}>
-              <ThemedText type="small">
-                You can open this project on Android, iOS, and the web. To open the web version,
-                press <ThemedText type="smallBold">w</ThemedText> in the terminal running this
-                project.
-              </ThemedText>
-              <Image
-                // MANUTENÇÃO FUTURA: Atalho corrigido de '@/' para '../../' para chegar nos assets
-                source={require('../../assets/images/tutorial-web.png')}
-                style={styles.imageTutorial}
-              />
-            </ThemedView>
-          </Collapsible>
+        <ActionRow
+          icon="search"
+          title={t('escanearFalhas')}
+          description={t('scanDescricao')}
+          color={colors.danger}
+          backgroundColor={colors.surface}
+          borderColor={colors.border}
+          textColor={colors.text}
+          secondaryColor={colors.textSecondary}
+          onPress={() => goTo('/scanner')}
+        />
+        <ActionRow
+          icon="sensors"
+          title={t('monitorarVeiculo')}
+          description={t('monitoramentoDescricao')}
+          color={colors.positive}
+          backgroundColor={colors.surface}
+          borderColor={colors.border}
+          textColor={colors.text}
+          secondaryColor={colors.textSecondary}
+          onPress={() => goTo('/tempo-real')}
+        />
+        <ActionRow
+          icon="build-circle"
+          title={t('relatorios')}
+          description={t('manutencaoDescricao')}
+          color={colors.primary}
+          backgroundColor={colors.surface}
+          borderColor={colors.border}
+          textColor={colors.text}
+          secondaryColor={colors.textSecondary}
+          onPress={() => goTo('/relatorios')}
+        />
+      </ScrollView>
+    </ScreenContainer>
+  );
+}
 
-          <Collapsible title="Images">
-            <ThemedText type="small">
-              For static images, you can use the <ThemedText type="code">@2x</ThemedText> and{' '}
-              <ThemedText type="code">@3x</ThemedText> suffixes to provide files for different
-              screen densities.
-            </ThemedText>
-            <Image source={require('../../assets/images/react-logo.png')} style={styles.imageReact} />
-            <ExternalLink href="https://reactnative.dev/docs/images">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
+function isVehicleProfile(value: unknown): value is VehicleProfile {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Record<string, unknown>;
+  return ['marca', 'veiculo', 'ano', 'km', 'motor', 'combustivel'].every(
+    (key) => candidate[key] === undefined || typeof candidate[key] === 'string',
+  );
+}
 
-          <Collapsible title="Light and dark mode components">
-            <ThemedText type="small">
-              This template has light and dark mode support. The{' '}
-              <ThemedText type="code">useColorScheme()</ThemedText> hook lets you inspect what the
-              user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
+interface ActionRowProps {
+  icon: keyof typeof MaterialIcons.glyphMap;
+  title: string;
+  description: string;
+  color: string;
+  backgroundColor: string;
+  borderColor: string;
+  textColor: string;
+  secondaryColor: string;
+  onPress: () => void;
+}
 
-          <Collapsible title="Animations">
-            <ThemedText type="small">
-              This template includes an example of an animated component. The{' '}
-              <ThemedText type="code">src/components/ui/collapsible.tsx</ThemedText> component uses
-              the powerful <ThemedText type="code">react-native-reanimated</ThemedText> library to
-              animate opening this hint.
-            </ThemedText>
-          </Collapsible>
-        </ThemedView>
-        {Platform.OS === 'web' && <WebBadge />}
-      </ThemedView>
-    </ScrollView>
+function ActionRow({
+  icon,
+  title,
+  description,
+  color,
+  backgroundColor,
+  borderColor,
+  textColor,
+  secondaryColor,
+  onPress,
+}: ActionRowProps) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.actionRow,
+        { backgroundColor, borderColor },
+        pressed && styles.pressed,
+      ]}
+    >
+      <View style={[styles.actionIcon, { backgroundColor: `${color}18` }]}>
+        <MaterialIcons name={icon} size={22} color={color} />
+      </View>
+      <View style={styles.actionCopy}>
+        <Text style={[styles.actionTitle, { color: textColor }]}>{title}</Text>
+        <Text style={[styles.actionDescription, { color: secondaryColor }]}>{description}</Text>
+      </View>
+      <MaterialIcons name="chevron-right" size={22} color={secondaryColor} />
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollView: {
-    flex: 1,
+  content: {
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 40,
+    gap: 16,
   },
-  contentContainer: {
+  eyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.1,
+  },
+  title: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '700',
+    maxWidth: 360,
+    marginTop: -8,
+  },
+  description: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: -8,
+  },
+  vehicleCard: {
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 16,
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 8,
+  },
+  vehicleIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  container: {
-    maxWidth: MaxContentWidth,
-    flexGrow: 1,
+  vehicleInfo: {
+    flex: 1,
+    gap: 4,
   },
-  titleContainer: {
-    gap: Spacing.three,
+  vehicleLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+  },
+  vehicleName: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  vehicleMeta: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  loading: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+  },
+  editButton: {
+    width: 40,
+    height: 40,
     alignItems: 'center',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.six,
+    justifyContent: 'center',
   },
-  centerText: {
-    textAlign: 'center',
+  sectionHeading: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  sectionCaption: {
+    fontSize: 12,
+  },
+  actionRow: {
+    minHeight: 82,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  actionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  actionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  actionDescription: {
+    fontSize: 12,
+    lineHeight: 17,
   },
   pressed: {
-    opacity: 0.7,
-  },
-  linkButton: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.five,
-    justifyContent: 'center',
-    gap: Spacing.one,
-    alignItems: 'center',
-  },
-  sectionsWrapper: {
-    gap: Spacing.five,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-  },
-  collapsibleContent: {
-    alignItems: 'center',
-  },
-  imageTutorial: {
-    width: '100%',
-    aspectRatio: 296 / 171,
-    borderRadius: Spacing.three,
-    marginTop: Spacing.two,
-  },
-  imageReact: {
-    width: 100,
-    height: 100,
-    alignSelf: 'center',
+    opacity: 0.72,
   },
 });

@@ -3,6 +3,8 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ScreenContainer } from '../components/screen-container';
+import { ScreenHeader } from '../components/ScreenHeader';
+import { AppPalette } from '../constants/theme';
 
 import { useAuth } from '../contexts/AuthContext';
 import { useApp } from '../contexts/AppContext';
@@ -25,13 +27,12 @@ export default function ConfiguracoesScreen() {
   const [showThemeModal, setShowThemeModal] = useState(false);
 
   // Definição da paleta de cores reativa baseada no tema atual (Claro ou Escuro)
-  const isDark = theme === 'dark';
-  const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
-  const cardColor = isDark ? '#12141A' : '#FFFFFF';
-  const textColor = isDark ? '#F0F2FF' : '#0F172A';
-  const subTextColor = isDark ? '#8892A4' : '#64748B';
-  const borderColor = isDark ? '#1E2235' : '#E2E8F0';
-  const iconBg = isDark ? '#1E2235' : '#E2E8F0';
+  const colors = AppPalette[theme];
+  const bgColor = colors.background;
+  const cardColor = colors.surface;
+  const textColor = colors.text;
+  const subTextColor = colors.textSecondary;
+  const borderColor = colors.border;
 
   /**
    * Lida com a seleção de idioma do utilizador.
@@ -79,26 +80,19 @@ export default function ConfiguracoesScreen() {
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
       
-      {/* --- Cabeçalho (Header) --- */}
-      <View style={[styles.header, { borderBottomColor: borderColor }]}>
-        <Pressable 
-          onPress={() => router.back()} 
-          style={({ pressed }) => [styles.backBtn, { backgroundColor: iconBg }, pressed && { opacity: 0.6 }]}
-        >
-          <MaterialIcons name="arrow-back" size={24} color={textColor} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: textColor }]}>{t('configuracoes')}</Text>
-      </View>
+      <ScreenHeader title={t('configuracoes')} />
 
       {/* --- Lista de Opções do Menu --- */}
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         
         {/* Opção: Conta e Login */}
         <Pressable 
-          style={({ pressed }) => [styles.menuItem, { borderBottomColor: borderColor }, pressed && styles.menuItemPressed]} 
+          style={({ pressed }) => [styles.menuItem, { backgroundColor: cardColor, borderColor }, pressed && styles.menuItemPressed]}
           onPress={handleAccountPress}
         >
-          <MaterialIcons name="account-circle" size={28} color="#00B4FF" />
+          <View style={[styles.menuIconWrap, { backgroundColor: colors.surfaceMuted }]}>
+            <MaterialIcons name="account-circle" size={23} color={colors.primary} />
+          </View>
           <View style={styles.menuTextContainer}>
             <Text style={[styles.menuTitle, { color: textColor }]}>
               {user ? 'Sair da conta' : t('conta')}
@@ -112,10 +106,12 @@ export default function ConfiguracoesScreen() {
 
         {/* Opção: Configuração do Veículo */}
         <Pressable 
-          style={({ pressed }) => [styles.menuItem, { borderBottomColor: borderColor }, pressed && styles.menuItemPressed]} 
+          style={({ pressed }) => [styles.menuItem, { backgroundColor: cardColor, borderColor }, pressed && styles.menuItemPressed]}
           onPress={() => router.push('/(auth)/cadastro' as any)}
         >
-          <MaterialCommunityIcons name="car-cog" size={28} color="#00B4FF" />
+          <View style={[styles.menuIconWrap, { backgroundColor: colors.surfaceMuted }]}>
+            <MaterialCommunityIcons name="car-cog" size={23} color={colors.primary} />
+          </View>
           <View style={styles.menuTextContainer}>
             <Text style={[styles.menuTitle, { color: textColor }]}>{t('veiculo')}</Text>
             <Text style={[styles.menuSub, { color: subTextColor }]}>{t('veiculoSub')}</Text>
@@ -125,10 +121,12 @@ export default function ConfiguracoesScreen() {
 
         {/* Opção: Idioma -> Abre o Modal */}
         <Pressable 
-          style={({ pressed }) => [styles.menuItem, { borderBottomColor: borderColor }, pressed && styles.menuItemPressed]} 
+          style={({ pressed }) => [styles.menuItem, { backgroundColor: cardColor, borderColor }, pressed && styles.menuItemPressed]}
           onPress={() => setShowLangModal(true)}
         >
-          <MaterialIcons name="language" size={28} color={subTextColor} />
+          <View style={[styles.menuIconWrap, { backgroundColor: colors.surfaceMuted }]}>
+            <MaterialIcons name="language" size={23} color={colors.textSecondary} />
+          </View>
           <View style={styles.menuTextContainer}>
             <Text style={[styles.menuTitle, { color: textColor }]}>{t('idioma')}</Text>
             <Text style={[styles.menuSub, { color: subTextColor }]}>
@@ -140,10 +138,12 @@ export default function ConfiguracoesScreen() {
 
         {/* Opção: Tema -> Abre o Modal */}
         <Pressable 
-          style={({ pressed }) => [styles.menuItem, { borderBottomWidth: 0 }, pressed && styles.menuItemPressed]} 
+          style={({ pressed }) => [styles.menuItem, { backgroundColor: cardColor, borderColor }, pressed && styles.menuItemPressed]}
           onPress={() => setShowThemeModal(true)}
         >
-          <MaterialIcons name="brightness-6" size={28} color={subTextColor} />
+          <View style={[styles.menuIconWrap, { backgroundColor: colors.surfaceMuted }]}>
+            <MaterialIcons name="brightness-6" size={23} color={colors.textSecondary} />
+          </View>
           <View style={styles.menuTextContainer}>
             <Text style={[styles.menuTitle, { color: textColor }]}>{t('tema')}</Text>
             <Text style={[styles.menuSub, { color: subTextColor }]}>
@@ -224,13 +224,11 @@ export default function ConfiguracoesScreen() {
 
 // --- Estilos Estáticos ---
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1 },
-  backBtn: { padding: 8, marginLeft: -8, marginRight: 8, borderRadius: 20 },
-  headerTitle: { fontSize: 20, fontWeight: '700' },
-  content: { flex: 1, paddingHorizontal: 20 },
-  menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 24, borderBottomWidth: 1 },
+  content: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', padding: 14, minHeight: 78, borderWidth: 1, borderRadius: 18, marginBottom: 10 },
   menuItemPressed: { opacity: 0.6 },
-  menuTextContainer: { flex: 1, marginLeft: 16 },
+  menuIconWrap: { width: 46, height: 46, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  menuTextContainer: { flex: 1, marginLeft: 14 },
   menuTitle: { fontSize: 16, fontWeight: '600' },
   menuSub: { fontSize: 13, marginTop: 4 },
 

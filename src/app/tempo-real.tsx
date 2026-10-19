@@ -1,12 +1,13 @@
 import { ScreenContainer } from "@/components/screen-container";
+import { ScreenHeader } from "@/components/ScreenHeader";
 import { SpeedometerMinimal } from "@/components/SpeedometerMinimal";
 import { TelemetryCard } from "@/components/TelemetryCard";
+import { AppPalette } from "@/constants/theme";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useKeepAwake } from "expo-keep-awake";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
-  Dimensions,
   NativeModules,
   Pressable,
   ScrollView,
@@ -23,7 +24,6 @@ import RNBluetoothClassic from "react-native-bluetooth-classic";
 import { useApp } from '../contexts/AppContext';
 
 const { OBDBluetooth } = NativeModules;
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 /**
  * @component RealtimeScreen
@@ -34,12 +34,9 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 export default function RealtimeScreen() {
   const { theme, t } = useApp();
   
-  const isDark = theme === 'dark';
-  const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
-  const textColor = isDark ? '#F0F2FF' : '#0F172A';
-  const borderColor = isDark ? '#1E2235' : '#E2E8F0';
-  const debugBg = isDark ? '#1A0000' : '#FEF2F2';
-  const debugBorder = isDark ? '#00E676' : '#F87171';
+  const colors = AppPalette[theme];
+  const bgColor = colors.background;
+  const textColor = colors.text;
 
   // --- ESTADOS DO PAINEL ---
   const [displaySpeed, setDisplaySpeed] = useState(0);
@@ -50,7 +47,6 @@ export default function RealtimeScreen() {
 
   const [isReading, setIsReading] = useState(false);
   const [statusMsg, setStatusMsg] = useState("INICIALIZANDO SCANNER...");
-  const [debugLog, setDebugLog] = useState("Aguardando comunicação com a ECU...");
 
   // --- REFERÊNCIAS MÚTAVEIS PARA CÁLCULOS DE PRECISÃO EM TEMPO REAL ---
   const tripAccumulatorRef = useRef<number>(0);
@@ -153,13 +149,8 @@ export default function RealtimeScreen() {
           }
         }
 
-        setDebugLog(
-          `Status: OK | Ciclo Lento: ${cicloLentoCounter}/3\n` +
-          `Trip: ${(tripAccumulatorRef.current * 1000).toFixed(0)} metros percorridos`
-        );
-
       } catch (err) {
-        setDebugLog("Erro no ciclo de leitura.");
+        console.warn("Falha ao atualizar a telemetria OBD-II:", err);
       }
 
       if (isActive) {
@@ -180,7 +171,6 @@ export default function RealtimeScreen() {
           if (checkConn && !String(checkConn).includes("ERR") && !String(checkConn).includes("TIMEOUT")) {
             setIsReading(true);
             setStatusMsg("LENDO DADOS DO CARRO");
-            setDebugLog("Conexão ativa reaproveitada com sucesso!");
             lastSpeedTimeRef.current = Date.now();
             loopDeLeitura();
             return;
@@ -206,9 +196,7 @@ export default function RealtimeScreen() {
           
           try {
             await OBDBluetooth.connect(obdDevice.address);
-            setDebugLog("Ponte Nativa Conectada!");
           } catch (e: any) {
-            setDebugLog(`Falha na Ponte Nativa: ${e?.message}`);
             setStatusMsg("FALHA NA CONEXÃO");
             return; 
           }
@@ -235,11 +223,10 @@ export default function RealtimeScreen() {
           loopDeLeitura(); 
         } else {
           setStatusMsg("NENHUM SCANNER OBD PAREADO");
-          setDebugLog("FALHA: Vá nas configs Bluetooth e pareie primeiro.");
         }
       } catch (error: any) {
         setStatusMsg("FALHA NA CONEXÃO");
-        setDebugLog(`Falha Crítica: ${error?.message}`);
+        console.warn("Falha ao iniciar o monitoramento OBD-II:", error);
       }
     }
 
@@ -308,19 +295,20 @@ export default function RealtimeScreen() {
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
-      <View style={[styles.header, { borderBottomColor: borderColor }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={22} color={textColor} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: textColor }]}>{t('painelTempoReal')}</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      <ScreenHeader title={t('painelTempoReal')} />
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {/* Status de Conexão */}
-        <Animated.View style={[styles.liveBadge, headerGlowStyle, !isDark && { backgroundColor: '#E0F2FE', borderColor: '#BAE6FD' }]}>
-          <View style={[styles.liveDot, isReading && { backgroundColor: "#00E676", shadowColor: "#00E676" }]} />
-          <Text style={styles.liveBadgeText}>{statusMsg}</Text>
+        <Animated.View style={[
+          styles.liveBadge,
+          headerGlowStyle,
+          {
+            backgroundColor: isReading ? `${colors.positive}18` : colors.surfaceMuted,
+            borderColor: isReading ? `${colors.positive}44` : colors.border,
+          },
+        ]}>
+          <View style={[styles.liveDot, { backgroundColor: isReading ? colors.positive : colors.warning }]} />
+          <Text style={[styles.liveBadgeText, { color: isReading ? colors.positive : colors.textSecondary }]}>{statusMsg}</Text>
         </Animated.View>
 
         {/* Velocímetro Real */}
@@ -340,16 +328,10 @@ export default function RealtimeScreen() {
           </View>
         </View>
 
-        {/* Log de Debug Visual */}
-        <View style={[styles.debugSection, { backgroundColor: debugBg, borderColor: debugBorder }]}>
-          <Text style={[styles.debugTitle, { color: debugBorder }]}>RAIO-X DO BLUETOOTH (DEBUG)</Text>
-          <Text style={[styles.debugText, !isDark && { color: '#7F1D1D' }]}>{debugLog}</Text>
-        </View>
-
         {/* Botão Voltar */}
         <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.stopBtn, pressed && { opacity: 0.8 }]}>
-          <MaterialIcons name="stop-circle" size={20} color="#FF3D57" />
-          <Text style={styles.stopBtnText}>Voltar</Text>
+          <MaterialIcons name="arrow-back" size={20} color="#D94352" />
+          <Text style={styles.stopBtnText}>{t('voltar')}</Text>
         </Pressable>
       </ScrollView>
     </ScreenContainer>
@@ -357,21 +339,14 @@ export default function RealtimeScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
-  backBtn: { padding: 4, marginRight: 8 },
-  headerTitle: { flex: 1, fontSize: 17, fontWeight: "700" },
-  headerSpacer: { width: 30 },
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, gap: 16, paddingBottom: 40 },
-  liveBadge: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#00B4FF22", borderWidth: 1, borderColor: "#00B4FF44", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, alignSelf: "center", marginBottom: 8 },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#FF3D57", shadowColor: "#FF3D57", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 4 },
-  liveBadgeText: { fontSize: 11, fontWeight: "700", color: "#00B4FF", letterSpacing: 1 },
-  speedometerWrapper: { alignItems: "center", paddingVertical: 16 },
-  primaryTelemetry: { gap: 10 },
-  telemetryRow: { flexDirection: "row", gap: 10 },
-  debugSection: { borderRadius: 12, padding: 16, borderWidth: 1, marginTop: 10 },
-  debugTitle: { fontSize: 11, fontWeight: "800", marginBottom: 8, letterSpacing: 1 },
-  debugText: { fontSize: 13, color: "#FFF", fontFamily: "monospace", minHeight: 60 },
-  stopBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#FF3D5722", borderWidth: 1, borderColor: "#FF3D5744", borderRadius: 14, paddingVertical: 12 },
-  stopBtnText: { fontSize: 14, fontWeight: "600", color: "#FF3D57" },
+  scrollContent: { padding: 20, gap: 16, paddingBottom: 40 },
+  liveBadge: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#1685C518", borderWidth: 1, borderColor: "#1685C544", borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, alignSelf: "center", marginBottom: 4 },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#D94352" },
+  liveBadgeText: { fontSize: 12, fontWeight: "700" },
+  speedometerWrapper: { alignItems: "center", paddingVertical: 12 },
+  primaryTelemetry: { gap: 12 },
+  telemetryRow: { flexDirection: "row", gap: 12 },
+  stopBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#D9435218", borderWidth: 1, borderColor: "#D9435244", borderRadius: 16, minHeight: 50, paddingVertical: 12 },
+  stopBtnText: { fontSize: 14, fontWeight: "700", color: "#D94352" },
 });

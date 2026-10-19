@@ -2,7 +2,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useRef, useState } from "react";
 import {
   AppState,
-  Dimensions,
   Modal,
   NativeModules,
   PermissionsAndroid,
@@ -25,8 +24,8 @@ import { MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { useKeepAwake } from "expo-keep-awake";
 import { router } from "expo-router";
 
-import { FuelChart } from "../components/FuelChart";
 import { ScreenContainer } from "../components/screen-container";
+import { AppPalette } from "../constants/theme";
 import { TelemetryCard } from "../components/TelemetryCard";
 
 import * as Notifications from 'expo-notifications';
@@ -43,8 +42,6 @@ Notifications.setNotificationHandler({
   }),
 });
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-
 const TELEMETRY_IDLE = { speed: 0, rpm: 0, temp: 0, fuel: 0, kmTotal: 0, kmDay: 0, volt: 0 };
 
 let glob_faultsCount = 0;
@@ -58,12 +55,13 @@ export default function HomeScreen() {
   const { theme, t } = useApp();
   
   const isDark = theme === 'dark';
-  const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
-  const cardColor = isDark ? '#12141A' : '#FFFFFF';
-  const textColor = isDark ? '#F0F2FF' : '#0F172A';
-  const subTextColor = isDark ? '#8892A4' : '#64748B';
-  const borderColor = isDark ? '#1E2235' : '#E2E8F0';
-  const iconBgColor = isDark ? '#1E2235' : '#F8FAFC';
+  const colors = AppPalette[theme];
+  const bgColor = colors.background;
+  const cardColor = colors.surface;
+  const textColor = colors.text;
+  const subTextColor = colors.textSecondary;
+  const borderColor = colors.border;
+  const iconBgColor = colors.surfaceMuted;
 
   const [isActive, setIsActive] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -88,7 +86,6 @@ export default function HomeScreen() {
 
   const [pillConfig, setPillConfig] = useState({ message: '', type: 'info' });
   const pillTranslateY = useSharedValue(-150); 
-  const headerGlow = useSharedValue(0);
   const appState = useRef(AppState.currentState);
 
   const [faultCount, setFaultCount] = useState(glob_faultsCount);
@@ -102,8 +99,6 @@ export default function HomeScreen() {
   };
 
   const pillStyle = useAnimatedStyle(() => ({ transform: [{ translateY: pillTranslateY.value }] }));
-  const headerGlowStyle = useAnimatedStyle(() => ({ opacity: headerGlow.value }));
-
   /**
    * @effect Inicialização e Restauração de Estado Offline
    * @description Carrega os dados do veículo e reconstrói imediatamente o último KM total
@@ -140,8 +135,6 @@ export default function HomeScreen() {
         const { status } = await Notifications.requestPermissionsAsync();
         if (status !== 'granted') console.log("[Permissões] Notificações Push recusadas.");
 
-        headerGlow.value = withTiming(1, { duration: 800 });
-        
         const { OBDBluetooth } = NativeModules;
         try {
           const checkConnection = await OBDBluetooth.sendCommand("AT");
@@ -481,20 +474,20 @@ export default function HomeScreen() {
     }
   };
 
-  const DevBadge = () => (
-    <View style={styles.devBadge}>
-      <Text style={styles.devBadgeText}>{t('emImplementacao')}</Text>
-    </View>
-  );
-
-  // Cores dinâmicas do emblema central para integração com tema claro e escuro
-  const hubAccentColor = !isActive
-    ? (isDark ? "#475569" : "#94A3B8")
-    : (faultCount === 0 ? "#00B4FF" : "#FF3D57");
-  const hubOuterBg = !isActive
-    ? (isDark ? "#1E223566" : "#F1F5F9")
-    : (faultCount === 0 ? (isDark ? "#00B4FF14" : "#E0F2FE") : (isDark ? "#FF3D5714" : "#FFE4E6"));
-  const hubInnerBg = isDark ? "#161924" : "#FFFFFF";
+  const vehicleName = [carroConfigurado.marca, carroConfigurado.veiculo]
+    .filter(Boolean)
+    .join(' ');
+  const vehicleDetails = [carroConfigurado.ano, carroConfigurado.motor && `Motor ${carroConfigurado.motor}`]
+    .filter(Boolean)
+    .join(' · ');
+  const vehicleStatusColor = isActive
+    ? faultCount > 0 ? colors.danger : colors.positive
+    : isDark ? '#94A3B8' : '#64748B';
+  const vehicleStatusBackground = isActive
+    ? faultCount > 0
+      ? isDark ? '#3B1D25' : '#FDECEE'
+      : isDark ? '#16372E' : '#E7F6EF'
+    : isDark ? '#202A38' : '#EEF2F7';
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
@@ -507,134 +500,129 @@ export default function HomeScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
         <View style={styles.header}>
-          <View>
-            <Text style={[styles.appName, { color: textColor }]}>HEALTHCAR</Text>
-            <View style={styles.statusRow}>
-              <View style={[styles.statusDot, isActive && styles.statusDotActive, !isDark && !isActive && { backgroundColor: '#CBD5E1' }]} />
-              <Text style={[styles.statusText, { color: subTextColor }]}>
-                {isActive ? t('sistemaOnline') : isConnecting ? t('conectando') : t('modoOffline')}
+          <View style={styles.headerCopy}>
+            <Text style={[styles.appName, { color: textColor }]}>HealthCar</Text>
+            <Text style={[styles.headerSubtitle, { color: subTextColor }]}>{t('inicioSubtitulo')}</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={t('configuracoes')}
+            onPress={() => router.push("/configuracoes" as any)}
+            style={({ pressed }) => [
+              styles.profileBtn,
+              { backgroundColor: cardColor, borderColor },
+              pressed && styles.pressed,
+            ]}
+          >
+            <MaterialIcons name="settings" size={23} color={textColor} />
+          </Pressable>
+        </View>
+
+        <Text style={[styles.greeting, { color: textColor }]}>{t('inicioTitulo')}</Text>
+
+        <View style={[styles.vehicleCard, { backgroundColor: cardColor, borderColor }]}>
+          <View style={styles.vehicleCardHeader}>
+            <View style={[styles.vehicleIcon, { backgroundColor: isDark ? '#173248' : '#E7F3FC' }]}>
+              <MaterialIcons name="directions-car" size={28} color="#1685C5" />
+            </View>
+            <View style={styles.vehicleCopy}>
+              <Text style={[styles.eyebrow, { color: subTextColor }]}>{t('dadosVeiculo')}</Text>
+              <Text style={[styles.carModel, { color: textColor }]} numberOfLines={1}>
+                {vehicleName || 'HealthCar'}
+              </Text>
+              <Text style={[styles.carYear, { color: subTextColor }]} numberOfLines={1}>
+                {vehicleDetails || t('modoOffline')}
               </Text>
             </View>
           </View>
-          <View style={styles.headerRight}>
-            <Pressable onPress={() => router.push("/configuracoes" as any)} style={({ pressed }) => [styles.profileBtn, pressed && { opacity: 0.6 }]}>
-              <MaterialIcons name="settings" size={26} color="#00B4FF" />
-            </Pressable>
-          </View>
-        </View>
 
-        <View style={styles.carImageContainer}>
-          <View style={[styles.diagnosticBox, { backgroundColor: cardColor, borderColor: borderColor }]}>
-            
-            {/* EMBLEMA CENTRAL INTEGRADO AO TEMA (Substitui a mancha oval azul) */}
-            <View style={[styles.centralHubOuter, { backgroundColor: hubOuterBg, borderColor: `${hubAccentColor}33` }]}>
-              <View style={[styles.centralHubInner, { backgroundColor: hubInnerBg, borderColor: `${hubAccentColor}55` }]}>
-                <MaterialIcons 
-                  name="directions-car" 
-                  size={36} 
-                  color={hubAccentColor} 
-                />
-                <Text style={[styles.centralHubStatus, { color: hubAccentColor }]}>
-                  {isActive ? (faultCount === 0 ? "TELEMETRIA ATIVA" : "VERIFICAR ECU") : "AGUARDANDO OBD"}
-                </Text>
-              </View>
+          <View style={styles.vehicleStatusRow}>
+            <View style={[styles.statusBadge, { backgroundColor: vehicleStatusBackground }]}>
+              <View style={[styles.statusDot, { backgroundColor: vehicleStatusColor }]} />
+              <Text style={[styles.statusText, { color: vehicleStatusColor }]}>
+                {isConnecting
+                  ? t('conectando')
+                  : isActive
+                    ? faultCount > 0 ? t('verificarFalhas') : t('sistemaOnline')
+                    : t('modoOffline')}
+              </Text>
             </View>
-
-            {!isActive && (
-              <View style={[styles.diagBadge, { top: 16, right: 16, backgroundColor: cardColor, borderColor: borderColor }]}>
-                <MaterialIcons name="bluetooth-disabled" size={14} color={subTextColor} />
-                <Text style={[styles.diagBadgeText, { color: subTextColor }]}>{t('modoOffline')}</Text>
-              </View>
-            )}
-
-            {isActive && (
-              <>
-                <Animated.View style={[styles.diagBadge, { top: 16, left: 16, backgroundColor: cardColor, borderColor: borderColor }, headerGlowStyle]}>
-                  <MaterialIcons name="thermostat" size={14} color={telemetry.temp > 100 ? "#FF3D57" : "#00B4FF"} />
-                  <Text style={[styles.diagBadgeText, { color: textColor }]}>{telemetry.temp}°C</Text>
-                </Animated.View>
-
-                <Animated.View style={[styles.diagBadge, { top: 16, right: 16, backgroundColor: cardColor, borderColor: borderColor }, headerGlowStyle]}>
-                  <MaterialCommunityIcons name="engine-outline" size={14} color={faultCount === 0 ? "#00E676" : "#FF3D57"} />
-                  <Text style={[styles.diagBadgeText, { color: textColor }]}>
-                     {faultCount === 0 ? t('motorOk') : 'Atenção'}
-                  </Text>
-                </Animated.View>
-
-                <Animated.View style={[styles.diagBadge, { bottom: 16, right: 16, backgroundColor: cardColor, borderColor: borderColor }, headerGlowStyle]}>
-                  <MaterialIcons name={faultCount === 0 ? "check-circle" : "warning"} size={14} color={faultCount === 0 ? "#00E676" : "#FF3D57"} />
-                  <Text style={[styles.diagBadgeText, { color: textColor }]}>
-                    {faultCount === 0 ? t('zeroErros') : `${faultCount} Erro(s)`}
-                  </Text>
-                </Animated.View>
-              </>
-            )}
-
-            <View style={styles.carLabel}>
-              <Text style={[styles.carModel, { color: textColor }]}>{carroConfigurado.marca} {carroConfigurado.veiculo}</Text>
-              <Text style={[styles.carYear, { color: subTextColor }]}>{carroConfigurado.ano} {carroConfigurado.motor ? `· Motor ${carroConfigurado.motor}` : ''}</Text>
-            </View>
+            <Text style={[styles.connectionHint, { color: subTextColor }]}>
+              {isActive
+                ? faultCount > 0 ? `${faultCount} ${t('errosEncontrados')}` : t('semFalhas')
+                : t('conectarParaAcompanhar')}
+            </Text>
           </View>
-        </View>
 
-        <View style={styles.centerSection}>
-          <View style={styles.liveButtonsRow}>
-            <Pressable onPress={() => router.push("/tempo-real" as any)} style={({ pressed }) => [styles.liveActionBtn, styles.liveActionBtnPrimary, pressed && { opacity: 0.8 }]}>
-              <MaterialIcons name="speed" size={20} color={isDark ? "#0A0A0F" : "#FFFFFF"} />
-              <Text style={[styles.liveActionBtnText, { color: isDark ? "#0A0A0F" : "#FFFFFF" }]}>{t('painelTempoReal')}</Text>
+          <View style={styles.coreActions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={isActive ? t('painelTempoReal') : t('conectarVeiculo')}
+              disabled={isConnecting}
+              onPress={() => isActive ? router.push("/tempo-real" as any) : tentarConexaoAutomatica()}
+              style={({ pressed }) => [
+                styles.primaryAction,
+                pressed && !isConnecting && styles.primaryActionPressed,
+                isConnecting && styles.primaryActionDisabled,
+              ]}
+            >
+              <MaterialIcons
+                name={isConnecting ? 'bluetooth-searching' : isActive ? 'speed' : 'bluetooth-connected'}
+                size={21}
+                color="#FFFFFF"
+              />
+              <Text style={styles.primaryActionText}>
+                {isConnecting ? t('conectando') : t('monitorarVeiculo')}
+              </Text>
+              {!isConnecting && <MaterialIcons name="arrow-forward" size={20} color="#FFFFFF" />}
             </Pressable>
-          </View>
-        </View>
-
-        <View style={styles.toolsSection}>
-          <Text style={[styles.toolsTitle, { color: subTextColor }]}>{t('ferramentas')}</Text>
-          <View style={styles.toolsGrid}>
-            <Pressable style={({ pressed }) => [styles.toolCard, { backgroundColor: cardColor, borderColor: borderColor }, pressed && styles.toolCardPressed]} onPress={() => router.push("/scanner" as any)}>
-              <View style={[styles.toolIcon, { backgroundColor: isDark ? "#FF3D5722" : "#FFE4E6" }]}><MaterialIcons name="wifi-tethering-error" size={26} color="#FF3D57" /></View>
-              <Text style={[styles.toolCardTitle, { color: textColor }]}>{t('scanner')}</Text>
-              <Text style={[styles.toolCardSub, { color: subTextColor }]}>{t('scannerSub')}</Text>
-            </Pressable>
-            
-            <Pressable style={({ pressed }) => [styles.toolCard, { backgroundColor: cardColor, borderColor: borderColor }, pressed && styles.toolCardPressed]} onPress={() => router.push("/relatorios" as any)}>
-              <View style={[styles.toolIcon, { backgroundColor: isDark ? "#FFB30022" : "#FEF3C7" }]}><MaterialIcons name="history" size={26} color="#FFB300" /></View>
-              <Text style={[styles.toolCardTitle, { color: textColor }]}>{t('relatorios')}</Text>
-              <Text style={[styles.toolCardSub, { color: subTextColor }]}>{t('relatoriosSub')}</Text>
-            </Pressable>
-            
-            <Pressable style={({ pressed }) => [styles.toolCard, { backgroundColor: cardColor, borderColor: borderColor }, pressed && styles.toolCardPressed]} onPress={() => tentarConexaoAutomatica()}>
-              <View style={[styles.toolIcon, { backgroundColor: isDark ? "#00B4FF22" : "#E0F2FE" }]}><MaterialIcons name="bluetooth" size={26} color="#00B4FF" /></View>
-              <Text style={[styles.toolCardTitle, { color: textColor }]}>{t('reconectar')}</Text>
-              <Text style={[styles.toolCardSub, { color: subTextColor }]}>{t('reconectarSub')}</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('escanearFalhas')}
+              onPress={() => router.push("/scanner" as any)}
+              style={({ pressed }) => [
+                styles.secondaryAction,
+                { backgroundColor: isDark ? '#202A38' : '#F3F7FA', borderColor },
+                pressed && styles.pressed,
+              ]}
+            >
+              <MaterialIcons name="troubleshoot" size={21} color="#1685C5" />
+              <Text style={[styles.secondaryActionText, { color: textColor }]}>{t('escanearFalhas')}</Text>
+              <MaterialIcons name="arrow-forward" size={20} color={subTextColor} />
             </Pressable>
           </View>
         </View>
 
         <View style={styles.dashboard}>
-          
-          <Pressable 
-            onPress={() => setShowDetailsModal(true)} 
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${t('kmTotal')}: ${telemetry.kmTotal.toLocaleString('pt-BR')} km. ${t('detalhesOdometro')}`}
+            onPress={() => setShowDetailsModal(true)}
             style={({ pressed }) => [
-              styles.kmRow, 
-              { backgroundColor: cardColor, borderColor: borderColor },
-              pressed && { opacity: 0.8 }
+              styles.mileageCard,
+              { backgroundColor: cardColor, borderColor },
+              pressed && styles.pressed,
             ]}
           >
-            <View style={styles.kmCard}>
-              <MaterialIcons name="speed" size={14} color={subTextColor} />
+            <View style={[styles.mileageIcon, { backgroundColor: isDark ? '#173248' : '#E7F3FC' }]}>
+              <MaterialIcons name="speed" size={22} color="#1685C5" />
+            </View>
+            <View style={styles.mileageCopy}>
               <Text style={[styles.kmLabel, { color: subTextColor }]}>{t('kmTotal')}</Text>
-              <Text style={styles.kmValue}>{telemetry.kmTotal.toLocaleString("pt-PT")}</Text>
-              <Text style={[styles.kmUnit, { color: subTextColor }]}>km</Text>
+              <Text style={[styles.kmValue, { color: textColor }]}>
+                {telemetry.kmTotal.toLocaleString('pt-BR')} <Text style={[styles.kmUnit, { color: subTextColor }]}>km</Text>
+              </Text>
+              <Text style={[styles.mileageHint, { color: subTextColor }]}>{t('detalhesOdometro')}</Text>
             </View>
-            <View style={[styles.kmDivider, { backgroundColor: borderColor }]} />
-            <View style={styles.kmCard}>
-              <DevBadge />
-              <MaterialIcons name="today" size={14} color={subTextColor} />
-              <Text style={[styles.kmLabel, { color: subTextColor }]}>{t('kmHoje')}</Text>
-              <Text style={styles.kmValue}>{telemetry.kmDay}</Text>
-              <Text style={[styles.kmUnit, { color: subTextColor }]}>km</Text>
-            </View>
+            <MaterialIcons name="chevron-right" size={24} color={subTextColor} />
           </Pressable>
 
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: textColor }]}>{t('telemetria')}</Text>
+            <Text style={[styles.sectionCaption, { color: subTextColor }]}>
+              {isActive ? t('telemetriaAtiva') : t('modoOffline')}
+            </Text>
+          </View>
           <View style={styles.telemetryGrid}>
             <TelemetryCard icon="thermostat" label={t('temperatura')} value={isActive ? `${telemetry.temp}` : "--"} unit="°C" color={isActive ? (telemetry.temp > 100 ? "#FF3D57" : "#00E676") : subTextColor} onPress={() => router.push("/detalhes/temperatura" as any)} />
             <TelemetryCard icon="settings" label="RPM" value={isActive && telemetry.rpm > 0 ? (telemetry.rpm / 1000).toFixed(1) : "--"} unit="k" color={isActive ? "#00B4FF" : subTextColor} onPress={() => router.push("/detalhes/rpm" as any)} />
@@ -649,10 +637,29 @@ export default function HomeScreen() {
               {isActive && <Text style={[styles.batteryStatusText, { color: subTextColor }]}>{t(batteryStatus)}</Text>}
             </View>
           </View>
+        </View>
 
-          <View style={{ position: "relative" }}>
-            <DevBadge />
-            <FuelChart onPress={() => router.push("/detalhes/consumo" as any)} />
+        <View style={styles.toolsSection}>
+          <Text style={[styles.sectionTitle, { color: textColor }]}>{t('atalhos')}</Text>
+          <View style={styles.toolsGrid}>
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.toolCard,
+                { backgroundColor: cardColor, borderColor },
+                pressed && styles.pressed,
+              ]}
+              onPress={() => router.push("/relatorios" as any)}
+            >
+              <View style={[styles.toolIcon, { backgroundColor: isDark ? '#3B3220' : '#FFF5DB' }]}>
+                <MaterialIcons name="event-note" size={23} color="#C58B13" />
+              </View>
+              <View style={styles.toolText}>
+                <Text style={[styles.toolCardTitle, { color: textColor }]}>{t('relatorios')}</Text>
+                <Text style={[styles.toolCardSub, { color: subTextColor }]}>{t('relatoriosSub')}</Text>
+              </View>
+              <MaterialIcons name="arrow-forward" size={18} color={subTextColor} />
+            </Pressable>
           </View>
         </View>
 
@@ -746,79 +753,98 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  pillContainer: { position: 'absolute', top: 0, left: 20, right: 20, flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 30, zIndex: 100, gap: 10, elevation: 10, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
-  pillInfo: { backgroundColor: '#00B4FF' },
-  pillSuccess: { backgroundColor: '#00E676' },
-  pillError: { backgroundColor: '#FF3D57' },
-  pillText: { color: '#FFF', fontSize: 13, fontWeight: '700', flex: 1 },
-  devBadge: { position: "absolute", top: 8, right: 8, backgroundColor: "#FF3D57", paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, zIndex: 99, elevation: 4 },
-  devBadgeText: { fontSize: 7, fontWeight: "900", color: "#FFF", textTransform: "uppercase" },
+  pillContainer: {
+    position: 'absolute', top: 0, left: 20, right: 20, flexDirection: 'row',
+    alignItems: 'center', padding: 14, borderRadius: 20, zIndex: 100, gap: 10,
+    elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2, shadowRadius: 10,
+  },
+  pillInfo: { backgroundColor: '#1685C5' },
+  pillSuccess: { backgroundColor: '#168A63' },
+  pillError: { backgroundColor: '#D94352' },
+  pillText: { color: '#FFF', fontSize: 14, fontWeight: '600', flex: 1 },
   scroll: { flex: 1 },
-  scrollContent: { paddingBottom: 100, paddingTop: 10 },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8 },
-  appName: { fontSize: 18, fontWeight: "800", letterSpacing: 2 },
-  statusRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 3 },
-  statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#1E2235" },
-  statusDotActive: { backgroundColor: "#00E676", shadowColor: "#00E676", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 4 },
-  statusText: { fontSize: 11 },
-  
-  carImageContainer: { alignItems: "center", marginHorizontal: 20, marginBottom: 4, position: "relative", marginTop: 12 },
-  diagnosticBox: { width: SCREEN_WIDTH - 40, height: 195, borderRadius: 16, borderWidth: 1, alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" },
-  
-  centralHubOuter: { width: 118, height: 118, borderRadius: 59, borderWidth: 1, alignItems: "center", justifyContent: "center", marginBottom: 14 },
-  centralHubInner: { width: 94, height: 94, borderRadius: 47, borderWidth: 1, alignItems: "center", justifyContent: "center", gap: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 },
-  centralHubStatus: { fontSize: 7, fontWeight: "800", letterSpacing: 0.6, textAlign: "center" },
-
-  diagBadge: { position: "absolute", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 4, elevation: 3, zIndex: 3 },
-  diagBadgeText: { fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
-  carLabel: { position: "absolute", bottom: 12, left: 16, zIndex: 3 },
-  carModel: { fontSize: 16, fontWeight: "700" },
-  carYear: { fontSize: 11 },
-  
-  centerSection: { alignItems: "center", paddingVertical: 16 },
-  liveButtonsRow: { flexDirection: "row", gap: 10, alignItems: "center", width: "100%", paddingHorizontal: 20 },
-  liveActionBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 14, borderRadius: 16, borderWidth: 1 },
-  liveActionBtnPrimary: { backgroundColor: "#00B4FF", borderColor: "#00B4FF" },
-  liveActionBtnText: { fontSize: 14, fontWeight: "700", textTransform: 'uppercase', letterSpacing: 1 },
-  
-  dashboard: { paddingHorizontal: 16, gap: 12, marginBottom: 8, marginTop: 12 },
-  kmRow: { flexDirection: "row", borderRadius: 16, borderWidth: 1, overflow: "hidden" },
-  kmCard: { flex: 1, padding: 16, alignItems: "center", gap: 2, position: "relative" },
-  kmDivider: { width: 1, marginVertical: 12 },
-  kmLabel: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 4 },
-  kmValue: { fontSize: 26, fontWeight: "700", color: "#00D4FF", fontVariant: ["tabular-nums"], letterSpacing: 1 },
-  kmUnit: { fontSize: 11 },
-  telemetryGrid: { flexDirection: "row", gap: 10 },
-  batteryStatusText: { position: 'absolute', bottom: 10, alignSelf: 'center', fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
-  
-  toolsSection: { paddingHorizontal: 16, marginTop: 0 },
-  toolsTitle: { fontSize: 13, fontWeight: "600", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 },
-  toolsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  toolCard: { flex: 1, minWidth: (SCREEN_WIDTH - 52) / 3 - 4, borderRadius: 16, padding: 14, borderWidth: 1, position: "relative", overflow: "hidden" },
-  toolCardPressed: { opacity: 0.7, transform: [{ scale: 0.97 }] },
-  toolIcon: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center", marginBottom: 10 },
-  toolCardTitle: { fontSize: 12, fontWeight: "600", marginBottom: 3 },
-  toolCardSub: { fontSize: 10, lineHeight: 14 },
-  headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
-  profileBtn: { padding: 4, backgroundColor: "#00B4FF11", borderRadius: 20, borderWidth: 1, borderColor: "#00B4FF44" },
-  
-  modalOverlay: { flex: 1, backgroundColor: "rgba(10, 10, 15, 0.7)", justifyContent: "center", alignItems: "center", padding: 20 },
-  modalBox: { width: "100%", borderRadius: 24, padding: 24, borderWidth: 1, alignItems: "center", shadowColor: "#00B4FF", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.2, shadowRadius: 30, elevation: 10 },
-  modalIconBox: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: 16, borderWidth: 1, borderColor: "#00B4FF44" },
-  modalTitle: { fontSize: 18, fontWeight: "800", marginBottom: 12 },
-  modalText: { fontSize: 14, textAlign: "center", lineHeight: 22, marginBottom: 12 },
-  modalSubText: { fontSize: 12, textAlign: "center", marginBottom: 20, opacity: 0.8 },
-  modalInput: { width: "100%", borderRadius: 12, fontSize: 24, fontWeight: "700", textAlign: "center", paddingVertical: 16, marginBottom: 24, borderWidth: 1 },
-  modalBtnRow: { flexDirection: "row", gap: 12, width: "100%", marginTop: 10 },
-  modalBtnCancel: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center", borderWidth: 1 },
-  modalBtnCancelText: { fontWeight: "700", fontSize: 14 },
-  modalBtnConfirm: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center", backgroundColor: "#00B4FF" },
-  modalBtnConfirmText: { fontWeight: "800", fontSize: 14 },
-
-  modalBottomSheet: { width: "100%", borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, borderWidth: 1, borderBottomWidth: 0, position: 'absolute', bottom: 0 },
-  bottomSheetHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
-  bottomSheetTitle: { fontSize: 18, fontWeight: "700" },
-  techDataRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#1E2235' },
-  techDataLabel: { fontSize: 14, fontWeight: "500" },
-  techDataValue: { fontSize: 16, fontWeight: "600", fontVariant: ["tabular-nums"] }
+  scrollContent: { paddingBottom: 36, paddingTop: 8 },
+  header: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 18,
+  },
+  headerCopy: { flex: 1, paddingRight: 16 },
+  appName: { fontSize: 19, fontWeight: '800', letterSpacing: 0.3 },
+  headerSubtitle: { fontSize: 13, marginTop: 3 },
+  profileBtn: {
+    width: 46, height: 46, borderRadius: 16, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  greeting: { fontSize: 25, lineHeight: 32, fontWeight: '800', marginHorizontal: 20, marginBottom: 16 },
+  vehicleCard: { marginHorizontal: 20, borderRadius: 24, borderWidth: 1, padding: 18, gap: 16 },
+  vehicleCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  vehicleIcon: { width: 54, height: 54, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  vehicleCopy: { flex: 1, minWidth: 0 },
+  eyebrow: { fontSize: 11, fontWeight: '600', marginBottom: 3 },
+  carModel: { fontSize: 18, lineHeight: 23, fontWeight: '700' },
+  carYear: { fontSize: 13, marginTop: 2 },
+  vehicleStatusRow: { gap: 8 },
+  statusBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 20 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  statusText: { fontSize: 12, fontWeight: '700' },
+  connectionHint: { fontSize: 13, lineHeight: 19 },
+  coreActions: { gap: 9 },
+  primaryAction: {
+    minHeight: 54, paddingHorizontal: 16, borderRadius: 16, backgroundColor: '#1685C5',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+  },
+  primaryActionPressed: { backgroundColor: '#126FA6' },
+  primaryActionDisabled: { opacity: 0.7 },
+  primaryActionText: { flex: 1, color: '#FFFFFF', fontSize: 15, fontWeight: '700', textAlign: 'center' },
+  secondaryAction: {
+    minHeight: 54, paddingHorizontal: 16, borderRadius: 16, borderWidth: 1,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+  },
+  secondaryActionText: { flex: 1, fontSize: 15, fontWeight: '700' },
+  pressed: { opacity: 0.76 },
+  dashboard: { paddingHorizontal: 20, gap: 12, marginTop: 22 },
+  mileageCard: {
+    minHeight: 94, borderRadius: 20, borderWidth: 1, padding: 16,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+  },
+  mileageIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  mileageCopy: { flex: 1 },
+  kmLabel: { fontSize: 12, fontWeight: '600' },
+  kmValue: { fontSize: 23, fontWeight: '800', fontVariant: ['tabular-nums'], marginTop: 2 },
+  kmUnit: { fontSize: 13, fontWeight: '500' },
+  mileageHint: { fontSize: 11, marginTop: 2 },
+  sectionHeader: { marginTop: 8, marginBottom: 2 },
+  sectionTitle: { fontSize: 17, fontWeight: '700' },
+  sectionCaption: { fontSize: 12, marginTop: 3 },
+  telemetryGrid: { flexDirection: 'row', gap: 12 },
+  batteryStatusText: { fontSize: 11, fontWeight: '600', textAlign: 'center', marginTop: 6 },
+  toolsSection: { paddingHorizontal: 20, gap: 12, marginTop: 22 },
+  toolsGrid: { flexDirection: 'row', gap: 10 },
+  toolCard: {
+    flex: 1, minHeight: 78, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12,
+    borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 12,
+  },
+  toolIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  toolText: { flex: 1 },
+  toolCardTitle: { fontSize: 14, fontWeight: '700' },
+  toolCardSub: { fontSize: 12, lineHeight: 17, marginTop: 2 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(10, 10, 15, 0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalBox: { width: '100%', borderRadius: 24, padding: 24, borderWidth: 1, alignItems: 'center', shadowColor: '#00B4FF', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.2, shadowRadius: 30, elevation: 10 },
+  modalIconBox: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 16, borderWidth: 1, borderColor: '#00B4FF44' },
+  modalTitle: { fontSize: 18, fontWeight: '800', marginBottom: 12 },
+  modalText: { fontSize: 14, textAlign: 'center', lineHeight: 22, marginBottom: 12 },
+  modalSubText: { fontSize: 12, textAlign: 'center', marginBottom: 20, opacity: 0.8 },
+  modalInput: { width: '100%', borderRadius: 12, fontSize: 24, fontWeight: '700', textAlign: 'center', paddingVertical: 16, marginBottom: 24, borderWidth: 1 },
+  modalBtnRow: { flexDirection: 'row', gap: 12, width: '100%', marginTop: 10 },
+  modalBtnCancel: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1 },
+  modalBtnCancelText: { fontWeight: '700', fontSize: 14 },
+  modalBtnConfirm: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: 'center', backgroundColor: '#00B4FF' },
+  modalBtnConfirmText: { fontWeight: '800', fontSize: 14 },
+  modalBottomSheet: { width: '100%', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40, borderWidth: 1, borderBottomWidth: 0, position: 'absolute', bottom: 0 },
+  bottomSheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  bottomSheetTitle: { fontSize: 18, fontWeight: '700' },
+  techDataRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#1E2235' },
+  techDataLabel: { fontSize: 14, fontWeight: '500' },
+  techDataValue: { fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] },
 });

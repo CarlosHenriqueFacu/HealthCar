@@ -1,6 +1,7 @@
-import { StyleSheet, useColorScheme, View, type ViewProps } from "react-native";
+import { StyleSheet, View, type ViewProps } from "react-native";
 import { SafeAreaView, type Edge } from "react-native-safe-area-context";
-import { Colors } from "../constants/theme";
+import { AppPalette } from "../constants/theme";
+import { useApp } from "../contexts/AppContext";
 
 export interface ScreenContainerProps extends ViewProps {
   edges?: Edge[];
@@ -15,8 +16,8 @@ export function ScreenContainer({
   style,
   ...props
 }: ScreenContainerProps) {
-  const scheme = useColorScheme();
-  const themeColors = Colors[scheme === 'unspecified' ? 'light' : scheme];
+  const { theme } = useApp();
+  const themeColors = AppPalette[theme];
 
   return (
     <View style={[styles.container, { backgroundColor: themeColors.background }]} {...props}>

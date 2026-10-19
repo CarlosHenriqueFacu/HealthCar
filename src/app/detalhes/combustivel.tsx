@@ -1,9 +1,10 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import { router } from "expo-router";
 import { useState } from "react";
 import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Svg, { Defs, Line, LinearGradient, Rect, Stop } from "react-native-svg";
 import { ScreenContainer } from "../../components/screen-container";
+import { ScreenHeader } from "../../components/ScreenHeader";
+import { AppPalette } from "../../constants/theme";
 import { useApp } from "../../contexts/AppContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -34,12 +35,9 @@ export default function FuelDetailsScreen() {
 
   // Paleta reativa ao tema
   const isDark = theme === 'dark';
-  const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
-  const cardColor = isDark ? '#12141A' : '#FFFFFF';
-  const textColor = isDark ? '#F0F2FF' : '#0F172A';
-  const subTextColor = isDark ? '#8892A4' : '#64748B';
-  const borderColor = isDark ? '#1E2235' : '#E2E8F0';
-  const primaryColor = "#FFC107"; // Amarelo alerta/combustível
+  const colors = AppPalette[theme];
+  const { background: bgColor, surface: cardColor, text: textColor, textSecondary: subTextColor, border: borderColor } = colors;
+  const primaryColor = colors.warning;
 
   // Cálculos estatísticos
   const totalConsumed = FUEL_DATA.reduce((sum, d) => sum + d.consumed, 0);
@@ -54,13 +52,7 @@ export default function FuelDetailsScreen() {
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
       
-      <View style={[styles.header, { borderBottomColor: borderColor }]}>
-        <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}>
-          <MaterialIcons name="arrow-back" size={24} color={textColor} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: textColor }]}>{t('combustivel')}</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      <ScreenHeader title={t('combustivel')} />
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
@@ -190,10 +182,6 @@ export default function FuelDetailsScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
-  backBtn: { padding: 8, marginLeft: -8, marginRight: 8, borderRadius: 20 },
-  headerTitle: { flex: 1, fontSize: 18, fontWeight: "700" },
-  headerSpacer: { width: 40 },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, gap: 16, paddingBottom: 40 },
   statusCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 16, padding: 16, borderWidth: 1 },
