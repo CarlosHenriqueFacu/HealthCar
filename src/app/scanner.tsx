@@ -1,9 +1,11 @@
 import { ScreenContainer } from "@/components/screen-container";
 import { MaterialIcons } from "@expo/vector-icons";
-import { useState } from "react";
+import { router } from "expo-router";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   NativeModules,
   Pressable,
   ScrollView,
@@ -12,10 +14,12 @@ import {
   View,
 } from "react-native";
 import RNBluetoothClassic from "react-native-bluetooth-classic";
+import Animated, { FadeIn, FadeInUp, FadeOutUp } from "react-native-reanimated";
 
-import { ScreenHeader } from '../components/ScreenHeader';
-import { AppPalette } from '../constants/theme';
 import { useApp } from '../contexts/AppContext';
+
+// IMPORTAÇÃO DA CAMADA DE PERSISTÊNCIA
+import { salvarFalhaDTCLocal } from '../database/database';
 
 const { OBDBluetooth } = NativeModules;
 
@@ -24,9 +28,9 @@ const { OBDBluetooth } = NativeModules;
  * @description Mapeamento de UI para a severidade das falhas (DTCs).
  */
 const SEVERITY_CONFIG = {
-  critical: { color: "#D94352", bg: "#D9435218", labelKey: "critico", icon: "error" as const },
-  warning: { color: "#C58B13", bg: "#C58B1318", labelKey: "aviso", icon: "warning" as const },
-  resolved: { color: "#168A63", bg: "#168A6318", labelKey: "resolvido", icon: "check-circle" as const },
+  critical: { color: "#FF3D57", bg: "#FF3D5722", labelKey: "critico", icon: "error" as const },
+  warning: { color: "#FFB300", bg: "#FFB30022", labelKey: "aviso", icon: "warning" as const },
+  resolved: { color: "#00E676", bg: "#00E67622", labelKey: "resolvido", icon: "check-circle" as const },
 };
 
 /**
@@ -39,6 +43,8 @@ const DTC_DICTIONARY: Record<string, { desc: string, system: string, severity: "
   "P0171": { desc: "Mistura ar/combustível pobre (Banco 1)", system: "Combustível", severity: "warning" },
   "P0113": { desc: "Entrada alta no circuito de temperatura do ar", system: "Admissão", severity: "warning" },
   "P0500": { desc: "Mau funcionamento do sensor de velocidade", system: "Transmissão", severity: "critical" },
+  "P0100": { desc: "Mau funcionamento do circuito de fluxo de ar (MAF)", system: "Admissão", severity: "critical" },
+  "P0133": { desc: "Resposta lenta do sensor de oxigênio (O2)", system: "Emissões", severity: "warning" },
 };
 
 /**
@@ -50,25 +56,28 @@ export default function ScannerScreen() {
   const { theme, t } = useApp();
   
   const isDark = theme === 'dark';
-  const colors = AppPalette[theme];
-  const bgColor = colors.background;
-  const cardColor = colors.surface;
-  const textColor = colors.text;
-  const subTextColor = colors.textSecondary;
-  const borderColor = colors.border;
+  const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
+  const cardColor = isDark ? '#12141A' : '#FFFFFF';
+  const textColor = isDark ? '#F0F2FF' : '#0F172A';
+  const subTextColor = isDark ? '#8892A4' : '#64748B';
+  const borderColor = isDark ? '#1E2235' : '#E2E8F0';
 
   const [scanning, setScanning] = useState(false);
+  const [scanStage, setScanStage] = useState(""); // Controle de UX: Feedback de Estágios
   const [clearing, setClearing] = useState(false);
   const [faults, setFaults] = useState<any[]>([]);
-  const [hasScanned, setHasScanned] = useState(false);
+  const [showDbAlert, setShowDbAlert] = useState(false); 
 
   const healthScore = Math.max(0, 100 - (faults.length * 13));
-  const isHealthy = hasScanned && faults.length === 0 && !scanning;
+  const isHealthy = faults.length === 0 && !scanning;
+
+  // Auto-Scan: Dispara a varredura automaticamente ao abrir a tela
+  useEffect(() => {
+    handleScan();
+  }, []);
 
   /**
    * @method connectToScanner
-   * @description Estabelece conexão e inicializa o protocolo do microcontrolador ELM327.
-   * Utilizado apenas como fallback caso o socket já não esteja aberto pela HomeScreen.
    */
   async function connectToScanner() {
     const devices = await RNBluetoothClassic.getBondedDevices();
@@ -84,7 +93,6 @@ export default function ScannerScreen() {
     
     await OBDBluetooth.connect(obdDevice.address);
     
-    // Handshake de inicialização do ELM327
     await OBDBluetooth.sendCommand("ATZ");
     await new Promise(resolve => setTimeout(resolve, 1000));
     await OBDBluetooth.sendCommand("ATE0");
@@ -95,15 +103,19 @@ export default function ScannerScreen() {
 
   /**
    * @method handleScan
-   * @description Solicita os códigos de falha armazenados na ECU utilizando o Mode 03.
-   * Tenta utilizar o socket ativo; caso inativo, realiza reconexão transparente.
+   * @description Solicita os códigos de falha com UX de "Pausa Dramática" para transmitir credibilidade de diagnóstico.
    */
   async function handleScan() {
     setScanning(true);
+    setScanStage("Negociando protocolo OBD-II...");
     setFaults([]); 
-    setHasScanned(false);
+    setShowDbAlert(false);
 
     try {
+      // UX Delay: Simula handshake
+      await new Promise(resolve => setTimeout(resolve, 800));
+      setScanStage("A consultar Centralina (ECU)...");
+      
       let resp;
       try {
         resp = await OBDBluetooth.sendCommand("03");
@@ -116,28 +128,51 @@ export default function ScannerScreen() {
         throw new Error("Timeout na resposta da ECU");
       }
 
+      // UX Delay: Simula tempo de leitura de blocos
+      await new Promise(resolve => setTimeout(resolve, 800));
+      setScanStage("A decodificar matriz de falhas...");
+      
+      // UX Delay: Simula parse de matriz
+      await new Promise(resolve => setTimeout(resolve, 800));
+
       const codes = parseDTC(String(resp));
       
       const newFaults = codes.map((code) => ({
         code: code,
-        desc: DTC_DICTIONARY[code]?.desc || "Erro desconhecido ou específico da montadora",
-        system: DTC_DICTIONARY[code]?.system || "Sistema Elétrico",
+        desc: DTC_DICTIONARY[code]?.desc || "Falha identificada pelo módulo de controle.",
+        system: DTC_DICTIONARY[code]?.system || "Sistema de Injeção / ECU",
         severity: DTC_DICTIONARY[code]?.severity || "warning",
       }));
       
       setFaults(newFaults);
-      setHasScanned(true);
+
+      // --- GRAVAÇÃO NA BASE DE DADOS (SQLite) ---
+      if (newFaults.length > 0) {
+        for (const fault of newFaults) {
+          await salvarFalhaDTCLocal(
+            "SESSAO_DIAGNOSTICO_ATIVA", 
+            fault.code, 
+            fault.desc, 
+            fault.system, 
+            fault.severity
+          );
+        }
+        
+        setShowDbAlert(true);
+        setTimeout(() => setShowDbAlert(false), 4000);
+      }
+
     } catch (error) {
-      Alert.alert("Erro de Leitura", "Falha de comunicação com a ECU. Verifique se a ignição do veículo está ligada.");
+      Alert.alert("Aviso de Conexão", "Não foi possível extrair a matriz da ECU. Verifique a conexão Bluetooth.");
       console.log("[Scanner Error]", error);
     } finally {
       setScanning(false);
+      setScanStage("");
     }
   }
 
   /**
    * @method handleClearErrors
-   * @description Solicita a exclusão da memória de falhas da ECU utilizando o Mode 04.
    */
   async function handleClearErrors() {
     Alert.alert(
@@ -158,7 +193,6 @@ export default function ScannerScreen() {
                 await OBDBluetooth.sendCommand("04");
               }
               setFaults([]);
-              setHasScanned(true);
               Alert.alert("Sucesso", "A memória de falhas foi apagada e a luz de injeção foi resetada.");
             } catch (e) {
               Alert.alert("Erro de Comunicação", "O veículo recusou o comando de limpeza.");
@@ -173,54 +207,39 @@ export default function ScannerScreen() {
 
   /**
    * @method parseDTC
-   * @description Decodifica a resposta hexadecimal bruta do ELM327 (Mode 03) para o padrão SAE J2012 (ex: P0300).
-   * Trata o byte de contagem de DTCs e ignora os bytes de padding (0x55 / 0xAA) do protocolo CAN (ISO 15765-4).
-   * @param {string} response - Buffer bruto recebido do scanner.
-   * @returns {string[]} Array contendo as strings dos códigos decodificados.
+   * @description Decodifica a resposta bruta do comando '03' separando os bytes em códigos padrão (Ex: P0300).
    */
   function parseDTC(response: string): string[] {
     if (!response || response.includes("NO DATA") || response.includes("OK") || response.includes("SEARCHING") || response.includes("ERROR")) {
       return [];
     }
     
-    // Remove espaços e caracteres de controle
     const cleanResp = response.replace(/[\s\r\n>]/g, "").toUpperCase();
     
-    // O prefixo '43' indica resposta de sucesso para o Mode '03'
     const index = cleanResp.indexOf("43");
     if (index === -1) return [];
 
-    let hexData = cleanResp.substring(index + 2);
-    if (hexData.length < 2) return [];
-
-    // No protocolo CAN (ISO 15765-4), o primeiro byte (2 caracteres hex) após '43' é a quantidade de DTCs.
-    // Exemplo sem falhas com padding CAN: "43 00 55 55 55 55 55" -> hexData começa com "00".
-    const dtcCount = parseInt(hexData.substring(0, 2), 16);
-    if (isNaN(dtcCount) || dtcCount === 0) {
-      return [];
-    }
-
-    // Avança os 2 caracteres do byte contador e recorta exatamente a quantidade de DTCs informada pela ECU
-    hexData = hexData.substring(2, 2 + (dtcCount * 4));
-
+    // Corta tudo antes de "43", deixando apenas a sequência de falhas
+    const hexData = cleanResp.substring(index + 2);
+    
     const codes: string[] = [];
 
-    // Lê os códigos em blocos de 4 caracteres hexadecimais (2 bytes por DTC)
+    // O barramento envia os erros em pares de 2 bytes (4 caracteres hexadecimais)
     for (let i = 0; i < hexData.length; i += 4) {
       const dtcHex = hexData.substring(i, i + 4);
       
-      // Ignora pares vazios (0000) ou bytes de preenchimento de frame CAN (5555, AAAA, 0055)
+      // Ignora bytes de preenchimento nulos ou de sincronismo
       if (
         dtcHex.length === 4 && 
         dtcHex !== "0000" && 
-        dtcHex !== "5555" && 
-        dtcHex !== "AAAA" && 
-        dtcHex !== "0055"
+        !dtcHex.includes("55") && 
+        dtcHex !== "AAAA"
       ) {
         const firstChar = dtcHex[0];
         let letter = "P";
         let secondDigit = "0";
 
+        // Regras de mapeamento ISO 15031-6
         if (["0","1","2","3"].includes(firstChar)) { letter = "P"; secondDigit = firstChar; }
         else if (["4","5","6","7"].includes(firstChar)) { letter = "C"; secondDigit = (parseInt(firstChar, 16) - 4).toString(); }
         else if (["8","9","A","B"].includes(firstChar)) { letter = "B"; secondDigit = (parseInt(firstChar, 16) - 8).toString(); }
@@ -230,7 +249,8 @@ export default function ScannerScreen() {
       }
     }
     
-    return Array.from(new Set(codes)).filter(c => c.length === 5 && !c.includes("UNDEFINED"));
+    // Remove duplicatas e erros malformados
+    return Array.from(new Set(codes)).filter(c => c.length === 5);
   }
 
   function handleSchedule() {
@@ -246,65 +266,82 @@ export default function ScannerScreen() {
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
-      <ScreenHeader
-        title={t('tituloScanner')}
-        actionIcon="refresh"
-        actionLabel={t('novoEscaneamento')}
-        actionDisabled={scanning}
-        onActionPress={handleScan}
-      />
+      
+      {/* ================= MODAL DE CARREGAMENTO (UX Feedback) ================= */}
+      <Modal visible={scanning} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <Animated.View entering={FadeIn.duration(300)} style={[styles.loadingBox, { backgroundColor: cardColor, borderColor: borderColor }]}>
+            <ActivityIndicator size="large" color="#00B4FF" style={{ marginBottom: 16 }} />
+            <Text style={[styles.loadingTitle, { color: textColor }]}>Diagnosticando Veículo</Text>
+            <Text style={[styles.loadingStage, { color: subTextColor }]}>{scanStage}</Text>
+          </Animated.View>
+        </View>
+      </Modal>
+
+      {/* ================= NOTIFICAÇÃO DE GRAVAÇÃO (DATABASE) ================= */}
+      {showDbAlert && (
+        <Animated.View 
+          entering={FadeInUp.duration(400)} 
+          exiting={FadeOutUp.duration(400)} 
+          style={styles.toastContainer}
+        >
+          <MaterialIcons name="save-alt" size={20} color="#00E676" />
+          <Text style={styles.toastText}>Relatório DTC gravado no banco de dados local.</Text>
+        </Animated.View>
+      )}
+
+      <View style={[styles.header, { borderBottomColor: borderColor }]}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          <MaterialIcons name="arrow-back" size={22} color={textColor} />
+        </Pressable>
+        <Text style={[styles.headerTitle, { color: textColor }]}>{t('tituloScanner')}</Text>
+        <Pressable onPress={handleScan} style={[styles.scanBtn, !isDark && { backgroundColor: '#E0F2FE' }]} disabled={scanning}>
+          <MaterialIcons name="refresh" size={20} color={scanning ? subTextColor : "#00B4FF"} />
+        </Pressable>
+      </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         
+        {/* ================= AVISO DE TESTE DE PERFOMANCE ================= */}
+        <View style={[styles.testBadge, { backgroundColor: isDark ? "#8B5CF622" : "#EDE9FE", borderColor: "#8B5CF655" }]}>
+          <MaterialIcons name="storage" size={24} color="#8B5CF6" />
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: "#8B5CF6", fontWeight: "800", fontSize: 12, letterSpacing: 0.5 }}>GRAVAÇÃO CONCORRENTE (WAL)</Text>
+            <Text style={{ color: "#8B5CF6", fontSize: 11, marginTop: 2, lineHeight: 16 }}>
+              Os códigos DTC detetados nesta tela são gravados simultaneamente na tabela dtc_local, sem bloquear a telemetria em 2º plano.
+            </Text>
+          </View>
+        </View>
+
         {/* ================= CARD DE SAUDE DINAMICO ================= */}
         <View style={[styles.healthCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
           <View style={styles.healthLeft}>
             <Text style={[styles.healthLabel, { color: subTextColor }]}>{t('saudeVeiculo')}</Text>
-            <Text style={[styles.healthScore, { color: hasScanned ? isHealthy ? colors.positive : colors.warning : subTextColor }]}>
-              {scanning ? '…' : hasScanned ? healthScore : '—'}
-            </Text>
+            <Text style={[styles.healthScore, isHealthy && { color: "#00E676" }]}>{healthScore}</Text>
             <Text style={[styles.healthUnit, { color: subTextColor }]}>/ 100</Text>
           </View>
           <View style={styles.healthRight}>
             <View style={[styles.healthBar, { backgroundColor: borderColor }]}>
               <View style={[
                 styles.healthFill, 
-                { width: `${hasScanned ? healthScore : 0}%` as any, backgroundColor: isHealthy ? colors.positive : colors.warning }
+                { width: `${healthScore}%` as any, backgroundColor: isHealthy ? "#00E676" : "#FFB300" }
               ]} />
             </View>
-            <Text style={[styles.healthStatus, { color: hasScanned ? isHealthy ? colors.positive : colors.warning : subTextColor }]}>
-              {scanning ? t('analisandoEcu') : hasScanned ? isHealthy ? t('emPerfeitoEstado') : t('atencaoNecessaria') : t('prontoParaVerificar')}
+            <Text style={[styles.healthStatus, isHealthy && { color: "#00E676" }]}>
+              {isHealthy ? t('emPerfeitoEstado') : t('atencaoNecessaria')}
             </Text>
             <Text style={[styles.healthSub, { color: subTextColor }]}>
-              {scanning ? t('analisandoEcu') : hasScanned ? `${faults.length} ${t('errosEncontrados')}` : t('iniciarScannerDesc')}
+              {scanning ? t('analisandoEcu') : `${faults.length} ${t('errosEncontrados')}`}
             </Text>
           </View>
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          disabled={scanning}
-          onPress={handleScan}
-          style={({ pressed }) => [
-            styles.startScanButton,
-            (pressed || scanning) && styles.startScanPressed,
-          ]}
-        >
-          {scanning
-            ? <ActivityIndicator color="#FFFFFF" />
-            : <MaterialIcons name="troubleshoot" size={21} color="#FFFFFF" />}
-          <Text style={styles.startScanText}>
-            {scanning ? t('escaneandoEcu') : hasScanned ? t('novoEscaneamento') : t('iniciarScanner')}
-          </Text>
-          {!scanning && <MaterialIcons name="arrow-forward" size={20} color="#FFFFFF" />}
-        </Pressable>
-
         <Text style={[styles.sectionTitle, { color: subTextColor }]}>{t('codigosFalha')}</Text>
         
         {/* ================= MENSAGEM SE NAO TIVER ERROS ================= */}
-        {!scanning && hasScanned && faults.length === 0 && (
+        {!scanning && faults.length === 0 && (
           <View style={[styles.emptyState, { backgroundColor: cardColor, borderColor: borderColor }]}>
-            <MaterialIcons name="check-circle" size={48} color={colors.positive} style={{ opacity: 0.9 }} />
+            <MaterialIcons name="check-circle" size={48} color="#00E676" style={{ opacity: 0.8 }} />
             <Text style={[styles.emptyTitle, { color: textColor }]}>{t('nenhumaFalha')}</Text>
             <Text style={[styles.emptyDesc, { color: subTextColor }]}>{t('nenhumaFalhaDesc')}</Text>
           </View>
@@ -347,6 +384,11 @@ export default function ScannerScreen() {
           </>
         )}
 
+        <Pressable onPress={handleScan} disabled={scanning} style={({ pressed }) => [styles.rescanBtn, { backgroundColor: cardColor, borderColor: isDark ? "#00B4FF44" : "#BAE6FD" }, pressed && { opacity: 0.7 }]}>
+          <MaterialIcons name="wifi-tethering" size={18} color="#00B4FF" />
+          <Text style={styles.rescanBtnText}>{scanning ? t('escaneandoEcu') : t('novoEscaneamento')}</Text>
+        </Pressable>
+
       </ScrollView>
     </ScreenContainer>
   );
@@ -354,30 +396,40 @@ export default function ScannerScreen() {
 
 // ================= ESTILOS (CSS in JS) =================
 const styles = StyleSheet.create({
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
+  backBtn: { padding: 4, marginRight: 8 },
+  headerTitle: { flex: 1, fontSize: 17, fontWeight: "700" },
+  scanBtn: { padding: 6, backgroundColor: "#00B4FF22", borderRadius: 8 },
   scroll: { flex: 1 },
-  scrollContent: { padding: 20, gap: 16, paddingBottom: 40 },
+  scrollContent: { padding: 16, gap: 12, paddingBottom: 40 },
 
-  healthCard: { borderRadius: 22, padding: 18, borderWidth: 1, flexDirection: "row", gap: 16, marginBottom: 2 },
+  toastContainer: { position: 'absolute', top: 70, left: 20, right: 20, backgroundColor: '#1E2235', flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#00E67644', zIndex: 100, shadowColor: "#00E676", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 6 },
+  toastText: { color: '#00E676', fontSize: 12, fontWeight: '700' },
+  testBadge: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 12, borderWidth: 1, marginBottom: 4 },
+
+  modalOverlay: { flex: 1, backgroundColor: "rgba(10, 10, 15, 0.8)", justifyContent: "center", alignItems: "center", padding: 20 },
+  loadingBox: { width: "85%", borderRadius: 24, padding: 30, borderWidth: 1, alignItems: "center", shadowColor: "#00B4FF", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.2, shadowRadius: 30, elevation: 10 },
+  loadingTitle: { fontSize: 18, fontWeight: "800", marginBottom: 8 },
+  loadingStage: { fontSize: 13, textAlign: "center", fontStyle: "italic" },
+
+  healthCard: { borderRadius: 16, padding: 16, borderWidth: 1, flexDirection: "row", gap: 16, marginBottom: 4 },
   healthLeft: { alignItems: "center", justifyContent: "center", minWidth: 70 },
-  healthLabel: { fontSize: 11, fontWeight: "600", marginBottom: 4 },
-  healthScore: { fontSize: 38, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  healthLabel: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 },
+  healthScore: { fontSize: 42, fontWeight: "800", color: "#FFB300", fontVariant: ["tabular-nums"] },
   healthUnit: { fontSize: 12 },
   healthRight: { flex: 1, justifyContent: "center", gap: 8 },
   healthBar: { height: 6, borderRadius: 3, overflow: "hidden" },
   healthFill: { height: "100%", borderRadius: 3 },
-  healthStatus: { fontSize: 14, fontWeight: "700" },
-  healthSub: { fontSize: 12, lineHeight: 18 },
+  healthStatus: { fontSize: 14, fontWeight: "600", color: "#FFB300" },
+  healthSub: { fontSize: 12 },
 
-  startScanButton: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 16, borderRadius: 16, backgroundColor: '#1685C5' },
-  startScanPressed: { opacity: 0.78 },
-  startScanText: { flex: 1, color: '#FFFFFF', fontSize: 15, fontWeight: '700', textAlign: 'center' },
-  sectionTitle: { fontSize: 13, fontWeight: "700", marginTop: 4 },
+  sectionTitle: { fontSize: 12, fontWeight: "600", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4, marginTop: 4 },
 
-  emptyState: { alignItems: "center", paddingVertical: 30, paddingHorizontal: 20, borderRadius: 20, borderWidth: 1, gap: 8 },
+  emptyState: { alignItems: "center", paddingVertical: 30, borderRadius: 16, borderWidth: 1, borderStyle: "dashed", gap: 8 },
   emptyTitle: { fontSize: 16, fontWeight: "700", marginTop: 8 },
   emptyDesc: { fontSize: 12, textAlign: "center", paddingHorizontal: 20 },
 
-  faultCard: { borderRadius: 20, padding: 16, borderWidth: 1, flexDirection: "row", gap: 12, alignItems: "flex-start" },
+  faultCard: { borderRadius: 14, padding: 14, borderWidth: 1, flexDirection: "row", gap: 12, alignItems: "flex-start" },
   faultIconWrap: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   faultInfo: { flex: 1 },
   faultHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
@@ -391,4 +443,6 @@ const styles = StyleSheet.create({
   clearBtnText: { fontSize: 14, fontWeight: "700", color: "#FF3D57" },
   scheduleBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#00B4FF", borderRadius: 14, paddingVertical: 14 },
   scheduleBtnText: { fontSize: 15, fontWeight: "700" },
+  rescanBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, paddingVertical: 12, borderWidth: 1, marginTop: 8 },
+  rescanBtnText: { fontSize: 14, fontWeight: "600", color: "#00B4FF" },
 });

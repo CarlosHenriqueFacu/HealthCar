@@ -14,14 +14,10 @@ import {
 
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
-import { AppPalette } from '../../constants/theme';
-import { useApp } from '../../contexts/AppContext';
 import { getAuthErrorMessage, loginWithEmail } from '../../services/firebase';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { theme } = useApp();
-  const colors = AppPalette[theme];
   
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
@@ -46,7 +42,7 @@ export default function LoginScreen() {
   };
 
   return (
-    <ThemedView style={[styles.container, { backgroundColor: colors.background }]}>
+    <ThemedView style={styles.container}>
       <KeyboardAvoidingView 
         style={{ flex: 1 }} 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -55,31 +51,31 @@ export default function LoginScreen() {
           
           {/* Cabeçalho com botão de voltar */}
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => router.back()} style={[styles.backBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <MaterialIcons name="arrow-back" size={24} color={colors.text} />
+            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+              <MaterialIcons name="arrow-back" size={24} color="#F0F2FF" />
             </TouchableOpacity>
-            <ThemedText type="title" style={[styles.titulo, { color: colors.text }]}>Login</ThemedText>
+            <ThemedText type="title" style={styles.titulo}>Login</ThemedText>
             <View style={{ width: 40 }} /> {/* Espaçador para manter o título centralizado */}
           </View>
 
           {/* Logo / Boas-vindas */}
           <View style={styles.logoContainer}>
-            <View style={[styles.iconCircle, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
-              <MaterialIcons name="directions-car" size={48} color={colors.primary} />
+            <View style={styles.iconCircle}>
+              <MaterialIcons name="directions-car" size={48} color="#00B4FF" />
             </View>
-            <ThemedText style={[styles.appName, { color: colors.text }]}>HEALTHCAR</ThemedText>
-            <ThemedText style={[styles.descricao, { color: colors.textSecondary }]}>
+            <ThemedText style={styles.appName}>HEALTHCAR</ThemedText>
+            <ThemedText style={styles.descricao}>
               Bem-vindo de volta! Insira suas credenciais para acessar a telemetria e o scanner do veículo.
             </ThemedText>
           </View>
 
           {/* ================= CAMPOS DE LOGIN ================= */}
-          <View style={[styles.inputContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <MaterialIcons name="email" size={20} color={colors.textSecondary} style={styles.icon} />
+          <View style={styles.inputContainer}>
+            <MaterialIcons name="email" size={20} color="#8892A4" style={styles.icon} />
             <TextInput
-              style={[styles.input, { color: colors.text }]}
+              style={styles.input}
               placeholder="E-mail"
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor="#8892A4"
               keyboardType="email-address"
               autoCapitalize="none"
               autoComplete="email"
@@ -88,12 +84,12 @@ export default function LoginScreen() {
             />
           </View>
 
-          <View style={[styles.inputContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <MaterialIcons name="lock" size={20} color={colors.textSecondary} style={styles.icon} />
+          <View style={styles.inputContainer}>
+            <MaterialIcons name="lock" size={20} color="#8892A4" style={styles.icon} />
             <TextInput
-              style={[styles.input, { color: colors.text }]}
+              style={styles.input}
               placeholder="Senha"
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor="#8892A4"
               secureTextEntry
               autoComplete="password"
               value={senha}
@@ -106,26 +102,26 @@ export default function LoginScreen() {
             style={styles.forgotPasswordContainer} 
             onPress={() => router.push('/esqueci-senha' as any)}
           >
-            <ThemedText style={[styles.forgotPasswordText, { color: colors.primary }]}>Esqueci minha senha</ThemedText>
+            <ThemedText style={styles.forgotPasswordText}>Esqueci minha senha</ThemedText>
           </TouchableOpacity>
 
           {/* ================= BOTÃO DE ENTRAR ================= */}
           <TouchableOpacity
-            style={[styles.primaryBtn, { backgroundColor: colors.primary }, isSubmitting && styles.disabledBtn]}
+            style={[styles.primaryBtn, isSubmitting && styles.disabledBtn]}
             onPress={handleLogin}
             disabled={isSubmitting}
           >
-            <ThemedText style={[styles.primaryBtnText, { color: '#FFFFFF' }]}>
+            <ThemedText style={styles.primaryBtnText}>
               {isSubmitting ? 'Entrando...' : 'Entrar'}
             </ThemedText>
-            {!isSubmitting && <MaterialIcons name="login" size={20} color="#FFFFFF" />}
+            {!isSubmitting && <MaterialIcons name="login" size={20} color="#0A0A0F" />}
           </TouchableOpacity>
 
           {/* ================= CRIAR CONTA ================= */}
           <View style={styles.registerContainer}>
-            <ThemedText style={[styles.registerText, { color: colors.textSecondary }]}>Ainda não tem uma conta? </ThemedText>
+            <ThemedText style={styles.registerText}>Ainda não tem uma conta? </ThemedText>
             <TouchableOpacity onPress={() => router.push('/cadastro' as any)}>
-              <ThemedText style={[styles.registerLink, { color: colors.primary }]}>Cadastre-se</ThemedText>
+              <ThemedText style={styles.registerLink}>Cadastre-se</ThemedText>
             </TouchableOpacity>
           </View>
 

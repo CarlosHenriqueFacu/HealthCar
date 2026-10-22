@@ -47,7 +47,8 @@
             "kotlinVersion": "2.1.20"
           }
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -56,9 +57,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "c57622fc-3a87-48ea-85fa-dfb33cbb3a31"
+        "projectId": "69769b1a-cff1-4156-b4b0-0c66b8f36eac"
       }
     },
-    "owner": "carlos008"
+    "owner": ""
   }
 }

@@ -5,33 +5,6 @@
 
 import { Platform } from 'react-native';
 
-export const AppPalette = {
-  light: {
-    background: '#F4F7FB',
-    surface: '#FFFFFF',
-    surfaceMuted: '#EEF4F8',
-    text: '#162133',
-    textSecondary: '#63748B',
-    border: '#E3EAF1',
-    primary: '#1685C5',
-    positive: '#168A63',
-    warning: '#C58B13',
-    danger: '#D94352',
-  },
-  dark: {
-    background: '#0B1220',
-    surface: '#121C2A',
-    surfaceMuted: '#202A38',
-    text: '#EAF0F7',
-    textSecondary: '#94A3B8',
-    border: '#243247',
-    primary: '#1685C5',
-    positive: '#168A63',
-    warning: '#C58B13',
-    danger: '#D94352',
-  },
-} as const;
-
 export const Colors = {
   light: {
     text: '#000000',

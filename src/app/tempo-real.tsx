@@ -1,13 +1,13 @@
 import { ScreenContainer } from "@/components/screen-container";
-import { ScreenHeader } from "@/components/ScreenHeader";
 import { SpeedometerMinimal } from "@/components/SpeedometerMinimal";
 import { TelemetryCard } from "@/components/TelemetryCard";
-import { AppPalette } from "@/constants/theme";
 import { MaterialIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useKeepAwake } from "expo-keep-awake";
-import { router } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useRef, useState } from "react";
 import {
+  Dimensions,
   NativeModules,
   Pressable,
   ScrollView,
@@ -20,25 +20,39 @@ import Animated, {
   useSharedValue
 } from "react-native-reanimated";
 
+import * as Notifications from 'expo-notifications';
 import RNBluetoothClassic from "react-native-bluetooth-classic";
 import { useApp } from '../contexts/AppContext';
 
-const { OBDBluetooth } = NativeModules;
+// ============================================================================
+// CAMADA DE PERSISTÊNCIA (DATA LAYER)
+// ============================================================================
+import { iniciarSessaoLocal, obterResumoSessoes, salvarLeituraTelemetria } from '@/database/database';
 
-/**
- * @component RealtimeScreen
- * @description Dashboard dinâmico para leitura e exibição de dados OBD-II em tempo real.
- * Utiliza integração cinemática para cálculo de distância em metros e filtro de média móvel (SMA)
- * para estabilização da leitura da boia de combustível.
- */
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,   
+  }),
+});
+
+const { OBDBluetooth } = NativeModules;
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
 export default function RealtimeScreen() {
   const { theme, t } = useApp();
   
-  const colors = AppPalette[theme];
-  const bgColor = colors.background;
-  const textColor = colors.text;
+  const isDark = theme === 'dark';
+  const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
+  const textColor = isDark ? '#F0F2FF' : '#0F172A';
+  const borderColor = isDark ? '#1E2235' : '#E2E8F0';
+  const debugBg = isDark ? '#1A0000' : '#FEF2F2';
+  const debugBorder = isDark ? '#00E676' : '#F87171';
 
-  // --- ESTADOS DO PAINEL ---
+  // --- ESTADOS DA INTERFACE ---
   const [displaySpeed, setDisplaySpeed] = useState(0);
   const [displayRpm, setDisplayRpm] = useState(0);
   const [displayTemp, setDisplayTemp] = useState(0);
@@ -47,209 +61,340 @@ export default function RealtimeScreen() {
 
   const [isReading, setIsReading] = useState(false);
   const [statusMsg, setStatusMsg] = useState("INICIALIZANDO SCANNER...");
+  const [debugLog, setDebugLog] = useState("Aguardando comunicação com a ECU...");
 
-  // --- REFERÊNCIAS MÚTAVEIS PARA CÁLCULOS DE PRECISÃO EM TEMPO REAL ---
+  // --- REFERÊNCIAS MUTÁVEIS ---
   const tripAccumulatorRef = useRef<number>(0);
   const lastSpeedTimeRef = useRef<number | null>(null);
   const fuelHistoryRef = useRef<number[]>([]);
+  const currentSessionRef = useRef<string | null>(null);
+  const currentTempRef = useRef<number>(0);
+  const currentFuelRef = useRef<number>(0);
+  
+  // Referência de Cooldown para evitar Spam de Notificações (2 minutos)
+  const alertThrottlerRef = useRef({ temp: 0, volt: 0, dtc: 0 });
+  
+  // Referência para guardar a ID do loop e poder matá-lo depois
+  const loopTimerRef = useRef<any>(null);
 
   const headerGlow = useSharedValue(1);
   const speedometerScale = useSharedValue(1);
 
   useKeepAwake();
 
-  useEffect(() => {
-    let isActive = true; 
-    let timerId: ReturnType<typeof setTimeout>;
-    let cicloLentoCounter = 0; 
+  const dispararAlerta = async (titulo: string, mensagem: string) => {
+    await Notifications.scheduleNotificationAsync({
+      content: { title: titulo, body: mensagem, sound: true }, trigger: null, 
+    });
+  };
 
-    /**
-     * @method perguntarAoCarro
-     * @description Encapsula o envio de comandos hexadecimais ao adaptador ELM327.
-     * @param {string} comando - Código PID OBD-II (ex: 010C para RPM).
-     * @returns {Promise<string>} Resposta bruta da ECU ou string de erro tratada.
-     */
-    async function perguntarAoCarro(comando: string): Promise<string> {
-      try {
-        const resposta = await OBDBluetooth.sendCommand(comando);
-        return String(resposta);
-      } catch (err: any) {
-        return `ERRO: ${err?.message}`;
-      }
-    }
+  function contarErrosDTC(response: string): number {
+    if (!response) return 0;
+    const clean = String(response).replace(/[\s\r\n>]/g, "").toUpperCase();
+    if (clean.includes("NODATA") || clean.includes("ERROR") || clean.includes("SEARCHING")) return 0;
 
-    /**
-     * @method loopDeLeitura
-     * @description Função recursiva que orquestra as requisições OBD-II.
-     * Divide as leituras em ciclos rápidos (RPM/Velocidade) e lentos (Temp/Fuel) 
-     * para evitar buffer overflow no microcontrolador ELM327.
-     */
-    async function loopDeLeitura() {
-      if (!isActive) return;
-      cicloLentoCounter++;
+    const idx = clean.indexOf("43");
+    if (idx === -1) return 0;
 
-      try {
-        let currentSpeed = 0;
+    const hexData = clean.substring(idx + 2);
+    if (hexData.length < 2) return 0;
 
-        // --- CICLO RÁPIDO: Pede os dados urgentes em cada iteração ---
-        
-        // 1. RPM (PID 010C)
-        const rpmResp = await perguntarAoCarro("010C");
-        const realRpm = parseOBD(rpmResp, "0C");
-        if (realRpm >= 0 && !rpmResp.includes("ERRO")) {
-          setDisplayRpm(realRpm);
-        }
+    const count = parseInt(hexData.substring(0, 2), 16);
+    return isNaN(count) ? 0 : count;
+  }
 
-        // 2. Velocidade (PID 010D) + Cálculo de Distância em Metros (TRIP)
-        if (!rpmResp.includes("ERRO")) {
-          const speedResp = await perguntarAoCarro("010D");
-          const realSpeed = parseOBD(speedResp, "0D");
-          
-          if (realSpeed >= 0 && !speedResp.includes("ERRO")) {
-            currentSpeed = realSpeed;
-            setDisplaySpeed(realSpeed);
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true; 
+      let cicloLentoCounter = 0; 
+      let amostragemDbCounter = 0;
 
-            // Integração Cinemática: Distância (km) = Velocidade (km/h) * Tempo (horas)
-            const now = Date.now();
-            if (lastSpeedTimeRef.current !== null && realSpeed > 0) {
-              const deltaHours = (now - lastSpeedTimeRef.current) / 3600000;
-              tripAccumulatorRef.current += realSpeed * deltaHours;
-              setTripDistance(tripAccumulatorRef.current);
-            }
-            lastSpeedTimeRef.current = now;
-          }
-        }
-
-        // --- CICLO LENTO: A cada 3 iterações (aprox. 4.5 segundos) ---
-        if (cicloLentoCounter >= 3) {
-          cicloLentoCounter = 0; 
-
-          // 3. Temperatura do Líquido de Arrefecimento (PID 0105)
-          const tempResp = await perguntarAoCarro("0105");
-          const realTemp = parseOBD(tempResp, "05");
-          if (realTemp > 0) setDisplayTemp(realTemp);
-
-          // 4. Nível de Combustível Estabilizado (PID 012F)
-          // Só realiza a leitura se o veículo estiver parado/lento (< 10 km/h) OU se ainda não tiver nenhuma leitura inicial.
-          // Isso impede que a movimentação física do líquido no tanque gere oscilações falsas na tela.
-          if (currentSpeed < 10 || fuelHistoryRef.current.length === 0) {
-            const fuelResp = await perguntarAoCarro("012F");
-            const rawFuel = parseOBD(fuelResp, "2F");
-            
-            if (rawFuel > 0) {
-              // Filtro de Média Móvel Simples (SMA) com janela de 5 amostras
-              fuelHistoryRef.current.push(rawFuel);
-              if (fuelHistoryRef.current.length > 5) {
-                fuelHistoryRef.current.shift();
-              }
-              const sum = fuelHistoryRef.current.reduce((acc, val) => acc + val, 0);
-              const stabilizedFuel = Math.round(sum / fuelHistoryRef.current.length);
-              setDisplayFuel(stabilizedFuel);
-            }
-          }
-        }
-
-      } catch (err) {
-        console.warn("Falha ao atualizar a telemetria OBD-II:", err);
-      }
-
-      if (isActive) {
-        timerId = setTimeout(() => loopDeLeitura(), 1200); 
-      }
-    }
-
-    /**
-     * @method startReading
-     * @description Verifica se o socket Bluetooth já está aberto pela HomeScreen.
-     * Caso positivo, inicia a leitura imediatamente; caso negativo, executa o handshake completo.
-     */
-    async function startReading() {
-      try {
-        // 1. Tenta reaproveitar a conexão ativa da HomeScreen para abertura instantânea
+      // 1. Sincronização Hand-off (Lê a Viagem Global onde a Home parou)
+      const syncViagemGlobal = async () => {
         try {
-          const checkConn = await OBDBluetooth.sendCommand("010C");
-          if (checkConn && !String(checkConn).includes("ERR") && !String(checkConn).includes("TIMEOUT")) {
+          const viagemSalva = await AsyncStorage.getItem('@viagem_atual');
+          if (viagemSalva) {
+            const val = parseFloat(viagemSalva);
+            if (!isNaN(val)) {
+              tripAccumulatorRef.current = val;
+              setTripDistance(val);
+            }
+          }
+        } catch (e) {}
+      };
+      syncViagemGlobal();
+
+      async function perguntarAoCarro(comando: string): Promise<string> {
+        try {
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("TIMEOUT_HW")), 2500)
+          );
+          
+          const resposta = await Promise.race([
+            OBDBluetooth.sendCommand(comando),
+            timeoutPromise
+          ]);
+          
+          return String(resposta);
+        } catch (err: any) {
+          return `ERRO: ${err?.message}`;
+        }
+      }
+
+      async function loopDeLeitura() {
+        if (!isActive) return;
+        cicloLentoCounter++;
+        amostragemDbCounter++;
+
+        try {
+          let currentSpeed = 0;
+          let realRpm = 0;
+
+          // --- HIGH-FREQUENCY (Tempo Crítico) ---
+          const rpmResp = await perguntarAoCarro("010C");
+          realRpm = parseOBD(rpmResp, "0C");
+          if (realRpm >= 0 && !rpmResp.includes("ERRO")) {
+            setDisplayRpm(realRpm);
+          }
+
+          if (!rpmResp.includes("ERRO")) {
+            const speedResp = await perguntarAoCarro("010D");
+            const realSpeed = parseOBD(speedResp, "0D");
+            
+            if (realSpeed >= 0 && !speedResp.includes("ERRO")) {
+              currentSpeed = realSpeed;
+              setDisplaySpeed(realSpeed);
+
+              const now = Date.now();
+              if (lastSpeedTimeRef.current !== null && realSpeed > 0) {
+                const deltaHours = (now - lastSpeedTimeRef.current) / 3600000;
+                tripAccumulatorRef.current += realSpeed * deltaHours;
+                setTripDistance(tripAccumulatorRef.current);
+                
+                // Salva na Memória Global (Fire-and-Forget para não bloquear o loop de 1.2s)
+                AsyncStorage.setItem('@viagem_atual', tripAccumulatorRef.current.toString()).catch(() => {});
+              }
+              lastSpeedTimeRef.current = now;
+            }
+          }
+
+          // --- LOW-FREQUENCY (Amostragem Estendida e Alertas) ---
+          if (cicloLentoCounter >= 3) {
+            cicloLentoCounter = 0; 
+            const now = Date.now();
+
+            const tempResp = await perguntarAoCarro("0105");
+            const realTemp = parseOBD(tempResp, "05");
+            if (realTemp > 0) {
+              currentTempRef.current = realTemp;
+              setDisplayTemp(realTemp);
+              
+              // Alerta de Temperatura (Cooldown de 2 min)
+              if (realTemp > 100 && (now - alertThrottlerRef.current.temp > 120000)) {
+                dispararAlerta("Atenção à Temperatura!", `O motor atingiu os ${realTemp}°C.`);
+                alertThrottlerRef.current.temp = now;
+              }
+            }
+
+            if (currentSpeed < 10 || fuelHistoryRef.current.length === 0) {
+              const fuelResp = await perguntarAoCarro("012F");
+              const rawFuel = parseOBD(fuelResp, "2F");
+              
+              if (rawFuel > 0) {
+                fuelHistoryRef.current.push(rawFuel);
+                if (fuelHistoryRef.current.length > 5) {
+                  fuelHistoryRef.current.shift();
+                }
+                const sum = fuelHistoryRef.current.reduce((acc, val) => acc + val, 0);
+                const stabilizedFuel = Math.round(sum / fuelHistoryRef.current.length);
+                
+                currentFuelRef.current = stabilizedFuel;
+                setDisplayFuel(stabilizedFuel);
+              }
+            }
+            
+            // Leitura de Tensão da Bateria
+            try {
+              const respVolt = await perguntarAoCarro("ATRV");
+              const match = String(respVolt).match(/[\d\.]+/);
+              if (match) {
+                 const volt = parseFloat(match[0]);
+                 if (volt > 0 && volt < 12.0 && (now - alertThrottlerRef.current.volt > 120000)) {
+                    dispararAlerta("Bateria Fraca", `A tensão no painel de Tempo Real desceu para ${volt}V.`);
+                    alertThrottlerRef.current.volt = now;
+                 }
+              }
+            } catch(e) {}
+          }
+
+          // --- DATA FLUSH & DTC Check (SQLite) ---
+          let msgBanco = "";
+          if (amostragemDbCounter >= 4) {
+            amostragemDbCounter = 0; 
+            const now = Date.now();
+            
+            try {
+              const sID = currentSessionRef.current;
+              if (sID) {
+                if (realRpm > 0) await salvarLeituraTelemetria(sID, "010C", realRpm, "RPM");
+                if (currentSpeed > 0) await salvarLeituraTelemetria(sID, "010D", currentSpeed, "km/h");
+                if (currentTempRef.current > 0) await salvarLeituraTelemetria(sID, "0105", currentTempRef.current, "°C");
+                if (currentFuelRef.current > 0) await salvarLeituraTelemetria(sID, "012F", currentFuelRef.current, "%");
+
+                msgBanco = "\n[✔ DB LOCAL] Flush de Time-Series concluído.";
+              } else {
+                msgBanco = "\n[⏳ DB ESPERA] Provisionando Transaction ID...";
+              }
+            } catch (e) {
+              msgBanco = "\n[✖ DB ERRO] Falha de integridade na gravação.";
+            }
+
+            // Checagem Global de DTC 
+            try {
+               const falhasResp = await perguntarAoCarro("03");
+               const currentErrors = contarErrosDTC(falhasResp);
+               const savedFaultsStr = await AsyncStorage.getItem('@falhas_count');
+               const savedFaults = savedFaultsStr ? parseInt(savedFaultsStr) : 0;
+
+               if (currentErrors > savedFaults && (now - alertThrottlerRef.current.dtc > 120000)) {
+                  dispararAlerta("⚠️ Nova Falha Detectada", "O sistema de injeção registrou um novo código de erro em tempo real.");
+                  AsyncStorage.setItem('@falhas_count', currentErrors.toString()).catch(()=>{});
+                  alertThrottlerRef.current.dtc = now;
+               } else if (currentErrors < savedFaults) {
+                  AsyncStorage.setItem('@falhas_count', currentErrors.toString()).catch(()=>{});
+               }
+            } catch(e) {}
+          }
+
+          if (rpmResp.includes("TIMEOUT_HW")) {
+            msgBanco = "\n[⚠ ALERTA] Hardware desconectado ou inativo.";
+          }
+
+          setDebugLog(
+            `Status: OK | T-Thread: ${cicloLentoCounter}/3\n` +
+            `Odometria (Global Sync): ${(tripAccumulatorRef.current * 1000).toFixed(0)} m` +
+            msgBanco 
+          );
+
+        } catch (err) {
+          setDebugLog("Falha no pipeline de leitura serial.");
+        }
+
+        // SALVA O ID DO TIMEOUT PARA PODER MATAR ELE AO SAIR DA TELA
+        if (isActive) {
+          loopTimerRef.current = setTimeout(() => loopDeLeitura(), 1200); 
+        }
+      }
+
+      async function startReading() {
+        try {
+          if (!currentSessionRef.current) {
+            let veiculoIdDB = "VEICULO_DESCONHECIDO";
+            try {
+              const veiculoCadastrado = await AsyncStorage.getItem('@veiculo_cadastrado');
+              if (veiculoCadastrado) {
+                const parsed = JSON.parse(veiculoCadastrado);
+                if (parsed && parsed.id) {
+                  veiculoIdDB = String(parsed.id);
+                }
+              }
+            } catch (e) {}
+            
+            // Tenta pegar a sessão que a Home criou (ISO_15765-4) para gravar no mesmo "caderno"
+            const sessoes: any = await obterResumoSessoes();
+            if(sessoes && sessoes.length > 0) {
+               currentSessionRef.current = sessoes[0].id;
+            } else {
+               currentSessionRef.current = await iniciarSessaoLocal(veiculoIdDB, "ISO_15765-4");
+            }
+          }
+
+          try {
+            const checkConn = await perguntarAoCarro("010C");
+            if (checkConn && !String(checkConn).includes("ERR") && !String(checkConn).includes("TIMEOUT")) {
+              setIsReading(true);
+              setStatusMsg("LENDO DADOS DO CARRO");
+              setDebugLog("Socket ativo reaproveitado (Handover OK).");
+              lastSpeedTimeRef.current = Date.now();
+              loopDeLeitura();
+              return;
+            }
+          } catch (e) { }
+
+          const devices = await RNBluetoothClassic.getBondedDevices();
+          const obdDevice = devices.find((d: any) => 
+            d.name && (
+              d.name.toUpperCase().includes("OBD") || 
+              d.name.toUpperCase().includes("ELM") ||
+              d.name.toUpperCase().includes("V-LINK")
+            )
+          );
+          
+          if (obdDevice) {
             setIsReading(true);
+            setStatusMsg(`ABRINDO PORTA: ${obdDevice.name.toUpperCase()}`);
+            
+            try {
+              await OBDBluetooth.connect(obdDevice.address);
+              setDebugLog("Bridge Nativa instanciada com sucesso.");
+            } catch (e: any) {
+              setDebugLog(`Falha na Bridge Nativa: ${e?.message}`);
+              setStatusMsg("FALHA NA CONEXÃO");
+              return; 
+            }
+
+            setStatusMsg("REINICIANDO ADAPTADOR...");
+            await perguntarAoCarro("ATZ");
+            await new Promise(resolve => setTimeout(resolve, 1500));
+
+            setStatusMsg("NEGOCIANDO PROTOCOLOS CAN...");
+            await perguntarAoCarro("ATE0"); 
+            await perguntarAoCarro("ATL0"); 
+            await perguntarAoCarro("ATS0"); 
+            await perguntarAoCarro("ATH0"); 
+            await perguntarAoCarro("ATSP0"); 
+
+            setStatusMsg("SINCRONIZANDO COM A ECU...");
+            await perguntarAoCarro("0100"); 
+            await new Promise(resolve => setTimeout(resolve, 1000)); 
+
+            if (!isActive) return;
+
             setStatusMsg("LENDO DADOS DO CARRO");
             lastSpeedTimeRef.current = Date.now();
-            loopDeLeitura();
-            return;
+            loopDeLeitura(); 
+          } else {
+            setStatusMsg("NENHUM SCANNER OBD PAREADO");
+            setDebugLog("FATAL: Endereço MAC do dispositivo não encontrado.");
           }
-        } catch (e) {
-          // Conexão não estava ativa, segue para o fluxo normal de reconexão abaixo
+        } catch (error: any) {
+          setStatusMsg("FALHA NA CONEXÃO");
+          setDebugLog(`Exception Crítica: ${error?.message}`);
         }
-
-        // 2. Fluxo completo de conexão do zero (Fallback)
-        const devices = await RNBluetoothClassic.getBondedDevices();
-        
-        const obdDevice = devices.find((d: any) => 
-          d.name && (
-            d.name.toUpperCase().includes("OBD") || 
-            d.name.toUpperCase().includes("ELM") ||
-            d.name.toUpperCase().includes("V-LINK")
-          )
-        );
-        
-        if (obdDevice) {
-          setIsReading(true);
-          setStatusMsg(`ABRINDO PORTA: ${obdDevice.name.toUpperCase()}`);
-          
-          try {
-            await OBDBluetooth.connect(obdDevice.address);
-          } catch (e: any) {
-            setStatusMsg("FALHA NA CONEXÃO");
-            return; 
-          }
-
-          setStatusMsg("REINICIANDO ADAPTADOR...");
-          await perguntarAoCarro("ATZ");
-          await new Promise(resolve => setTimeout(resolve, 1500));
-
-          setStatusMsg("CONFIGURANDO CANAIS...");
-          await perguntarAoCarro("ATE0"); 
-          await perguntarAoCarro("ATL0"); 
-          await perguntarAoCarro("ATS0"); 
-          await perguntarAoCarro("ATH0"); 
-          await perguntarAoCarro("ATSP0"); 
-
-          setStatusMsg("SINCRONIZANDO COM A ECU...");
-          await perguntarAoCarro("0100"); 
-          await new Promise(resolve => setTimeout(resolve, 1000)); 
-
-          if (!isActive) return;
-
-          setStatusMsg("LENDO DADOS DO CARRO");
-          lastSpeedTimeRef.current = Date.now();
-          loopDeLeitura(); 
-        } else {
-          setStatusMsg("NENHUM SCANNER OBD PAREADO");
-        }
-      } catch (error: any) {
-        setStatusMsg("FALHA NA CONEXÃO");
-        console.warn("Falha ao iniciar o monitoramento OBD-II:", error);
       }
-    }
 
-    startReading();
+      startReading();
 
-    // Cleanup ao desmontar a tela: encerra apenas o timer local e preserva o socket Bluetooth aberto
-    return () => {
-      isActive = false; 
-      if (timerId) clearTimeout(timerId);
-    };
-  }, []);
+      // ============================================================================
+      // CLEANUP - MATA O LOOP E SOLTA A PORTA BLUETOOTH QUANDO O USUÁRIO CLICA EM VOLTAR
+      // ============================================================================
+      return () => {
+        isActive = false; // Sinaliza para as funções não continuarem
+        setIsReading(false);
+        lastSpeedTimeRef.current = null;
+        currentSessionRef.current = null; 
+        
+        // Mata o timer para liberar o processamento
+        if (loopTimerRef.current) {
+            clearTimeout(loopTimerRef.current);
+            loopTimerRef.current = null;
+        }
+      };
+    }, [])
+  );
 
-  /**
-   * @method parseOBD
-   * @description Analisador sintático (Parser) das respostas seriais do scanner OBD-II.
-   * Transforma as respostas hexadecimais brutas (Mode 01) em valores decimais legíveis.
-   * @param {any} response - Resposta bruta do socket serial.
-   * @param {string} pid - Código do sensor consultado (ex: "0C" para RPM).
-   * @returns {number} Valor matemático calculado ou -1 em caso de falha de leitura.
-   */
   function parseOBD(response: any, pid: string): number {
     if (!response) return -1;
-    
     const strResponse = String(response).replace(/[\s>]/g, "").toUpperCase();
     
     if (
@@ -262,24 +407,24 @@ export default function RealtimeScreen() {
       return -1;
     }
     
-    const target = "41" + pid;
+    const target = "41" + pid; 
     const index = strResponse.indexOf(target);
     
     if (index !== -1) {
       const dataHex = strResponse.substring(index + 4);
       try {
-        if (pid === "0C" && dataHex.length >= 4) { // RPM: ((A * 256) + B) / 4
+        if (pid === "0C" && dataHex.length >= 4) { 
           const A = parseInt(dataHex.substring(0, 2), 16);
           const B = parseInt(dataHex.substring(2, 4), 16);
           return Math.round(((A * 256) + B) / 4);
         } 
-        else if (pid === "0D" && dataHex.length >= 2) { // Velocidade: A
+        else if (pid === "0D" && dataHex.length >= 2) { 
           return parseInt(dataHex.substring(0, 2), 16);
         }
-        else if (pid === "05" && dataHex.length >= 2) { // Temperatura: A - 40
+        else if (pid === "05" && dataHex.length >= 2) { 
           return parseInt(dataHex.substring(0, 2), 16) - 40;
         }
-        else if (pid === "2F" && dataHex.length >= 2) { // Nível de Combustível: (A * 100) / 255
+        else if (pid === "2F" && dataHex.length >= 2) { 
           const A = parseInt(dataHex.substring(0, 2), 16);
           return Math.round((A * 100) / 255);
         }
@@ -295,28 +440,34 @@ export default function RealtimeScreen() {
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
-      <ScreenHeader title={t('painelTempoReal')} />
+      <View style={[styles.testBadge, { backgroundColor: isDark ? "#8B5CF622" : "#EDE9FE", borderColor: "#8B5CF655" }]}>
+        <MaterialIcons name="storage" size={24} color="#8B5CF6" />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: "#8B5CF6", fontWeight: "800", fontSize: 12, letterSpacing: 0.5 }}>TESTE DE INTEGRIDADE (OFFLINE-FIRST)</Text>
+          <Text style={{ color: "#8B5CF6", fontSize: 11, marginTop: 2, lineHeight: 16 }}>
+            Telemetria multiplexada enviada ao motor SQLite a cada 5s, mitigando I/O Lock e gargalos de thread.
+          </Text>
+        </View>
+      </View>
+
+      <View style={[styles.header, { borderBottomColor: borderColor }]}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          <MaterialIcons name="arrow-back" size={22} color={textColor} />
+        </Pressable>
+        <Text style={[styles.headerTitle, { color: textColor }]}>{t('painelTempoReal')}</Text>
+        <View style={styles.headerSpacer} />
+      </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        {/* Status de Conexão */}
-        <Animated.View style={[
-          styles.liveBadge,
-          headerGlowStyle,
-          {
-            backgroundColor: isReading ? `${colors.positive}18` : colors.surfaceMuted,
-            borderColor: isReading ? `${colors.positive}44` : colors.border,
-          },
-        ]}>
-          <View style={[styles.liveDot, { backgroundColor: isReading ? colors.positive : colors.warning }]} />
-          <Text style={[styles.liveBadgeText, { color: isReading ? colors.positive : colors.textSecondary }]}>{statusMsg}</Text>
+        <Animated.View style={[styles.liveBadge, headerGlowStyle, !isDark && { backgroundColor: '#E0F2FE', borderColor: '#BAE6FD' }]}>
+          <View style={[styles.liveDot, isReading && { backgroundColor: "#00E676", shadowColor: "#00E676" }]} />
+          <Text style={styles.liveBadgeText}>{statusMsg}</Text>
         </Animated.View>
 
-        {/* Velocímetro Real */}
         <Animated.View style={[styles.speedometerWrapper, speedometerStyle]}>
           <SpeedometerMinimal speed={displaySpeed} isActive={isReading} />
         </Animated.View>
 
-        {/* Cards de Telemetria */}
         <View style={styles.primaryTelemetry}>
           <View style={styles.telemetryRow}>
             <TelemetryCard icon="directions" label="TRIP (VIAGEM)" value={tripDistance.toFixed(1)} unit="km" color="#00B4FF" />
@@ -328,10 +479,14 @@ export default function RealtimeScreen() {
           </View>
         </View>
 
-        {/* Botão Voltar */}
+        <View style={[styles.debugSection, { backgroundColor: debugBg, borderColor: debugBorder }]}>
+          <Text style={[styles.debugTitle, { color: debugBorder }]}>RAIO-X DO BLUETOOTH (STDOUT)</Text>
+          <Text style={[styles.debugText, !isDark && { color: '#7F1D1D' }]}>{debugLog}</Text>
+        </View>
+
         <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.stopBtn, pressed && { opacity: 0.8 }]}>
-          <MaterialIcons name="arrow-back" size={20} color="#D94352" />
-          <Text style={styles.stopBtnText}>{t('voltar')}</Text>
+          <MaterialIcons name="stop-circle" size={20} color="#FF3D57" />
+          <Text style={styles.stopBtnText}>Voltar</Text>
         </Pressable>
       </ScrollView>
     </ScreenContainer>
@@ -339,14 +494,22 @@ export default function RealtimeScreen() {
 }
 
 const styles = StyleSheet.create({
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
+  backBtn: { padding: 4, marginRight: 8 },
+  headerTitle: { flex: 1, fontSize: 17, fontWeight: "700" },
+  headerSpacer: { width: 30 },
   scroll: { flex: 1 },
-  scrollContent: { padding: 20, gap: 16, paddingBottom: 40 },
-  liveBadge: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#1685C518", borderWidth: 1, borderColor: "#1685C544", borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, alignSelf: "center", marginBottom: 4 },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#D94352" },
-  liveBadgeText: { fontSize: 12, fontWeight: "700" },
-  speedometerWrapper: { alignItems: "center", paddingVertical: 12 },
-  primaryTelemetry: { gap: 12 },
-  telemetryRow: { flexDirection: "row", gap: 12 },
-  stopBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#D9435218", borderWidth: 1, borderColor: "#D9435244", borderRadius: 16, minHeight: 50, paddingVertical: 12 },
-  stopBtnText: { fontSize: 14, fontWeight: "700", color: "#D94352" },
+  scrollContent: { padding: 16, gap: 16, paddingBottom: 40 },
+  testBadge: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, marginHorizontal: 16, marginTop: 16, borderRadius: 12, borderWidth: 1 },
+  liveBadge: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#00B4FF22", borderWidth: 1, borderColor: "#00B4FF44", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, alignSelf: "center", marginBottom: 8 },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#FF3D57", shadowColor: "#FF3D57", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 4, elevation: 4 },
+  liveBadgeText: { fontSize: 11, fontWeight: "700", color: "#00B4FF", letterSpacing: 1 },
+  speedometerWrapper: { alignItems: "center", paddingVertical: 16 },
+  primaryTelemetry: { gap: 10 },
+  telemetryRow: { flexDirection: "row", gap: 10 },
+  debugSection: { borderRadius: 12, padding: 16, borderWidth: 1, marginTop: 10 },
+  debugTitle: { fontSize: 11, fontWeight: "800", marginBottom: 8, letterSpacing: 1 },
+  debugText: { fontSize: 13, color: "#FFF", fontFamily: "monospace", minHeight: 60 },
+  stopBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#FF3D5722", borderWidth: 1, borderColor: "#FF3D5744", borderRadius: 14, paddingVertical: 12 },
+  stopBtnText: { fontSize: 14, fontWeight: "600", color: "#FF3D57" },
 });

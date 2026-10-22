@@ -1,6 +1,5 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { AppPalette } from '../constants/theme';
 import { useApp } from '../contexts/AppContext';
 
 /**
@@ -42,43 +41,42 @@ export function TelemetryCard({
   const { theme } = useApp();
   
   // Resolução da paleta de cores baseada no tema (Light/Dark Mode)
-  const colors = AppPalette[theme];
-  const cardBg = colors.surface;
-  const cardBorder = colors.border;
-  const labelColor = colors.textSecondary;
-  const trackColor = theme === 'dark' ? '#26364A' : '#E7EDF3';
+  const isDark = theme === 'dark';
+  const cardBg = isDark ? '#12141A' : '#FFFFFF';
+  const cardBorder = isDark ? '#1E2235' : '#E2E8F0';
+  const labelColor = isDark ? '#8892A4' : '#64748B';
+  const trackColor = isDark ? '#1E2235' : '#CBD5E1';
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${label}: ${value}${unit ? ` ${unit}` : ''}`}
-      accessibilityHint="Toque para ver mais detalhes"
-      onPress={onPress}
+    <Pressable 
+      onPress={onPress} 
       style={({ pressed }) => [
-        styles.card,
+        styles.card, 
         { backgroundColor: cardBg, borderColor: cardBorder },
-        pressed && styles.pressed,
+        pressed && { opacity: 0.7 } // Feedback visual de interação tátil
       ]}
     >
-      <View style={styles.cardHeader}>
-        <View style={[styles.iconContainer, { backgroundColor: `${color}18` }]}>
-          <MaterialIcons name={icon} size={21} color={color} />
-        </View>
-        <MaterialIcons name="chevron-right" size={20} color={labelColor} />
+      {/* Container de representação gráfica (Ícone) */}
+      <View style={styles.iconSection}>
+        <MaterialIcons name={icon} size={56} color={color} />
       </View>
 
+      {/* Rótulo identificador da métrica */}
       <Text style={[styles.label, { color: labelColor }]}>{label}</Text>
+
+      {/* Exibição do valor acompanhado de sua unidade estrutural */}
       <View style={styles.valueRow}>
-        <Text style={[styles.value, { color }]} numberOfLines={1}>{value}</Text>
+        <Text style={[styles.value, { color }]}>{value}</Text>
         {unit && <Text style={[styles.unit, { color: labelColor }]}>{unit}</Text>}
       </View>
 
+      {/* Indicador linear de progresso (Renderização Condicional) */}
       {progress !== undefined && (
         <View style={[styles.progressTrack, { backgroundColor: trackColor }]}>
           <View
             style={[
               styles.progressFill,
-              { width: `${Math.max(0, Math.min(progress * 100, 100))}%`, backgroundColor: color },
+              { width: `${Math.min(progress * 100, 100)}%` as any, backgroundColor: color },
             ]}
           />
         </View>
@@ -87,60 +85,54 @@ export function TelemetryCard({
   );
 }
 
+// Estilos estruturais de interface (agnósticos ao tema)
 const styles = StyleSheet.create({
   card: {
     flex: 1,
-    borderRadius: 20,
-    padding: 14,
+    borderRadius: 12,
+    padding: 16,
     borderWidth: 1,
     minWidth: 0,
-    minHeight: 138,
-    justifyContent: 'space-between',
+    justifyContent: "flex-start",
+    minHeight: 140,
   },
-  pressed: {
-    opacity: 0.76,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  iconSection: {
+    width: "100%",
+    height: 64,
+    justifyContent: "center",
+    alignItems: "center",
     marginBottom: 10,
-  },
-  iconContainer: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   label: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 3,
+    fontSize: 10,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 6,
+    textAlign: "center",
   },
   valueRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
+    flexDirection: "row",
+    alignItems: "baseline",
     gap: 2,
-    marginBottom: 10,
+    justifyContent: "center",
+    marginBottom: 6,
   },
   value: {
-    fontSize: 25,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums'],
-    flexShrink: 1,
+    fontSize: 24,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+    letterSpacing: 1,
   },
   unit: {
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 10,
   },
   progressTrack: {
-    height: 5,
-    borderRadius: 3,
-    overflow: 'hidden',
+    height: 3,
+    borderRadius: 2,
+    overflow: "hidden",
   },
   progressFill: {
-    height: '100%',
-    borderRadius: 3,
+    height: "100%",
+    borderRadius: 2,
   },
 });

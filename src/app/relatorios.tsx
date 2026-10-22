@@ -1,8 +1,8 @@
 import { ScreenContainer } from "@/components/screen-container";
-import { ScreenHeader } from "@/components/ScreenHeader";
-import { AppPalette } from "@/constants/theme";
 import { MaterialIcons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import {
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -43,13 +43,12 @@ export default function ReportsScreen() {
   
   // === PALETA DE CORES DINÂMICA ===
   const isDark = theme === 'dark';
-  const colors = AppPalette[theme];
-  const bgColor = colors.background;
-  const cardColor = colors.surface;
-  const textColor = colors.text;
-  const subTextColor = colors.textSecondary;
-  const borderColor = colors.border;
-  const trackColor = isDark ? '#26364A' : '#E7EDF3';
+  const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
+  const cardColor = isDark ? '#12141A' : '#FFFFFF';
+  const textColor = isDark ? '#F0F2FF' : '#0F172A';
+  const subTextColor = isDark ? '#8892A4' : '#64748B';
+  const borderColor = isDark ? '#1E2235' : '#E2E8F0';
+  const trackColor = isDark ? '#1E2235' : '#CBD5E1';
 
   // MANUTENÇÃO: Este cálculo deve subtrair a quilometragem atual do veículo (lida via OBD2)
   // da meta de quilometragem da próxima troca para dar um valor real ao usuário.
@@ -61,24 +60,30 @@ export default function ReportsScreen() {
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
       
-      <ScreenHeader title={t('tituloRelatorios')} />
+      {/* ================= CABEÇALHO SUPERIOR ================= */}
+      <View style={[styles.header, { borderBottomColor: borderColor }]}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          <MaterialIcons name="arrow-back" size={22} color={textColor} />
+        </Pressable>
+        <Text style={[styles.headerTitle, { color: textColor }]}>{t('tituloRelatorios')}</Text>
+      </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         
         {/* ================= CARD DE ALERTA: PRÓXIMA TROCA DE ÓLEO ================= */}
-        <View style={[styles.oilAlert, { backgroundColor: cardColor, borderColor: isDark ? `${colors.warning}44` : "#FDE68A" }]}>
-          <View style={[styles.oilIconWrap, { backgroundColor: isDark ? `${colors.warning}22` : "#FEF3C7" }]}>
-            <MaterialIcons name="opacity" size={24} color={colors.warning} />
+        <View style={[styles.oilAlert, { backgroundColor: cardColor, borderColor: isDark ? "#FFB30033" : "#FDE68A" }]}>
+          <View style={[styles.oilIconWrap, { backgroundColor: isDark ? "#FFB30022" : "#FEF3C7" }]}>
+            <MaterialIcons name="opacity" size={24} color="#FFB300" />
           </View>
           <View style={styles.oilInfo}>
             <Text style={[styles.oilAlertTitle, { color: textColor }]}>{t('proximaTrocaOleo')}</Text>
-            <Text style={[styles.oilAlertSub, { color: colors.warning }]}>{t('faltamKm')} {kmToNextOil.toLocaleString("pt-BR")} km</Text>
+            <Text style={styles.oilAlertSub}>{t('faltamKm')} {kmToNextOil.toLocaleString("pt-BR")} km</Text>
           </View>
           <View style={styles.oilProgress}>
             <View style={[styles.oilProgressTrack, { backgroundColor: trackColor }]}>
               {/* MANUTENÇÃO: A propriedade 'width' deve ser um cálculo: 
                  (Km Rodados desde a última troca / Intervalo Total de Troca) * 100 */}
-              <View style={[styles.oilProgressFill, { width: "52%", backgroundColor: colors.warning }]} />
+              <View style={[styles.oilProgressFill, { width: "52%" }]} />
             </View>
             <Text style={[styles.oilProgressLabel, { color: subTextColor }]}>52% {t('doIntervalo')}</Text>
           </View>
@@ -118,7 +123,7 @@ export default function ReportsScreen() {
           {OIL_HISTORY.map((item, i) => (
             <View key={i} style={styles.historyCard}>
               <View style={styles.historyLeft}>
-                <View style={[styles.historyDot, { backgroundColor: colors.warning }]} />
+                <View style={[styles.historyDot, { backgroundColor: "#FFB300" }]} />
                 {/* Linha conectora entre os pontos (não renderiza no último item) */}
                 {i < OIL_HISTORY.length - 1 && <View style={[styles.historyLine, { backgroundColor: trackColor }]} />}
               </View>
@@ -156,11 +161,24 @@ export default function ReportsScreen() {
 
 // ================= ESTILOS (CSS in JS) =================
 const styles = StyleSheet.create({
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  backBtn: { padding: 4, marginRight: 8 },
+  headerTitle: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: "700",
+  },
   scroll: { flex: 1 },
-  scrollContent: { padding: 20, gap: 16, paddingBottom: 40 },
+  scrollContent: { padding: 16, gap: 16, paddingBottom: 40 },
 
   oilAlert: {
-    borderRadius: 20,
+    borderRadius: 16,
     padding: 16,
     borderWidth: 1,
     flexDirection: "row",
@@ -176,7 +194,7 @@ const styles = StyleSheet.create({
   },
   oilInfo: { flex: 1 },
   oilAlertTitle: { fontSize: 14, fontWeight: "600", marginBottom: 2 },
-  oilAlertSub: { fontSize: 12 },
+  oilAlertSub: { fontSize: 12, color: "#FFB300" },
   oilProgress: { alignItems: "flex-end", gap: 4 },
   oilProgressTrack: {
     width: 80,
@@ -186,7 +204,7 @@ const styles = StyleSheet.create({
   },
   oilProgressFill: {
     height: "100%",
-    backgroundColor: "#C58B13",
+    backgroundColor: "#FFB300",
     borderRadius: 2,
   },
   oilProgressLabel: { fontSize: 9 },

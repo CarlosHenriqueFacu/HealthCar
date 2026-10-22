@@ -1,14 +1,13 @@
-import { View, type ViewProps } from "react-native";
-import { AppPalette } from "../constants/theme";
-import { useApp } from "../contexts/AppContext";
+import { View, type ViewProps, useColorScheme } from "react-native";
+import { Colors } from "../constants/theme";
 
 export interface ThemedViewProps extends ViewProps {
   className?: string;
 }
 
 export function ThemedView({ style, ...otherProps }: ThemedViewProps) {
-  const { theme } = useApp();
-  const themeColors = AppPalette[theme];
+  const scheme = useColorScheme();
+  const themeColors = Colors[scheme === 'unspecified' ? 'light' : scheme];
 
   return (
     <View 
