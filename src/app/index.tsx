@@ -35,6 +35,9 @@ import { useApp } from '../contexts/AppContext';
 
 import { iniciarSessaoLocal, obterResumoSessoes, salvarFalhaDTCLocal, salvarLeituraTelemetria } from '../database/database';
 
+/**
+ * Configuração global do tratador de notificações Push (Foreground).
+ */
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -46,12 +49,23 @@ Notifications.setNotificationHandler({
 });
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
+/**
+ * Estado inicial de telemetria para evitar valores nulos (NullSafety).
+ */
 const TELEMETRY_IDLE = { speed: 0, rpm: 0, temp: 0, fuel: 0, kmTotal: 0, kmDay: 0, volt: 0 };
 let glob_faultsCount = 0;
 
+/**
+ * @component HomeScreen
+ * @description Ponto de entrada principal (Dashboard) do aplicativo HealthCar.
+ * Responsável por gerenciar a conexão Bluetooth, orquestrar o loop de telemetria
+ * e gerenciar a persistência local (SQLite) da sessão atual.
+ */
 export default function HomeScreen() {
   const { theme, t } = useApp();
   
+  // --- DESIGN SYSTEM & THEME CONFIGURATION ---
   const isDark = theme === 'dark';
   const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
   const cardColor = isDark ? '#12141A' : '#FFFFFF';
@@ -60,11 +74,13 @@ export default function HomeScreen() {
   const borderColor = isDark ? '#1E2235' : '#E2E8F0';
   const iconBgColor = isDark ? '#1E2235' : '#F8FAFC';
 
+  // --- COMPONENT STATE ---
   const [isActive, setIsActive] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [telemetry, setTelemetry] = useState(TELEMETRY_IDLE);
   const [batteryStatus, setBatteryStatus] = useState("batDesconhecido");
   
+  // Ref para manter a sessão transacional ativa sem engatilhar re-renders desnecessários
   const ref_sessaoId = useRef<string | null>(null);
   const fuelHistoryRef = useRef<number[]>([]);
 
@@ -81,14 +97,21 @@ export default function HomeScreen() {
   const [kmObdRaw, setKmObdRaw] = useState(0); 
   const [kmInput, setKmInput] = useState("");
 
+  // --- UI FEEDBACK (TOAST/PILL) ---
   const [pillConfig, setPillConfig] = useState({ message: '', type: 'info' });
   const pillTranslateY = useSharedValue(-150); 
   const headerGlow = useSharedValue(0);
   const appState = useRef(AppState.currentState);
   const [faultCount, setFaultCount] = useState(glob_faultsCount);
 
+  // Impede que a tela durma enquanto o Dashboard estiver ativo
   useKeepAwake();
 
+  /**
+   * Dispara um feedback visual temporário (Toast/Pill) na interface.
+   * @param message Mensagem a ser exibida.
+   * @param type Tipo de notificação (success, error, info).
+   */
   const showPill = (message: string, type: 'success' | 'error' | 'info') => {
     setPillConfig({ message, type });
     pillTranslateY.value = withSpring(50, { damping: 15, stiffness: 100 }); 
@@ -98,6 +121,10 @@ export default function HomeScreen() {
   const pillStyle = useAnimatedStyle(() => ({ transform: [{ translateY: pillTranslateY.value }] }));
   const headerGlowStyle = useAnimatedStyle(() => ({ opacity: headerGlow.value }));
 
+  /**
+   * @effect Inicialização e Hidratação (Bootstrap)
+   * Carrega preferências locais e tenta restabelecer comunicação Bluetooth pré-existente.
+   */
   useEffect(() => {
     async function setupApp() {
       try {
@@ -127,6 +154,7 @@ export default function HomeScreen() {
 
         headerGlow.value = withTiming(1, { duration: 800 });
         
+        // Verifica status da conexão Bluetooth via Módulo Nativo
         const { OBDBluetooth } = NativeModules;
         try {
           const checkConnection = await OBDBluetooth.sendCommand("AT");
@@ -150,14 +178,22 @@ export default function HomeScreen() {
       } catch (e) { }
     }
     setTimeout(setupApp, 100);
+    
+    // Listener de estado do App (Background/Foreground)
     const subscription = AppState.addEventListener('change', nextAppState => { appState.current = nextAppState; });
     return () => { subscription.remove(); };
   }, []);
 
+  /**
+   * Aciona uma notificação Push local para alertas do veículo.
+   */
   const dispararAlerta = async (titulo: string, mensagem: string) => {
     await Notifications.scheduleNotificationAsync({ content: { title: titulo, body: mensagem, sound: true }, trigger: null });
   };
 
+  /**
+   * Transforma a resposta hexadecimal de falhas (03) em um valor inteiro.
+   */
   function contarErrosDTC(response: string): number {
     if (!response) return 0;
     const clean = String(response).replace(/[\s\r\n>]/g, "").toUpperCase();
@@ -170,6 +206,9 @@ export default function HomeScreen() {
     return isNaN(count) ? 0 : count;
   }
 
+  /**
+   * Verifica a Central Eletrônica em busca de códigos de falha (DTC).
+   */
   async function verificarFalhasEcu(notificarSeSubir = false) {
     try {
       const { OBDBluetooth } = NativeModules;
@@ -187,6 +226,9 @@ export default function HomeScreen() {
     } catch (e) {}
   }
 
+  /**
+   * Sincroniza o Odômetro Virtual com a leitura bruta da ECU (PID 0131).
+   */
   async function sincronizarOdometroComEcu() {
     try {
       const { OBDBluetooth } = NativeModules;
@@ -200,7 +242,7 @@ export default function HomeScreen() {
 
       if (obdRawValue <= 0) {
         if (odoReal.isCalibrated && odoReal.lastObdKm > 0) return; 
-        obdRawValue = 16556;
+        obdRawValue = 16556; // Fallback mock se a ECU não suportar PID 0131
       }
       setKmObdRaw(obdRawValue);
 
@@ -222,6 +264,9 @@ export default function HomeScreen() {
     } catch (e) {}
   }
 
+  /**
+   * Estabelece conexão serial RFCOMM com dispositivos emparelhados compatíveis.
+   */
   async function tentarConexaoAutomatica(veiculoParamId?: string) {
     try {
       const targetVehicleId = veiculoParamId || carroConfigurado.id;
@@ -246,6 +291,7 @@ export default function HomeScreen() {
         return;
       }
 
+      // Procura por adaptadores ELM327 na lista de emparelhados
       const paired = await RNBluetoothClassic.getBondedDevices();
       const obdDevice = paired.find(d => d.name.toUpperCase().includes("OBD") || d.name.toUpperCase().includes("ELM") || d.name.toUpperCase().includes("V-LINK"));
 
@@ -263,6 +309,7 @@ export default function HomeScreen() {
         setIsActive(true); 
         showPill("Conectado ao scanner OBD2 com sucesso!", "success");
 
+        // Inicialização de hardware ELM327 (Comandos AT)
         try {
           await OBDBluetooth.sendCommand("ATZ");
           await new Promise(resolve => setTimeout(resolve, 1000));
@@ -283,6 +330,9 @@ export default function HomeScreen() {
     finally { setIsConnecting(false); }
   }
 
+  /**
+   * Decodificador de Payload OBD-II Hexadecimal.
+   */
   function parseHex(response: string, pid: string): number {
     if (!response) return 0;
     const strResp = String(response).replace(/[\s>]/g, "").toUpperCase();
@@ -294,17 +344,20 @@ export default function HomeScreen() {
       const dataHex = strResp.substring(index + 4);
       try {
         if (pid === "0C" && dataHex.length >= 4) {
+          // PID 0C (RPM): ((A * 256) + B) / 4
           const A = parseInt(dataHex.substring(0, 2), 16);
           const B = parseInt(dataHex.substring(2, 4), 16);
           return Math.round(((A * 256) + B) / 4);
         } 
-        else if (pid === "0D" && dataHex.length >= 2) return parseInt(dataHex.substring(0, 2), 16);
-        else if (pid === "05" && dataHex.length >= 2) return parseInt(dataHex.substring(0, 2), 16) - 40;
+        else if (pid === "0D" && dataHex.length >= 2) return parseInt(dataHex.substring(0, 2), 16); // PID 0D (Velocidade)
+        else if (pid === "05" && dataHex.length >= 2) return parseInt(dataHex.substring(0, 2), 16) - 40; // PID 05 (Temp Motor)
         else if (pid === "2F" && dataHex.length >= 2) {
+          // PID 2F (Combustível): (A * 100) / 255
           const A = parseInt(dataHex.substring(0, 2), 16);
           return Math.round((A * 100) / 255);
         }
         else if (pid === "31" && dataHex.length >= 4) {
+          // PID 31 (Odômetro)
           const A = parseInt(dataHex.substring(0, 2), 16);
           const B = parseInt(dataHex.substring(2, 4), 16);
           return (A * 256) + B;
@@ -314,6 +367,10 @@ export default function HomeScreen() {
     return 0;
   }
 
+  /**
+   * @effect Orchestrator de Telemetria (Background Loop)
+   * Loop principal de monitoramento: Lê os sensores e salva no SQLite a cada 5 segundos.
+   */
   useFocusEffect(
     useCallback(() => {
       let loopLento: ReturnType<typeof setTimeout>;
@@ -321,6 +378,7 @@ export default function HomeScreen() {
       let slowCycleCounter = 0;
       let transitionDelay: ReturnType<typeof setTimeout>;
 
+      // Função estabilizadora de sessão transacional
       const resgatarSessao = async () => {
         try {
           let vId = carroConfigurado.id;
@@ -365,6 +423,7 @@ export default function HomeScreen() {
               let fuelLido = 0;
               let speedLido = 0;
               
+              // Gerenciamento de Odometria Dinâmica (Trip KM)
               let currentKmDay = telemetry.kmDay; 
               try {
                 const viagemSalva = await AsyncStorage.getItem('@viagem_atual');
@@ -374,6 +433,7 @@ export default function HomeScreen() {
                 }
               } catch(e){}
 
+              // Extração: Rotação (RPM)
               try {
                 const respRPM = await OBDBluetooth.sendCommand("010C");
                 rpmLido = parseHex(respRPM, "0C");
@@ -382,6 +442,7 @@ export default function HomeScreen() {
                 }
               } catch (e: any) { }
               
+              // Extração: Temperatura (ECT)
               try {
                 const respTemp = await OBDBluetooth.sendCommand("0105");
                 tempLida = parseHex(respTemp, "05");
@@ -390,12 +451,13 @@ export default function HomeScreen() {
                 }
               } catch (e: any) { }
 
+              // Extração: Velocidade (VSS) para cálculo de integração vetorial do Trip KM
               try {
                 const respSpeed = await OBDBluetooth.sendCommand("010D");
                 speedLido = parseHex(respSpeed, "0D");
                 
                 if (speedLido >= 0 && !String(respSpeed).includes("ERROR") && !String(respSpeed).includes("TIMEOUT") && !String(respSpeed).includes("NODATA")) {
-                  const deltaHours = 5000 / 3600000; 
+                  const deltaHours = 5000 / 3600000; // Constante de tempo do loop
                   currentKmDay += speedLido * deltaHours;
                   AsyncStorage.setItem('@viagem_atual', currentKmDay.toString()).catch(() => {});
                   
@@ -403,6 +465,7 @@ export default function HomeScreen() {
                 }
               } catch (e) {}
 
+              // Extração: Combustível (Apenas em baixas velocidades para mitigar flutuação da boia)
               try {
                 if (speedLido < 10 || fuelHistoryRef.current.length === 0) {
                   const respFuel = await OBDBluetooth.sendCommand("012F");
@@ -414,6 +477,7 @@ export default function HomeScreen() {
                 }
               } catch (e) {}
 
+              // Simulador de Tensão Bateria (Mock placeholder)
               let voltSimulado = 12.6; 
               let statusBat = "batDesconhecido";
               if (voltSimulado >= 13.5) statusBat = "batCarregando";
@@ -423,6 +487,7 @@ export default function HomeScreen() {
               if(sID) await salvarLeituraTelemetria(sID, "ATRV", voltSimulado, "V");
               setBatteryStatus(statusBat);
 
+              // Atualiza o estado consolidado da View
               setTelemetry(prev => ({ 
                 ...prev, 
                 rpm: rpmLido > 0 ? rpmLido : prev.rpm, 
@@ -432,6 +497,7 @@ export default function HomeScreen() {
                 kmDay: parseFloat(currentKmDay.toFixed(1)) 
               }));
 
+              // Tarefas de manutenção (Ciclo Lento) a cada 6 execuções (~30 segundos)
               slowCycleCounter++;
               if (slowCycleCounter >= 6) { 
                 slowCycleCounter = 0;
@@ -440,20 +506,20 @@ export default function HomeScreen() {
               }
 
             } catch (error: any) {
+              // Handler de Exceção: Desconexão abrupta do adaptador ELM327
               setIsActive(false);
               ref_sessaoId.current = null; 
-              // NOTIFICA O USUÁRIO VISUALMENTE
               showPill("Falha de Comunicação! Conexão Interrompida.", "error");
             }
 
             if (isFocused && isActive) {
-               loopLento = setTimeout(executarCiclo, 5000);
+               loopLento = setTimeout(executarCiclo, 5000); // 5000ms Polling Rate
             }
           };
 
           executarCiclo();
         }
-      }, 600); 
+      }, 600); // Delay de transição para mitigar race condition com a UI de Navegação
 
       return () => { 
         isFocused = false;
@@ -463,6 +529,9 @@ export default function HomeScreen() {
     }, [isActive])
   );
 
+  /**
+   * Grava o Offset de ajuste manual do usuário para sincronizar com o painel físico.
+   */
   const calibrarOdometroVirtual = async () => {
     try {
       const painelKmInformado = Number(kmInput);
@@ -472,9 +541,11 @@ export default function HomeScreen() {
       const baseObd = kmObdRaw > 0 ? kmObdRaw : virtualOdometro.lastObdKm;
       const novoOffset = painelKmInformado - baseObd;
       const dadosOdometro = { offset: novoOffset, lastObdKm: baseObd, isCalibrated: true };
+      
       await AsyncStorage.setItem('@virtual_odometro', JSON.stringify(dadosOdometro));
       const veiculoAtualizado = { ...carroConfigurado, km: painelKmInformado.toString() };
       await AsyncStorage.setItem('@veiculo_cadastrado', JSON.stringify(veiculoAtualizado));
+      
       setCarroConfigurado(veiculoAtualizado);
       setVirtualOdometro(dadosOdometro);
       setTelemetry(prev => ({ ...prev, kmTotal: painelKmInformado }));
@@ -493,12 +564,15 @@ export default function HomeScreen() {
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
+      {/* Componente Toast Notification */}
       <Animated.View style={[styles.pillContainer, pillStyle, pillConfig.type === 'error' ? styles.pillError : pillConfig.type === 'success' ? styles.pillSuccess : styles.pillInfo]}>
         <MaterialIcons name={pillConfig.type === 'error' ? 'error-outline' : pillConfig.type === 'success' ? 'check-circle' : 'bluetooth-searching'} size={20} color="#FFF" />
         <Text style={styles.pillText}>{pillConfig.message}</Text>
       </Animated.View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        
+        {/* --- HEADER --- */}
         <View style={styles.header}>
           <View>
             <Text style={[styles.appName, { color: textColor }]}>HEALTHCAR</Text>
@@ -514,6 +588,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* --- VISÃO GERAL DO VEÍCULO --- */}
         <View style={styles.carImageContainer}>
           <View style={[styles.diagnosticBox, { backgroundColor: cardColor, borderColor: borderColor }]}>
             <View style={[styles.centralHubOuter, { backgroundColor: hubOuterBg, borderColor: `${hubAccentColor}33` }]}>
@@ -522,6 +597,8 @@ export default function HomeScreen() {
                 <Text style={[styles.centralHubStatus, { color: hubAccentColor }]}>{isActive ? (faultCount === 0 ? "TELEMETRIA ATIVA" : "VERIFICAR ECU") : "AGUARDANDO OBD"}</Text>
               </View>
             </View>
+            
+            {/* Badges Flutuantes de Diagnóstico */}
             {!isActive && (
               <View style={[styles.diagBadge, { top: 16, right: 16, backgroundColor: cardColor, borderColor: borderColor }]}>
                 <MaterialIcons name="bluetooth-disabled" size={14} color={subTextColor} />
@@ -551,6 +628,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* --- ACESSO RÁPIDO: MODO TEMPO REAL --- */}
         <View style={styles.centerSection}>
           <View style={styles.liveButtonsRow}>
             <Pressable onPress={() => router.push("/tempo-real" as any)} style={({ pressed }) => [styles.liveActionBtn, styles.liveActionBtnPrimary, pressed && { opacity: 0.8 }]}>
@@ -560,6 +638,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* --- FERRAMENTAS DE SERVIÇO --- */}
         <View style={styles.toolsSection}>
           <Text style={[styles.toolsTitle, { color: subTextColor }]}>{t('ferramentas')}</Text>
           <View style={styles.toolsGrid}>
@@ -581,7 +660,10 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* --- DASHBOARD TELEMÉTRICO --- */}
         <View style={styles.dashboard}>
+          
+          {/* Módulo de Odometria */}
           <Pressable onPress={() => setShowDetailsModal(true)} style={({ pressed }) => [styles.kmRow, { backgroundColor: cardColor, borderColor: borderColor }, pressed && { opacity: 0.8 }]}>
             <View style={styles.kmCard}>
               <MaterialIcons name="speed" size={14} color={subTextColor} />
@@ -599,11 +681,13 @@ export default function HomeScreen() {
             </View>
           </Pressable>
 
+          {/* Cards de Monitoramento Vital (Motor) */}
           <View style={styles.telemetryGrid}>
             <TelemetryCard icon="thermostat" label={t('temperatura')} value={isActive && telemetry.temp > 0 ? `${telemetry.temp}` : "--"} unit="°C" color={isActive ? (telemetry.temp > 100 ? "#FF3D57" : "#00E676") : subTextColor} onPress={() => router.push("/detalhes/temperatura" as any)} />
             <TelemetryCard icon="settings" label="RPM" value={isActive && telemetry.rpm > 0 ? (telemetry.rpm / 1000).toFixed(1) : "--"} unit="k" color={isActive ? "#00B4FF" : subTextColor} onPress={() => router.push("/detalhes/rpm" as any)} />
           </View>
 
+          {/* Cards de Suprimentos */}
           <View style={styles.telemetryGrid}>
             <View style={{ flex: 1, position: "relative" }}>
               <TelemetryCard icon="local-gas-station" label={t('combustivel')} value={isActive ? `${Math.round(telemetry.fuel * 100)}` : "--"} unit="%" color={isActive ? (telemetry.fuel < 0.2 ? "#FF3D57" : (telemetry.fuel < 0.4 ? "#FFB300" : "#00E676")) : subTextColor} progress={isActive ? telemetry.fuel : 0} onPress={() => router.push("/detalhes/combustivel" as any)} />
@@ -614,6 +698,7 @@ export default function HomeScreen() {
             </View>
           </View>
 
+          {/* Módulo Gráfico: Consumo Semanal (Em Implementação) */}
           <View style={{ position: "relative", marginTop: 10 }}>
             <DevBadge />
             <FuelChart onPress={() => router.push("/detalhes/consumo" as any)} />
@@ -622,6 +707,7 @@ export default function HomeScreen() {
 
       </ScrollView>
 
+      {/* --- OVERLAYS: MODAIS DE INTERAÇÃO DO ODÔMETRO --- */}
       <Modal visible={showKmModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { backgroundColor: cardColor, borderColor: borderColor }]}>
@@ -684,6 +770,7 @@ export default function HomeScreen() {
   );
 }
 
+// --- STYLE DEFINITIONS ---
 const styles = StyleSheet.create({
   pillContainer: { position: 'absolute', top: 0, left: 20, right: 20, flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 30, zIndex: 100, gap: 10, elevation: 10, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
   pillInfo: { backgroundColor: '#00B4FF' },
