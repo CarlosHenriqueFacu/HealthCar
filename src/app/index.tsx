@@ -129,8 +129,9 @@ export default function HomeScreen() {
     async function setupApp() {
       try {
         const veiculoCadastrado = await AsyncStorage.getItem('@veiculo_cadastrado');
+        //Redireciona para /login 
         if (veiculoCadastrado === null) {
-          router.replace('/(auth)/cadastro' as any);
+          router.replace('/(auth)/login' as any);
           return; 
         } 
         const veiculoSalvo = JSON.parse(veiculoCadastrado);

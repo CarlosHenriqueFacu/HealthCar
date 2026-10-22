@@ -17,9 +17,10 @@ import java.io.OutputStream;
 import java.util.UUID;
 
 /**
- * Modulo Nativo (React Native Bridge) para comunicação Bluetooth Classic.
- * @description Gerencia a criação de sockets RFCOMM, transações I/O com o 
- * scanner OBD-II e o ciclo de vida do Foreground Service para telemetria em background.
+ * @class OBDBluetoothModule
+ * @description Módulo Nativo (React Native Bridge) para comunicação Bluetooth Classic.
+ * Gerencia a criação de sockets RFCOMM, transações I/O (Input/Output) com o 
+ * scanner OBD-II e o ciclo de vida do Foreground Service (Telemetria em Background).
  */
 public class OBDBluetoothModule extends ReactContextBaseJavaModule {
 
@@ -28,12 +29,21 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
     private OutputStream outputStream;
     private ReactApplicationContext reactContext;
     
-    /** UUID padrão Universal para portas seriais (SPP) no Bluetooth */
+    /** 
+     * UUID padrão Universal para portas seriais (SPP - Serial Port Profile) no Bluetooth.
+     * Necessário para comunicação com adaptadores ELM327.
+     */
     private static final UUID MY_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+
+    // SEMÁFORO: Controla quem está lendo o Bluetooth (App ou Serviço de Segundo Plano)
+    private boolean isAppPolling = false;
 
     public OBDBluetoothModule(ReactApplicationContext reactContext) {
         super(reactContext);
         this.reactContext = reactContext;
+        
+        // [INTEGRAÇÃO] - Informa ao Serviço em Background quem ele deve chamar
+        OBDBluetoothService.obdModuleInstance = this;
     }
 
     @Override
@@ -42,10 +52,15 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
     }
 
     /**
-     * @method startForegroundMonitor
-     * @description Dispara o serviço nativo do Android que impede o OS de 
-     * congelar a thread do JavaScript via "Doze Mode".
+     * @method pauseBackgroundPolling
+     * @description Avisa ao Java que o React Native assumiu a tela e o serviço zumbi deve pausar.
      */
+    @ReactMethod
+    public void pauseBackgroundPolling(boolean pause, Promise promise) {
+        this.isAppPolling = pause;
+        promise.resolve(true);
+    }
+
     private void startForegroundMonitor() {
         Intent serviceIntent = new Intent(reactContext, OBDBluetoothService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -55,20 +70,11 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
         }
     }
 
-    /**
-     * @method stopForegroundMonitor
-     * @description Encerra o serviço nativo para poupar bateria do dispositivo.
-     */
     private void stopForegroundMonitor() {
         Intent serviceIntent = new Intent(reactContext, OBDBluetoothService.class);
         reactContext.stopService(serviceIntent);
     }
 
-    /**
-     * @method startForegroundMonitorTest
-     * @description [APENAS PARA TESTES] Inicia manualmente o Foreground Service 
-     * a partir do React Native para validar o comportamento em background sem o OBD-II físico.
-     */
     @ReactMethod
     public void startForegroundMonitorTest(Promise promise) {
         try {
@@ -79,11 +85,6 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
         }
     }
 
-    /**
-     * @method connect
-     * @description Estabelece conexão com o endereço MAC especificado.
-     * Implementa retry automático (fallback logic) em caso de falha transitória.
-     */
     @ReactMethod
     public void connect(String macAddress, Promise promise) {
         try {
@@ -94,7 +95,6 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
             }
 
             BluetoothDevice device = adapter.getRemoteDevice(macAddress);
-            // OBRIGATÓRIO: Cancelar discovery ativo para liberar a rádio Bluetooth
             adapter.cancelDiscovery(); 
 
             int maxRetries = 5; 
@@ -102,7 +102,6 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
             boolean connected = false;
             Exception lastException = null;
 
-            // Algoritmo de conexão com Backoff Linear
             while (attempt < maxRetries && !connected) {
                 try {
                     attempt++;
@@ -121,10 +120,7 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
             if (connected) {
                 inputStream = socket.getInputStream();
                 outputStream = socket.getOutputStream();
-                
-                // [NOVO] Inicia a monitorização em Background assim que conectar com sucesso
                 startForegroundMonitor();
-                
                 promise.resolve("Conectado com sucesso na tentativa " + attempt + "!");
             } else {
                 promise.reject("ERR_CONNECTION", "Socket falhou após " + maxRetries + " tentativas. " + lastException.getMessage());
@@ -135,11 +131,6 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
         }
     }
 
-    /**
-     * @method sendCommand
-     * @description Envia comandos hexadecimais para o buffer da ECU e lê a resposta 
-     * com timeout de segurança.
-     */
     @ReactMethod
     public void sendCommand(String command, Promise promise) {
         if (socket == null || !socket.isConnected() || inputStream == null || outputStream == null) {
@@ -148,41 +139,35 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
         }
 
         try {
-            // 1. Limpeza preventiva do buffer de entrada
             while (inputStream.available() > 0) {
                 inputStream.read();
             }
 
-            // 2. Transmissão do frame com Carriage Return
             String fullCommand = command + "\r";
             outputStream.write(fullCommand.getBytes());
             outputStream.flush();
 
             StringBuilder response = new StringBuilder();
             long startTime = System.currentTimeMillis();
-            long timeout = 2000; // Timeout de 2000ms (2s)
+            long timeout = 2000; 
 
             byte[] buffer = new byte[1024];
 
-            // 3. Loop de recebimento síncrono
             while ((System.currentTimeMillis() - startTime) < timeout) {
                 if (inputStream.available() > 0) {
                     int bytesRead = inputStream.read(buffer);
                     String chunk = new String(buffer, 0, bytesRead);
                     response.append(chunk);
 
-                    // A caracter ">" indica fim da resposta do microcontrolador ELM327
                     if (response.toString().contains(">")) {
                         promise.resolve(response.toString());
                         return;
                     }
                 } else {
-                    // Liberação de ciclo de CPU via sleep passivo
                     Thread.sleep(50);
                 }
             }
 
-            // 4. Fallback de timeout
             if (response.length() > 0) {
                 promise.resolve("INCOMPLETO: " + response.toString());
             } else {
@@ -194,15 +179,9 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
         }
     }
 
-    /**
-     * @method disconnect
-     * @description Destrói o socket Bluetooth ativo, desaloca o stream de memória 
-     * e desativa o serviço de background.
-     */
     @ReactMethod
     public void disconnect(Promise promise) {
         try {
-            // [NOVO] Para o monitoramento em background quando a conexão for encerrada
             stopForegroundMonitor();
             
             if (inputStream != null) inputStream.close();
@@ -210,7 +189,52 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
             if (socket != null) socket.close();
             promise.resolve("Sessão finalizada graciosamente.");
         } catch (IOException e) {
-            promise.reject("ERR", "Vazamento de memória detectado: " + e.getMessage());
+            promise.reject("ERR", "Vazamento de memória detectado ao fechar conexões: " + e.getMessage());
+        }
+    }
+
+    // =========================================================================
+    // METÓDOS NATIVOS PARA O SERVIÇO EM SEGUNDO PLANO (BACKGROUND SERVICE)
+    // =========================================================================
+
+    public boolean isConnectedNative() {
+        // SEMÁFORO: Se a tela do React Native estiver lendo rápido, o Java finge 
+        // que está desconectado para dormir e evitar colisões!
+        if (isAppPolling) return false; 
+
+        return socket != null && socket.isConnected() && inputStream != null && outputStream != null;
+    }
+
+    public String sendCommandNative(String command) {
+        if (!isConnectedNative()) return null;
+
+        try {
+            while (inputStream.available() > 0) inputStream.read();
+
+            String fullCommand = command + "\r";
+            outputStream.write(fullCommand.getBytes());
+            outputStream.flush();
+
+            StringBuilder response = new StringBuilder();
+            long startTime = System.currentTimeMillis();
+            
+            while ((System.currentTimeMillis() - startTime) < 2000) {
+                if (inputStream.available() > 0) {
+                    byte[] buffer = new byte[1024];
+                    int bytesRead = inputStream.read(buffer);
+                    response.append(new String(buffer, 0, bytesRead));
+                    
+                    if (response.toString().contains(">")) {
+                        return response.toString();
+                    }
+                } else {
+                    Thread.sleep(50);
+                }
+            }
+            return response.length() > 0 ? response.toString() : null;
+            
+        } catch (Exception e) {
+            return null;
         }
     }
 }

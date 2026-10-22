@@ -16,27 +16,44 @@ import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { getAuthErrorMessage, loginWithEmail } from '../../services/firebase';
 
+/**
+ * @screen LoginScreen
+ * @description Tela primária de autenticação. Atua como barreira de entrada (Auth Guard) 
+ * para usuários não autenticados, permitindo o acesso via credenciais de e-mail e senha.
+ * Inclui navegação para fluxos secundários de Cadastro e Recuperação de Senha.
+ */
 export default function LoginScreen() {
   const router = useRouter();
   
-  const [email, setEmail] = useState('');
-  const [senha, setSenha] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [email, setEmail] = useState<string>('');
+  const [senha, setSenha] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  const handleLogin = async () => {
+  /**
+   * @method handleLogin
+   * @description Valida o formulário localmente e orquestra a chamada de autenticação 
+   * no provedor de identidade (Firebase). Previne concorrência de requisições travando 
+   * o estado de submissão.
+   */
+  const handleLogin = async (): Promise<void> => {
+    // Validação de Frontend (Early Return)
     if (!email.trim() || !senha) {
-      Alert.alert('Campos obrigatórios', 'Informe seu e-mail e sua senha.');
+      Alert.alert('Campos obrigatórios', 'Informe seu e-mail e sua senha para prosseguir.');
       return;
     }
 
     setIsSubmitting(true);
     try {
+      // Integração com a camada de serviço (BaaS)
       await loginWithEmail(email, senha);
+      
+      // Sucesso na autenticação: Retorna para o stack de navegação anterior (Dashboard)
       router.back();
     } catch (error) {
-      console.error('[Login] Falha ao autenticar com e-mail:', error);
-      Alert.alert('Não foi possível entrar', getAuthErrorMessage(error));
+      console.error('[Auth_Login] Falha ao autenticar com e-mail:', error);
+      Alert.alert('Falha na Autenticação', getAuthErrorMessage(error));
     } finally {
+      // Libera a thread de UI independentemente do resultado da Promise
       setIsSubmitting(false);
     }
   };
@@ -49,16 +66,16 @@ export default function LoginScreen() {
       >
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           
-          {/* Cabeçalho com botão de voltar */}
+          {/* ================= HEADER (Navegação) ================= */}
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} disabled={isSubmitting}>
               <MaterialIcons name="arrow-back" size={24} color="#F0F2FF" />
             </TouchableOpacity>
-            <ThemedText type="title" style={styles.titulo}>Login</ThemedText>
-            <View style={{ width: 40 }} /> {/* Espaçador para manter o título centralizado */}
+            <ThemedText type="title" style={styles.titulo}>Autenticação</ThemedText>
+            <View style={{ width: 40 }} />
           </View>
 
-          {/* Logo / Boas-vindas */}
+          {/* ================= BRANDING & BOAS-VINDAS ================= */}
           <View style={styles.logoContainer}>
             <View style={styles.iconCircle}>
               <MaterialIcons name="directions-car" size={48} color="#00B4FF" />
@@ -69,7 +86,7 @@ export default function LoginScreen() {
             </ThemedText>
           </View>
 
-          {/* ================= CAMPOS DE LOGIN ================= */}
+          {/* ================= FORMULÁRIO DE CREDENCIAIS ================= */}
           <View style={styles.inputContainer}>
             <MaterialIcons name="email" size={20} color="#8892A4" style={styles.icon} />
             <TextInput
@@ -81,6 +98,7 @@ export default function LoginScreen() {
               autoComplete="email"
               value={email}
               onChangeText={setEmail}
+              editable={!isSubmitting}
             />
           </View>
 
@@ -94,34 +112,36 @@ export default function LoginScreen() {
               autoComplete="password"
               value={senha}
               onChangeText={setSenha}
+              editable={!isSubmitting}
             />
           </View>
 
-          {/* ================= ESQUECI A SENHA ================= */}
+          {/* ================= RECUPERAÇÃO DE ACESSO ================= */}
           <TouchableOpacity 
             style={styles.forgotPasswordContainer} 
             onPress={() => router.push('/esqueci-senha' as any)}
+            disabled={isSubmitting}
           >
             <ThemedText style={styles.forgotPasswordText}>Esqueci minha senha</ThemedText>
           </TouchableOpacity>
 
-          {/* ================= BOTÃO DE ENTRAR ================= */}
+          {/* ================= AÇÃO PRINCIPAL (LOGIN) ================= */}
           <TouchableOpacity
             style={[styles.primaryBtn, isSubmitting && styles.disabledBtn]}
             onPress={handleLogin}
             disabled={isSubmitting}
           >
             <ThemedText style={styles.primaryBtnText}>
-              {isSubmitting ? 'Entrando...' : 'Entrar'}
+              {isSubmitting ? 'Autenticando...' : 'Entrar na Plataforma'}
             </ThemedText>
             {!isSubmitting && <MaterialIcons name="login" size={20} color="#0A0A0F" />}
           </TouchableOpacity>
 
-          {/* ================= CRIAR CONTA ================= */}
+          {/* ================= REDIRECIONAMENTO ONBOARDING ================= */}
           <View style={styles.registerContainer}>
-            <ThemedText style={styles.registerText}>Ainda não tem uma conta? </ThemedText>
-            <TouchableOpacity onPress={() => router.push('/cadastro' as any)}>
-              <ThemedText style={styles.registerLink}>Cadastre-se</ThemedText>
+            <ThemedText style={styles.registerText}>Ainda não possui acesso? </ThemedText>
+            <TouchableOpacity onPress={() => router.push('/cadastro' as any)} disabled={isSubmitting}>
+              <ThemedText style={styles.registerLink}>Cadastre-se agora</ThemedText>
             </TouchableOpacity>
           </View>
 
@@ -175,7 +195,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#00B4FF11', // Fundo azul translúcido
+    backgroundColor: '#00B4FF11',
     borderWidth: 1,
     borderColor: '#00B4FF44',
     alignItems: 'center',

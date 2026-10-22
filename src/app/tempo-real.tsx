@@ -29,6 +29,10 @@ import { useApp } from '../contexts/AppContext';
 // ============================================================================
 import { iniciarSessaoLocal, obterResumoSessoes, salvarLeituraTelemetria } from '@/database/database';
 
+/**
+ * Configuração do manipulador de notificações em foreground.
+ * Permite que alertas de falhas sejam exibidos enquanto o app está aberto.
+ */
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -42,9 +46,16 @@ Notifications.setNotificationHandler({
 const { OBDBluetooth } = NativeModules;
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
+/**
+ * @component RealtimeScreen
+ * @description Tela responsável pela exibição de dados de telemetria em tempo real,
+ * integração com o módulo Bluetooth nativo (OBD-II) e persistência de métricas
+ * no banco de dados local (SQLite).
+ */
 export default function RealtimeScreen() {
   const { theme, t } = useApp();
   
+  // Constantes de formatação do tema
   const isDark = theme === 'dark';
   const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
   const textColor = isDark ? '#F0F2FF' : '#0F172A';
@@ -64,6 +75,8 @@ export default function RealtimeScreen() {
   const [debugLog, setDebugLog] = useState("Aguardando comunicação com a ECU...");
 
   // --- REFERÊNCIAS MUTÁVEIS ---
+  // Utilizamos refs para variáveis que são atualizadas frequentemente no loop de leitura,
+  // evitando re-renderizações desnecessárias na UI.
   const tripAccumulatorRef = useRef<number>(0);
   const lastSpeedTimeRef = useRef<number | null>(null);
   const fuelHistoryRef = useRef<number[]>([]);
@@ -74,20 +87,35 @@ export default function RealtimeScreen() {
   // Referência de Cooldown para evitar Spam de Notificações (2 minutos)
   const alertThrottlerRef = useRef({ temp: 0, volt: 0, dtc: 0 });
   
-  // Referência para guardar a ID do loop e poder matá-lo depois
+  // Referência para o ID do loop, permitindo sua interrupção no unmount
   const loopTimerRef = useRef<any>(null);
 
+  // Valores animados para transições de UI
   const headerGlow = useSharedValue(1);
   const speedometerScale = useSharedValue(1);
 
+  // Impede que a tela apague durante o uso do dashboard
   useKeepAwake();
 
+  /**
+   * @method dispararAlerta
+   * @description Aciona uma notificação local (Heads-Up) informando anomalias detectadas.
+   * @param titulo Título da notificação.
+   * @param mensagem Corpo da notificação.
+   */
   const dispararAlerta = async (titulo: string, mensagem: string) => {
     await Notifications.scheduleNotificationAsync({
       content: { title: titulo, body: mensagem, sound: true }, trigger: null, 
     });
   };
 
+  /**
+   * @method contarErrosDTC
+   * @description Processa a resposta hexadecimal do comando 03 (Request Emission-Related DTCs)
+   * e extrai o número de códigos de falha pendentes.
+   * @param response Resposta bruta do adaptador ELM327.
+   * @returns {number} Quantidade de erros detectados ou 0 em caso de falha.
+   */
   function contarErrosDTC(response: string): number {
     if (!response) return 0;
     const clean = String(response).replace(/[\s\r\n>]/g, "").toUpperCase();
@@ -103,13 +131,20 @@ export default function RealtimeScreen() {
     return isNaN(count) ? 0 : count;
   }
 
+  /**
+   * Hook de ciclo de vida ativado quando a tela ganha foco.
+   * Gerencia a conexão com o OBD, inicialização do serviço e controle do loop de polling.
+   */
   useFocusEffect(
     useCallback(() => {
       let isActive = true; 
       let cicloLentoCounter = 0; 
       let amostragemDbCounter = 0;
 
-      // 1. Sincronização Hand-off (Lê a Viagem Global onde a Home parou)
+      /**
+       * 1. Sincronização Hand-off (Lê a Viagem Global onde a Home parou)
+       * Mantém a contagem de quilometragem percorrida na sessão atual.
+       */
       const syncViagemGlobal = async () => {
         try {
           const viagemSalva = await AsyncStorage.getItem('@viagem_atual');
@@ -124,6 +159,13 @@ export default function RealtimeScreen() {
       };
       syncViagemGlobal();
 
+      /**
+       * @method perguntarAoCarro
+       * @description Envia um comando (PID) para o módulo nativo com um mecanismo de timeout de 2.5s
+       * para evitar travamentos infinitos na Thread caso a ECU pare de responder.
+       * @param comando O comando a ser enviado (ex: "010C").
+       * @returns {Promise<string>} A resposta da ECU ou erro em formato de string.
+       */
       async function perguntarAoCarro(comando: string): Promise<string> {
         try {
           const timeoutPromise = new Promise((_, reject) => 
@@ -141,6 +183,12 @@ export default function RealtimeScreen() {
         }
       }
 
+      /**
+       * @method loopDeLeitura
+       * @description Loop recursivo que gerencia a fila de requisições de telemetria.
+       * A amostragem de dados é dividida em High-Frequency (Rápida - RPM/Speed)
+       * e Low-Frequency (Lenta - Temp/Fuel) para otimizar o uso da CPU e banda do adaptador Bluetooth.
+       */
       async function loopDeLeitura() {
         if (!isActive) return;
         cicloLentoCounter++;
@@ -165,6 +213,7 @@ export default function RealtimeScreen() {
               currentSpeed = realSpeed;
               setDisplaySpeed(realSpeed);
 
+              // Atualiza o acumulador de distância percorrida da viagem
               const now = Date.now();
               if (lastSpeedTimeRef.current !== null && realSpeed > 0) {
                 const deltaHours = (now - lastSpeedTimeRef.current) / 3600000;
@@ -179,6 +228,7 @@ export default function RealtimeScreen() {
           }
 
           // --- LOW-FREQUENCY (Amostragem Estendida e Alertas) ---
+          // Executado a cada 3 ciclos para leitura de dados menos vitais
           if (cicloLentoCounter >= 3) {
             cicloLentoCounter = 0; 
             const now = Date.now();
@@ -196,6 +246,7 @@ export default function RealtimeScreen() {
               }
             }
 
+            // O combustível flutua com a movimentação. Amostragem só ocorre abaixo de 10km/h
             if (currentSpeed < 10 || fuelHistoryRef.current.length === 0) {
               const fuelResp = await perguntarAoCarro("012F");
               const rawFuel = parseOBD(fuelResp, "2F");
@@ -213,7 +264,7 @@ export default function RealtimeScreen() {
               }
             }
             
-            // Leitura de Tensão da Bateria
+            // Leitura da tensão elétrica (Voltagem da Bateria) simulada pelo comando ATRV
             try {
               const respVolt = await perguntarAoCarro("ATRV");
               const match = String(respVolt).match(/[\d\.]+/);
@@ -228,6 +279,7 @@ export default function RealtimeScreen() {
           }
 
           // --- DATA FLUSH & DTC Check (SQLite) ---
+          // Salva todas as métricas acumuladas de uma só vez no banco (A cada 4 ciclos)
           let msgBanco = "";
           if (amostragemDbCounter >= 4) {
             amostragemDbCounter = 0; 
@@ -249,7 +301,7 @@ export default function RealtimeScreen() {
               msgBanco = "\n[✖ DB ERRO] Falha de integridade na gravação.";
             }
 
-            // Checagem Global de DTC 
+            // Checagem Global de DTC em tempo real
             try {
                const falhasResp = await perguntarAoCarro("03");
                const currentErrors = contarErrosDTC(falhasResp);
@@ -270,6 +322,7 @@ export default function RealtimeScreen() {
             msgBanco = "\n[⚠ ALERTA] Hardware desconectado ou inativo.";
           }
 
+          // Atualiza terminal de Debug visual
           setDebugLog(
             `Status: OK | T-Thread: ${cicloLentoCounter}/3\n` +
             `Odometria (Global Sync): ${(tripAccumulatorRef.current * 1000).toFixed(0)} m` +
@@ -286,8 +339,16 @@ export default function RealtimeScreen() {
         }
       }
 
+      /**
+       * @method startReading
+       * @description Orquestrador de inicialização e handshake com o adaptador ELM327.
+       */
       async function startReading() {
         try {
+          // [SEMÁFORO ATIVADO] -> Avisa o módulo Java (Background Service) para pausar e evitar condição de corrida!
+          try { await OBDBluetooth.pauseBackgroundPolling(true); } catch (e) {}
+
+          // Se nenhuma sessão de gravação estiver ativa, configura uma nova
           if (!currentSessionRef.current) {
             let veiculoIdDB = "VEICULO_DESCONHECIDO";
             try {
@@ -300,7 +361,7 @@ export default function RealtimeScreen() {
               }
             } catch (e) {}
             
-            // Tenta pegar a sessão que a Home criou (ISO_15765-4) para gravar no mesmo "caderno"
+            // Tenta pegar a sessão que a Home criou para gravar no mesmo "caderno"
             const sessoes: any = await obterResumoSessoes();
             if(sessoes && sessoes.length > 0) {
                currentSessionRef.current = sessoes[0].id;
@@ -309,6 +370,7 @@ export default function RealtimeScreen() {
             }
           }
 
+          // Tenta aproveitar uma conexão de Socket existente, caso o handover tenha sido bem-sucedido
           try {
             const checkConn = await perguntarAoCarro("010C");
             if (checkConn && !String(checkConn).includes("ERR") && !String(checkConn).includes("TIMEOUT")) {
@@ -321,6 +383,7 @@ export default function RealtimeScreen() {
             }
           } catch (e) { }
 
+          // Busca adaptadores OBD compatíveis emparelhados e tenta conectar
           const devices = await RNBluetoothClassic.getBondedDevices();
           const obdDevice = devices.find((d: any) => 
             d.name && (
@@ -343,6 +406,7 @@ export default function RealtimeScreen() {
               return; 
             }
 
+            // Sequência de Inicialização e otimização para protocolos ISO/CAN
             setStatusMsg("REINICIANDO ADAPTADOR...");
             await perguntarAoCarro("ATZ");
             await new Promise(resolve => setTimeout(resolve, 1500));
@@ -389,14 +453,26 @@ export default function RealtimeScreen() {
             clearTimeout(loopTimerRef.current);
             loopTimerRef.current = null;
         }
+
+        // [SEMÁFORO LIBERADO] -> Avisa o Java que a tela fechou, ele pode voltar a monitorar em Background!
+        try { OBDBluetooth.pauseBackgroundPolling(false); } catch (e) {}
       };
     }, [])
   );
 
+  /**
+   * @method parseOBD
+   * @description Analisa a string de resposta serializada recebida do ELM327 e aplica
+   * as fórmulas de conversão oficiais do padrão OBD-II.
+   * @param response Resposta Hexadecimal
+   * @param pid PID do comando solicitado
+   * @returns O valor matemático convertido, ou -1 em caso de erro na extração.
+   */
   function parseOBD(response: any, pid: string): number {
     if (!response) return -1;
     const strResponse = String(response).replace(/[\s>]/g, "").toUpperCase();
     
+    // Ignora leituras corrompidas ou falhas de barramento
     if (
       strResponse.includes("NODATA") || 
       strResponse.includes("SEARCHING") || 
@@ -407,6 +483,7 @@ export default function RealtimeScreen() {
       return -1;
     }
     
+    // Procura pela resposta no formato (41 + PID Requisitado)
     const target = "41" + pid; 
     const index = strResponse.indexOf(target);
     
@@ -414,17 +491,21 @@ export default function RealtimeScreen() {
       const dataHex = strResponse.substring(index + 4);
       try {
         if (pid === "0C" && dataHex.length >= 4) { 
+          // Cálculo de RPM (Rotations Per Minute): ((A * 256) + B) / 4
           const A = parseInt(dataHex.substring(0, 2), 16);
           const B = parseInt(dataHex.substring(2, 4), 16);
           return Math.round(((A * 256) + B) / 4);
         } 
         else if (pid === "0D" && dataHex.length >= 2) { 
+          // Cálculo de Velocidade (VSS): Conversão simples do valor Hexadecimal
           return parseInt(dataHex.substring(0, 2), 16);
         }
         else if (pid === "05" && dataHex.length >= 2) { 
+          // Temperatura do Motor (ECT): A - 40
           return parseInt(dataHex.substring(0, 2), 16) - 40;
         }
         else if (pid === "2F" && dataHex.length >= 2) { 
+          // Nível de Combustível (Fuel Level Input): (A * 100) / 255
           const A = parseInt(dataHex.substring(0, 2), 16);
           return Math.round((A * 100) / 255);
         }
@@ -435,11 +516,14 @@ export default function RealtimeScreen() {
     return -1;
   }
 
+  // --- STYLES ANIMADOS ---
   const headerGlowStyle = useAnimatedStyle(() => ({ opacity: headerGlow.value }));
   const speedometerStyle = useAnimatedStyle(() => ({ transform: [{ scale: speedometerScale.value }] }));
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
+      
+      {/* Banner de Teste de Integridade (UI Debugging) */}
       <View style={[styles.testBadge, { backgroundColor: isDark ? "#8B5CF622" : "#EDE9FE", borderColor: "#8B5CF655" }]}>
         <MaterialIcons name="storage" size={24} color="#8B5CF6" />
         <View style={{ flex: 1 }}>
@@ -459,15 +543,19 @@ export default function RealtimeScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        
+        {/* Status de Conexão */}
         <Animated.View style={[styles.liveBadge, headerGlowStyle, !isDark && { backgroundColor: '#E0F2FE', borderColor: '#BAE6FD' }]}>
           <View style={[styles.liveDot, isReading && { backgroundColor: "#00E676", shadowColor: "#00E676" }]} />
           <Text style={styles.liveBadgeText}>{statusMsg}</Text>
         </Animated.View>
 
+        {/* Velocímetro Animado */}
         <Animated.View style={[styles.speedometerWrapper, speedometerStyle]}>
           <SpeedometerMinimal speed={displaySpeed} isActive={isReading} />
         </Animated.View>
 
+        {/* Grades de Telemetria Dinâmicas */}
         <View style={styles.primaryTelemetry}>
           <View style={styles.telemetryRow}>
             <TelemetryCard icon="directions" label="TRIP (VIAGEM)" value={tripDistance.toFixed(1)} unit="km" color="#00B4FF" />
@@ -479,6 +567,7 @@ export default function RealtimeScreen() {
           </View>
         </View>
 
+        {/* Console de Depuração Nativa */}
         <View style={[styles.debugSection, { backgroundColor: debugBg, borderColor: debugBorder }]}>
           <Text style={[styles.debugTitle, { color: debugBorder }]}>RAIO-X DO BLUETOOTH (STDOUT)</Text>
           <Text style={[styles.debugText, !isDark && { color: '#7F1D1D' }]}>{debugLog}</Text>
@@ -493,6 +582,7 @@ export default function RealtimeScreen() {
   );
 }
 
+// --- STYLE DEFINITIONS ---
 const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
   backBtn: { padding: 4, marginRight: 8 },

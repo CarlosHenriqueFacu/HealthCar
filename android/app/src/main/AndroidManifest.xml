@@ -1,13 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
   
   <!-- ========================================================================= -->
-  <!-- PERMISSÕES DE LOCALIZAÇÃO (Requisito mandatório do Bluetooth no Android) -->
+  <!-- [INFRAESTRUTURA] PERMISSÕES DE LOCALIZAÇÃO                                -->
+  <!-- Requisito mandatório do SO Android para descoberta e pareamento de        -->
+  <!-- hardwares externos (Bluetooth Classic/BLE).                               -->
   <!-- ========================================================================= -->
   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
   
   <!-- ========================================================================= -->
-  <!-- PERMISSÕES DE COMUNICAÇÃO BLUETOOTH -->
+  <!-- [HARDWARE] COMUNICAÇÃO BLUETOOTH (I/O)                                    -->
+  <!-- Necessário para alocação de Sockets RFCOMM e tráfego de pacotes seriais   -->
+  <!-- com o microcontrolador OBD-II (ELM327).                                   -->
   <!-- ========================================================================= -->
   <uses-permission android:name="android.permission.BLUETOOTH"/>
   <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
@@ -15,7 +19,7 @@
   <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
   
   <!-- ========================================================================= -->
-  <!-- PERMISSÕES GERAIS DO SISTEMA -->
+  <!-- [SISTEMA] PERMISSÕES GERAIS E ACESSO A DISCO                              -->
   <!-- ========================================================================= -->
   <uses-permission android:name="android.permission.INTERNET"/>
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
@@ -24,8 +28,10 @@
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" tools:replace="android:maxSdkVersion"/>
   
   <!-- ========================================================================= -->
-  <!-- [NOVO] PERMISSÕES PARA SERVIÇO EM SEGUNDO PLANO (FOREGROUND SERVICE) -->
-  <!-- Necessário para que o Android não suspenda a telemetria do OBD-II. -->
+  <!-- [PROCESSAMENTO ASSÍNCRONO] FOREGROUND SERVICE & POWER MANAGEMENT          -->
+  <!-- Arquitetura crítica de telemetria. A permissão WAKE_LOCK bloqueia a       -->
+  <!-- suspensão profunda da CPU (Doze Mode), garantindo que as threads de       -->
+  <!-- polling do OBD e gravações no motor SQLite (WAL) não sofram interrupções. -->
   <!-- ========================================================================= -->
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
@@ -49,14 +55,17 @@
     android:supportsRtl="true" 
     android:enableOnBackInvokedCallback="false">
     
-    <!-- Metadados Nativos do Expo -->
+    <!-- ========================================================================= -->
+    <!-- [METADADOS] CONFIGURAÇÕES DO EXPO NATIVE                                  -->
+    <!-- ========================================================================= -->
     <meta-data android:name="expo.modules.updates.ENABLED" android:value="false"/>
     <meta-data android:name="expo.modules.updates.ENABLE_BSDIFF_PATCH_SUPPORT" android:value="true"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
     
     <!-- ========================================================================= -->
-    <!-- ACTIVITY PRINCIPAL DA APLICAÇÃO -->
+    <!-- [UI] ACTIVITY PRINCIPAL DA APLICAÇÃO                                      -->
+    <!-- Ponto de entrada visual do React Native.                                  -->
     <!-- ========================================================================= -->
     <activity 
       android:name=".MainActivity" 
@@ -82,8 +91,9 @@
     </activity>
 
     <!-- ========================================================================= -->
-    <!-- [NOVO] DECLARAÇÃO DO SERVIÇO EM PRIMEIRO PLANO (OBD-II MONITOR) -->
-    <!-- Este serviço mantém o canal Bluetooth aberto e permite varreduras em loop. -->
+    <!-- [BACKGROUND DAEMON] SERVIÇO DE MONITORAMENTO OBD-II                       -->
+    <!-- Mantém a conexão Bluetooth estabelecida e orquestra inserções na base de  -->
+    <!-- dados independentemente do ciclo de vida da interface de usuário (UI).    -->
     <!-- ========================================================================= -->
     <service
         android:name=".OBDBluetoothService"
