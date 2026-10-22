@@ -25,15 +25,15 @@ import { MaterialCommunityIcons, MaterialIcons } from "@expo/vector-icons";
 import { useKeepAwake } from "expo-keep-awake";
 import { router, useFocusEffect } from "expo-router";
 
-import { FuelChart } from "../components/FuelChart";
-import { ScreenContainer } from "../components/screen-container";
-import { TelemetryCard } from "../components/TelemetryCard";
+import { FuelChart } from "../../components/FuelChart";
+import { ScreenContainer } from "../../components/screen-container";
+import { HealthCarHeader } from "@/components/HealthCarHeader";
 
 import * as Notifications from 'expo-notifications';
 import RNBluetoothClassic from "react-native-bluetooth-classic";
-import { useApp } from '../contexts/AppContext';
+import { useApp } from '../../contexts/AppContext';
 
-import { iniciarSessaoLocal, obterResumoSessoes, salvarFalhaDTCLocal, salvarLeituraTelemetria } from '../database/database';
+import { iniciarSessaoLocal, obterResumoSessoes, salvarFalhaDTCLocal, salvarLeituraTelemetria } from '../../database/database';
 
 /**
  * Configuração global do tratador de notificações Push (Foreground).
@@ -555,179 +555,164 @@ export default function HomeScreen() {
     } catch (error) {}
   };
 
-  const DevBadge = () => (
-    <View style={styles.devBadge}><Text style={styles.devBadgeText}>{t('emImplementacao')}</Text></View>
+  const metricTile = (
+    label: string,
+    icon: keyof typeof MaterialIcons.glyphMap,
+    value: string,
+    unit: string,
+    color: string,
+    route: string,
+  ) => (
+    <Pressable
+      key={label}
+      onPress={() => router.push(route as any)}
+      style={({ pressed }) => [styles.metricCard, { backgroundColor: cardColor, borderColor }, pressed && { opacity: 0.75 }]}
+    >
+      <View style={styles.metricTopRow}>
+        <MaterialIcons name={icon} size={17} color={isActive ? color : subTextColor} />
+        <Text style={[styles.metricLabel, { color: subTextColor }]}>{label}</Text>
+      </View>
+      <View style={styles.metricValueRow}>
+        <Text style={[styles.metricValue, { color: textColor }]}>{value}</Text>
+        <Text style={[styles.metricUnit, { color: subTextColor }]}>{unit}</Text>
+      </View>
+    </Pressable>
   );
-
-  const hubAccentColor = !isActive ? (isDark ? "#475569" : "#94A3B8") : (faultCount === 0 ? "#00B4FF" : "#FF3D57");
-  const hubOuterBg = !isActive ? (isDark ? "#1E223566" : "#F1F5F9") : (faultCount === 0 ? (isDark ? "#00B4FF14" : "#E0F2FE") : (isDark ? "#FF3D5714" : "#FFE4E6"));
-  const hubInnerBg = isDark ? "#161924" : "#FFFFFF";
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
-      {/* Componente Toast Notification */}
       <Animated.View style={[styles.pillContainer, pillStyle, pillConfig.type === 'error' ? styles.pillError : pillConfig.type === 'success' ? styles.pillSuccess : styles.pillInfo]}>
         <MaterialIcons name={pillConfig.type === 'error' ? 'error-outline' : pillConfig.type === 'success' ? 'check-circle' : 'bluetooth-searching'} size={20} color="#FFF" />
         <Text style={styles.pillText}>{pillConfig.message}</Text>
       </Animated.View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
-        {/* --- HEADER --- */}
-        <View style={styles.header}>
-          <View>
-            <Text style={[styles.appName, { color: textColor }]}>HEALTHCAR</Text>
-            <View style={styles.statusRow}>
-              <View style={[styles.statusDot, isActive && styles.statusDotActive, !isDark && !isActive && { backgroundColor: '#CBD5E1' }]} />
-              <Text style={[styles.statusText, { color: subTextColor }]}>{isActive ? t('sistemaOnline') : isConnecting ? t('conectando') : t('modoOffline')}</Text>
-            </View>
-          </View>
-          <View style={styles.headerRight}>
-            <Pressable onPress={() => router.push("/configuracoes" as any)} style={({ pressed }) => [styles.profileBtn, pressed && { opacity: 0.6 }]}>
-              <MaterialIcons name="settings" size={26} color="#00B4FF" />
-            </Pressable>
-          </View>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <HealthCarHeader />
+
+        <View style={styles.hero}>
+          <Text style={[styles.heroTitle, { color: textColor }]}>Seu carro, de olho em tudo.</Text>
+          <Text style={[styles.heroSubtitle, { color: subTextColor }]}>Acompanhe a saúde do veículo em um só lugar.</Text>
         </View>
 
-        {/* --- VISÃO GERAL DO VEÍCULO --- */}
-        <View style={styles.carImageContainer}>
-          <View style={[styles.diagnosticBox, { backgroundColor: cardColor, borderColor: borderColor }]}>
-            <View style={[styles.centralHubOuter, { backgroundColor: hubOuterBg, borderColor: `${hubAccentColor}33` }]}>
-              <View style={[styles.centralHubInner, { backgroundColor: hubInnerBg, borderColor: `${hubAccentColor}55` }]}>
-                <MaterialIcons name="directions-car" size={36} color={hubAccentColor} />
-                <Text style={[styles.centralHubStatus, { color: hubAccentColor }]}>{isActive ? (faultCount === 0 ? "TELEMETRIA ATIVA" : "VERIFICAR ECU") : "AGUARDANDO OBD"}</Text>
-              </View>
-            </View>
-            
-            {/* Badges Flutuantes de Diagnóstico */}
-            {!isActive && (
-              <View style={[styles.diagBadge, { top: 16, right: 16, backgroundColor: cardColor, borderColor: borderColor }]}>
-                <MaterialIcons name="bluetooth-disabled" size={14} color={subTextColor} />
-                <Text style={[styles.diagBadgeText, { color: subTextColor }]}>{t('modoOffline')}</Text>
-              </View>
-            )}
-            {isActive && (
-              <>
-                <Animated.View style={[styles.diagBadge, { top: 16, left: 16, backgroundColor: cardColor, borderColor: borderColor }, headerGlowStyle]}>
-                  <MaterialIcons name="thermostat" size={14} color={telemetry.temp > 100 ? "#FF3D57" : "#00B4FF"} />
-                  <Text style={[styles.diagBadgeText, { color: textColor }]}>{telemetry.temp}°C</Text>
-                </Animated.View>
-                <Animated.View style={[styles.diagBadge, { top: 16, right: 16, backgroundColor: cardColor, borderColor: borderColor }, headerGlowStyle]}>
-                  <MaterialCommunityIcons name="engine-outline" size={14} color={faultCount === 0 ? "#00E676" : "#FF3D57"} />
-                  <Text style={[styles.diagBadgeText, { color: textColor }]}>{faultCount === 0 ? t('motorOk') : 'Atenção'}</Text>
-                </Animated.View>
-                <Animated.View style={[styles.diagBadge, { bottom: 16, right: 16, backgroundColor: cardColor, borderColor: borderColor }, headerGlowStyle]}>
-                  <MaterialIcons name={faultCount === 0 ? "check-circle" : "warning"} size={14} color={faultCount === 0 ? "#00E676" : "#FF3D57"} />
-                  <Text style={[styles.diagBadgeText, { color: textColor }]}>{faultCount === 0 ? t('zeroErros') : `${faultCount} Erro(s)`}</Text>
-                </Animated.View>
-              </>
-            )}
-            <View style={styles.carLabel}>
-              <Text style={[styles.carModel, { color: textColor }]}>{carroConfigurado.marca} {carroConfigurado.veiculo}</Text>
-              <Text style={[styles.carYear, { color: subTextColor }]}>{carroConfigurado.ano} {carroConfigurado.motor ? `· Motor ${carroConfigurado.motor}` : ''}</Text>
-            </View>
+        <Pressable
+          onPress={() => router.push('/(auth)/cadastro' as any)}
+          style={({ pressed }) => [styles.vehicleCard, { backgroundColor: cardColor, borderColor }, pressed && { opacity: 0.78 }]}
+        >
+          <View style={styles.vehicleIcon}>
+            <MaterialIcons name="directions-car" size={20} color="#00B4FF" />
           </View>
-        </View>
-
-        {/* --- ACESSO RÁPIDO: MODO TEMPO REAL --- */}
-        <View style={styles.centerSection}>
-          <View style={styles.liveButtonsRow}>
-            <Pressable onPress={() => router.push("/tempo-real" as any)} style={({ pressed }) => [styles.liveActionBtn, styles.liveActionBtnPrimary, pressed && { opacity: 0.8 }]}>
-              <MaterialIcons name="speed" size={20} color={isDark ? "#0A0A0F" : "#FFFFFF"} />
-              <Text style={[styles.liveActionBtnText, { color: isDark ? "#0A0A0F" : "#FFFFFF" }]}>{t('painelTempoReal')}</Text>
-            </Pressable>
+          <View style={styles.vehicleInfo}>
+            <Text style={styles.eyebrow}>DADOS DO VEÍCULO</Text>
+            <Text style={[styles.vehicleTitle, { color: textColor }]} numberOfLines={1}>
+              {carroConfigurado.marca && carroConfigurado.marca !== 'Carregando...'
+                ? `${carroConfigurado.marca} ${carroConfigurado.veiculo}`.trim()
+                : 'Veículo cadastrado'}
+            </Text>
+            <Text style={[styles.vehicleSubtitle, { color: subTextColor }]}>Toque para conferir suas informações</Text>
           </View>
-        </View>
+          <MaterialIcons name="chevron-right" size={22} color={subTextColor} />
+        </Pressable>
 
-        {/* --- FERRAMENTAS DE SERVIÇO --- */}
-        <View style={styles.toolsSection}>
-          <Text style={[styles.toolsTitle, { color: subTextColor }]}>{t('ferramentas')}</Text>
-          <View style={styles.toolsGrid}>
-            <Pressable style={({ pressed }) => [styles.toolCard, { backgroundColor: cardColor, borderColor: borderColor }, pressed && styles.toolCardPressed]} onPress={() => router.push("/scanner" as any)}>
-              <View style={[styles.toolIcon, { backgroundColor: isDark ? "#FF3D5722" : "#FFE4E6" }]}><MaterialIcons name="wifi-tethering-error" size={26} color="#FF3D57" /></View>
-              <Text style={[styles.toolCardTitle, { color: textColor }]}>{t('scanner')}</Text>
-              <Text style={[styles.toolCardSub, { color: subTextColor }]}>{t('scannerSub')}</Text>
-            </Pressable>
-            <Pressable style={({ pressed }) => [styles.toolCard, { backgroundColor: cardColor, borderColor: borderColor }, pressed && styles.toolCardPressed]} onPress={() => router.push("/relatorios" as any)}>
-              <View style={[styles.toolIcon, { backgroundColor: isDark ? "#FFB30022" : "#FEF3C7" }]}><MaterialIcons name="history" size={26} color="#FFB300" /></View>
-              <Text style={[styles.toolCardTitle, { color: textColor }]}>{t('relatorios')}</Text>
-              <Text style={[styles.toolCardSub, { color: subTextColor }]}>{t('relatoriosSub')}</Text>
-            </Pressable>
-            <Pressable style={({ pressed }) => [styles.toolCard, { backgroundColor: cardColor, borderColor: borderColor }, pressed && styles.toolCardPressed]} onPress={() => tentarConexaoAutomatica()}>
-              <View style={[styles.toolIcon, { backgroundColor: isDark ? "#00B4FF22" : "#E0F2FE" }]}><MaterialIcons name="bluetooth" size={26} color="#00B4FF" /></View>
-              <Text style={[styles.toolCardTitle, { color: textColor }]}>{t('reconectar')}</Text>
-              <Text style={[styles.toolCardSub, { color: subTextColor }]}>{t('reconectarSub')}</Text>
-            </Pressable>
+        <View style={[styles.connectionCard, { backgroundColor: cardColor, borderColor }]}>
+          <View style={styles.connectionHeading}>
+            <View style={[styles.statusDot, isActive ? styles.statusDotActive : { backgroundColor: isDark ? '#667085' : '#94A3B8' }]} />
+            <Text style={[styles.connectionStatus, { color: textColor }]}>
+              {isActive ? t('sistemaOnline') : isConnecting ? t('conectando') : t('modoOffline')}
+            </Text>
+            {isActive && <Text style={styles.connectionLive}>AO VIVO</Text>}
           </View>
-        </View>
-
-        {/* --- DASHBOARD TELEMÉTRICO --- */}
-        <View style={styles.dashboard}>
-          
-          {/* Módulo de Odometria */}
-          <Pressable onPress={() => setShowDetailsModal(true)} style={({ pressed }) => [styles.kmRow, { backgroundColor: cardColor, borderColor: borderColor }, pressed && { opacity: 0.8 }]}>
-            <View style={styles.kmCard}>
-              <MaterialIcons name="speed" size={14} color={subTextColor} />
-              <Text style={[styles.kmLabel, { color: subTextColor }]}>{t('kmTotal')}</Text>
-              <Text style={styles.kmValue}>{telemetry.kmTotal.toLocaleString("pt-PT")}</Text>
-              <Text style={[styles.kmUnit, { color: subTextColor }]}>km</Text>
-            </View>
-            <View style={[styles.kmDivider, { backgroundColor: borderColor }]} />
-            <View style={styles.kmCard}>
-              <DevBadge />
-              <MaterialIcons name="today" size={14} color={subTextColor} />
-              <Text style={[styles.kmLabel, { color: subTextColor }]}>{t('kmHoje')}</Text>
-              <Text style={styles.kmValue}>{telemetry.kmDay.toFixed(1)}</Text>
-              <Text style={[styles.kmUnit, { color: subTextColor }]}>km</Text>
-            </View>
+          <Text style={[styles.connectionDescription, { color: subTextColor }]}>
+            {isActive ? 'Dados do motor recebidos pelo adaptador OBD-II.' : 'Conecte o adaptador OBD2 para acompanhar os dados ao vivo.'}
+          </Text>
+          <Pressable
+            onPress={() => isActive ? router.push('/tempo-real' as any) : tentarConexaoAutomatica()}
+            disabled={isConnecting}
+            style={({ pressed }) => [styles.primaryAction, pressed && { opacity: 0.82 }, isConnecting && { opacity: 0.65 }]}
+          >
+            <MaterialIcons name={isActive ? 'speed' : 'bluetooth'} size={18} color="#04131A" />
+            <Text style={styles.primaryActionText}>
+              {isConnecting ? t('conectando') : isActive ? 'Abrir painel em tempo real' : 'Conectar ao veículo'}
+            </Text>
           </Pressable>
-
-          {/* Cards de Monitoramento Vital (Motor) */}
-          <View style={styles.telemetryGrid}>
-            <TelemetryCard icon="thermostat" label={t('temperatura')} value={isActive && telemetry.temp > 0 ? `${telemetry.temp}` : "--"} unit="°C" color={isActive ? (telemetry.temp > 100 ? "#FF3D57" : "#00E676") : subTextColor} onPress={() => router.push("/detalhes/temperatura" as any)} />
-            <TelemetryCard icon="settings" label="RPM" value={isActive && telemetry.rpm > 0 ? (telemetry.rpm / 1000).toFixed(1) : "--"} unit="k" color={isActive ? "#00B4FF" : subTextColor} onPress={() => router.push("/detalhes/rpm" as any)} />
-          </View>
-
-          {/* Cards de Suprimentos */}
-          <View style={styles.telemetryGrid}>
-            <View style={{ flex: 1, position: "relative" }}>
-              <TelemetryCard icon="local-gas-station" label={t('combustivel')} value={isActive ? `${Math.round(telemetry.fuel * 100)}` : "--"} unit="%" color={isActive ? (telemetry.fuel < 0.2 ? "#FF3D57" : (telemetry.fuel < 0.4 ? "#FFB300" : "#00E676")) : subTextColor} progress={isActive ? telemetry.fuel : 0} onPress={() => router.push("/detalhes/combustivel" as any)} />
-            </View>
-            <View style={{ flex: 1, position: "relative" }}>
-              <TelemetryCard icon="battery-charging-full" label={t('bateria')} value={isActive ? `${telemetry.volt}` : "--"} unit="V" color={isActive ? (telemetry.volt < 12 ? "#FF3D57" : "#00B4FF") : subTextColor} progress={isActive ? (telemetry.volt/15) : 0} onPress={() => router.push("/detalhes/bateria" as any)} />
-              {isActive && <Text style={[styles.batteryStatusText, { color: subTextColor }]}>{t(batteryStatus)}</Text>}
-            </View>
-          </View>
-
-          {/* Módulo Gráfico: Consumo Semanal (Em Implementação) */}
-          <View style={{ position: "relative", marginTop: 10 }}>
-            <DevBadge />
-            <FuelChart onPress={() => router.push("/detalhes/consumo" as any)} />
-          </View>
         </View>
 
+        <View style={styles.sectionHeading}>
+          <Text style={[styles.sectionTitle, { color: textColor }]}>Dados do veículo</Text>
+          <Text style={[styles.sectionHint, { color: subTextColor }]}>{isActive ? 'Atualizados pelo OBD-II' : 'Disponíveis após conexão'}</Text>
+        </View>
+        <View style={styles.metricGrid}>
+          {metricTile(t('temperatura'), 'thermostat', isActive && telemetry.temp > 0 ? `${telemetry.temp}` : '--', '°C', telemetry.temp > 100 ? '#FF6677' : '#00B4FF', '/detalhes/temperatura')}
+          {metricTile('RPM', 'speed', isActive && telemetry.rpm > 0 ? `${Math.round(telemetry.rpm)}` : '--', 'rpm', '#00B4FF', '/detalhes/rpm')}
+          {metricTile(t('combustivel'), 'local-gas-station', isActive ? `${Math.round(telemetry.fuel * 100)}` : '--', '%', '#00B4FF', '/detalhes/combustivel')}
+          {metricTile(t('bateria'), 'battery-charging-full', isActive ? `${telemetry.volt}` : '--', 'V', '#00B4FF', '/detalhes/bateria')}
+        </View>
+
+        <Pressable
+          onPress={() => setShowDetailsModal(true)}
+          style={({ pressed }) => [styles.mileageCard, { backgroundColor: cardColor, borderColor }, pressed && { opacity: 0.78 }]}
+        >
+          <View style={styles.mileageIcon}><MaterialIcons name="speed" size={19} color="#00B4FF" /></View>
+          <View style={styles.mileageInfo}>
+            <Text style={[styles.mileageTitle, { color: textColor }]}>Quilometragem</Text>
+            <View style={styles.mileageNumbers}>
+              <Text style={[styles.mileageValue, { color: textColor }]}>{telemetry.kmTotal.toLocaleString('pt-BR')} <Text style={styles.mileageUnit}>km</Text></Text>
+              <Text style={[styles.mileageToday, { color: subTextColor }]}>Hoje: {telemetry.kmDay.toFixed(1)} km</Text>
+            </View>
+            <Text style={[styles.mileageHint, { color: subTextColor }]}>Toque para ver ou calibrar o odômetro</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={22} color={subTextColor} />
+        </Pressable>
+
+        <View style={styles.sectionHeading}>
+          <Text style={[styles.sectionTitle, { color: textColor }]}>Acesso rápido</Text>
+        </View>
+        <Pressable
+          onPress={() => router.push('/scanner' as any)}
+          style={({ pressed }) => [styles.quickCard, { backgroundColor: cardColor, borderColor }, pressed && { opacity: 0.78 }]}
+        >
+          <View style={styles.quickIcon}><MaterialIcons name="center-focus-weak" size={20} color="#00B4FF" /></View>
+          <View style={styles.quickInfo}>
+            <Text style={[styles.quickTitle, { color: textColor }]}>Scanner de falhas</Text>
+            <Text style={[styles.quickSubtitle, { color: subTextColor }]}>Leia os códigos reportados pelo veículo</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={22} color={subTextColor} />
+        </Pressable>
+        <Pressable
+          onPress={() => router.push('/manutencao' as any)}
+          style={({ pressed }) => [styles.quickCard, { backgroundColor: cardColor, borderColor }, pressed && { opacity: 0.78 }]}
+        >
+          <View style={styles.quickIcon}><MaterialIcons name="build" size={20} color="#00B4FF" /></View>
+          <View style={styles.quickInfo}>
+            <Text style={[styles.quickTitle, { color: textColor }]}>Manutenção</Text>
+            <Text style={[styles.quickSubtitle, { color: subTextColor }]}>Consulte serviços e recibos do veículo</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={22} color={subTextColor} />
+        </Pressable>
+
+        <View style={styles.chartSection}>
+          <FuelChart onPress={() => router.push('/detalhes/consumo' as any)} />
+        </View>
       </ScrollView>
 
-      {/* --- OVERLAYS: MODAIS DE INTERAÇÃO DO ODÔMETRO --- */}
       <Modal visible={showKmModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalBox, { backgroundColor: cardColor, borderColor: borderColor }]}>
-            <View style={[styles.modalIconBox, { backgroundColor: isDark ? "#00B4FF11" : "#E0F2FE" }]}><MaterialCommunityIcons name="speedometer" size={32} color="#00B4FF" /></View>
+          <View style={[styles.modalBox, { backgroundColor: cardColor, borderColor }]}>
+            <View style={[styles.modalIconBox, { backgroundColor: isDark ? '#00B4FF11' : '#E0F2FE' }]}><MaterialCommunityIcons name="speedometer" size={32} color="#00B4FF" /></View>
             <Text style={[styles.modalTitle, { color: textColor }]}>Calibrar Odômetro</Text>
             {!virtualOdometro.isCalibrated ? (
-               <Text style={[styles.modalText, { color: subTextColor }]}>Para ativar o rastreamento preciso, informe a quilometragem exata.</Text>
+              <Text style={[styles.modalText, { color: subTextColor }]}>Para ativar o rastreamento preciso, informe a quilometragem exata.</Text>
             ) : (
-               <Text style={[styles.modalText, { color: subTextColor }]}>Ajuste ou confirme a quilometragem atual para sincronizar o cálculo.</Text>
+              <Text style={[styles.modalText, { color: subTextColor }]}>Ajuste ou confirme a quilometragem atual para sincronizar o cálculo.</Text>
             )}
             <TextInput style={[styles.modalInput, { backgroundColor: iconBgColor, color: textColor, borderColor: '#00B4FF' }]} keyboardType="numeric" value={kmInput} onChangeText={setKmInput} maxLength={7} />
             <View style={styles.modalBtnRow}>
               {virtualOdometro.isCalibrated && (
-                <Pressable style={[styles.modalBtnCancel, { borderColor: borderColor }]} onPress={() => setShowKmModal(false)}>
+                <Pressable style={[styles.modalBtnCancel, { borderColor }]} onPress={() => setShowKmModal(false)}>
                   <Text style={[styles.modalBtnCancelText, { color: subTextColor }]}>{t('ignorar')}</Text>
                 </Pressable>
               )}
               <Pressable style={styles.modalBtnConfirm} onPress={calibrarOdometroVirtual}>
-                <Text style={[styles.modalBtnConfirmText, { color: isDark ? "#0A0A0F" : "#FFFFFF" }]}>Sincronizar</Text>
+                <Text style={[styles.modalBtnConfirmText, { color: isDark ? '#0A0A0F' : '#FFFFFF' }]}>Sincronizar</Text>
               </Pressable>
             </View>
           </View>
@@ -736,41 +721,37 @@ export default function HomeScreen() {
 
       <Modal visible={showDetailsModal} transparent animationType="slide">
         <Pressable style={styles.modalOverlay} onPress={() => setShowDetailsModal(false)}>
-          <Pressable style={[styles.modalBottomSheet, { backgroundColor: cardColor, borderColor: borderColor }]} onPress={(e) => e.stopPropagation()}>
+          <Pressable style={[styles.modalBottomSheet, { backgroundColor: cardColor, borderColor }]} onPress={(e) => e.stopPropagation()}>
             <View style={styles.bottomSheetHeader}>
               <Text style={[styles.bottomSheetTitle, { color: textColor }]}>Detalhes do Odômetro Virtual</Text>
               <MaterialCommunityIcons name="engine-outline" size={24} color="#00B4FF" />
             </View>
-            <View style={styles.techDataRow}>
+            <View style={[styles.techDataRow, { borderBottomColor: borderColor }]}>
               <Text style={[styles.techDataLabel, { color: subTextColor }]}>Leitura Bruta OBD2:</Text>
-              <Text style={[styles.techDataValue, { color: textColor }]}>{kmObdRaw.toLocaleString("pt-PT")} km</Text>
+              <Text style={[styles.techDataValue, { color: textColor }]}>{kmObdRaw.toLocaleString('pt-BR')} km</Text>
             </View>
-            <View style={styles.techDataRow}>
+            <View style={[styles.techDataRow, { borderBottomColor: borderColor }]}>
               <Text style={[styles.techDataLabel, { color: subTextColor }]}>Offset de Calibração Salvo:</Text>
-              <Text style={[styles.techDataValue, { color: textColor }]}>{virtualOdometro.offset.toLocaleString("pt-PT")} km</Text>
+              <Text style={[styles.techDataValue, { color: textColor }]}>{virtualOdometro.offset.toLocaleString('pt-BR')} km</Text>
             </View>
             <View style={[styles.techDataRow, { borderBottomWidth: 0, marginTop: 10 }]}>
               <Text style={[styles.techDataLabel, { color: '#00B4FF', fontWeight: 'bold' }]}>Resultado Final:</Text>
-              <Text style={[styles.techDataValue, { color: '#00B4FF', fontWeight: 'bold', fontSize: 18 }]}>
-                {telemetry.kmTotal.toLocaleString("pt-PT")} km
-              </Text>
+              <Text style={[styles.techDataValue, { color: '#00B4FF', fontWeight: 'bold', fontSize: 18 }]}>{telemetry.kmTotal.toLocaleString('pt-BR')} km</Text>
             </View>
             <View style={styles.modalBtnRow}>
-              <Pressable style={[styles.modalBtnCancel, { borderColor: borderColor }]} onPress={() => setShowDetailsModal(false)}>
+              <Pressable style={[styles.modalBtnCancel, { borderColor }]} onPress={() => setShowDetailsModal(false)}>
                 <Text style={[styles.modalBtnCancelText, { color: subTextColor }]}>Fechar</Text>
               </Pressable>
               <Pressable style={[styles.modalBtnConfirm, { backgroundColor: '#FF3D57' }]} onPress={() => { setKmInput(telemetry.kmTotal.toString()); setShowKmModal(true); }}>
-                <Text style={[styles.modalBtnConfirmText, { color: "#FFF" }]}>Forçar Recalibração</Text>
+                <Text style={[styles.modalBtnConfirmText, { color: '#FFF' }]}>Forçar Recalibração</Text>
               </Pressable>
             </View>
           </Pressable>
         </Pressable>
       </Modal>
-
     </ScreenContainer>
   );
 }
-
 // --- STYLE DEFINITIONS ---
 const styles = StyleSheet.create({
   pillContainer: { position: 'absolute', top: 0, left: 20, right: 20, flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 30, zIndex: 100, gap: 10, elevation: 10, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
@@ -839,5 +820,47 @@ const styles = StyleSheet.create({
   bottomSheetTitle: { fontSize: 18, fontWeight: "700" },
   techDataRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#1E2235' },
   techDataLabel: { fontSize: 14, fontWeight: "500" },
-  techDataValue: { fontSize: 16, fontWeight: "600", fontVariant: ["tabular-nums"] }
+  techDataValue: { fontSize: 16, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  content: { paddingBottom: 28 },
+  hero: { marginHorizontal: 20, marginBottom: 18 },
+  heroTitle: { fontSize: 25, lineHeight: 31, fontWeight: '800', letterSpacing: -0.7 },
+  heroSubtitle: { fontSize: 13, lineHeight: 19, marginTop: 3 },
+  vehicleCard: { minHeight: 92, marginHorizontal: 20, marginBottom: 12, padding: 14, borderRadius: 17, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  vehicleIcon: { width: 44, height: 44, borderRadius: 13, backgroundColor: '#082A3A', alignItems: 'center', justifyContent: 'center' },
+  vehicleInfo: { flex: 1, minWidth: 0 },
+  eyebrow: { color: '#83A9C5', fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginBottom: 5 },
+  vehicleTitle: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
+  vehicleSubtitle: { fontSize: 11, lineHeight: 16 },
+  connectionCard: { marginHorizontal: 20, marginBottom: 20, padding: 15, borderRadius: 18, borderWidth: 1 },
+  connectionHeading: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  connectionStatus: { fontSize: 14, fontWeight: '700', flex: 1 },
+  connectionLive: { color: '#00E6A2', fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
+  connectionDescription: { fontSize: 11, lineHeight: 17, marginTop: 10, marginBottom: 12 },
+  primaryAction: { minHeight: 44, borderRadius: 13, backgroundColor: '#00AEEF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 12 },
+  primaryActionText: { color: '#04131A', fontSize: 13, fontWeight: '800' },
+  sectionHeading: { marginHorizontal: 20, marginBottom: 10, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
+  sectionTitle: { fontSize: 15, fontWeight: '700' },
+  sectionHint: { fontSize: 10 },
+  metricGrid: { marginHorizontal: 20, marginBottom: 15, flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  metricCard: { width: '48%', flexGrow: 1, minHeight: 82, paddingHorizontal: 13, paddingVertical: 12, borderRadius: 15, borderWidth: 1, justifyContent: 'space-between' },
+  metricTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  metricLabel: { fontSize: 11, fontWeight: '500' },
+  metricValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 5, marginTop: 9 },
+  metricValue: { fontSize: 19, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  metricUnit: { fontSize: 11 },
+  mileageCard: { marginHorizontal: 20, marginBottom: 22, padding: 13, borderRadius: 15, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  mileageIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#082A3A', alignItems: 'center', justifyContent: 'center' },
+  mileageInfo: { flex: 1 },
+  mileageTitle: { fontSize: 13, fontWeight: '700' },
+  mileageNumbers: { flexDirection: 'row', alignItems: 'baseline', gap: 14, marginTop: 4 },
+  mileageValue: { fontSize: 16, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  mileageUnit: { color: '#00B4FF', fontSize: 10, fontWeight: '600' },
+  mileageToday: { fontSize: 10 },
+  mileageHint: { fontSize: 10, marginTop: 3 },
+  quickCard: { marginHorizontal: 20, marginBottom: 8, minHeight: 64, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 15, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  quickIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#082A3A', alignItems: 'center', justifyContent: 'center' },
+  quickInfo: { flex: 1 },
+  quickTitle: { fontSize: 12, fontWeight: '700', marginBottom: 3 },
+  quickSubtitle: { fontSize: 10, lineHeight: 15 },
+  chartSection: { marginHorizontal: 20, marginTop: 14 }
 });
