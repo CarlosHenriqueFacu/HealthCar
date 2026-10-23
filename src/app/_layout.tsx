@@ -1,92 +1,85 @@
 // @ts-ignore
 import '../global.css';
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
-import { useColorScheme, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, useColorScheme, View } from 'react-native';
 
 import { AppProvider } from '../contexts/AppContext';
-import { AuthProvider } from '../contexts/AuthContext';
-import { initDatabase } from '../database/database'; // Importação do motor de persistência SQLite
+import { AuthProvider, useAuth } from '../contexts/AuthContext';
+import { initDatabase } from '../database/database';
 
-/**
- * Retém a SplashScreen nativa de forma programática.
- * Esta abordagem previne a ocorrência de "flashes" de renderização (FOUC), 
- * garantindo que a árvore de componentes e a infraestrutura de dados local 
- * estejam plenamente hidratadas antes da exposição ao usuário.
- */
 SplashScreen.preventAutoHideAsync();
 
-export default function TabLayout() {
+function AccountRestoreScreen() {
+  return (
+    <View style={{ flex: 1, backgroundColor: '#0A0A0F', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
+      <ActivityIndicator color="#00B4FF" size="large" />
+      <Text style={{ color: '#F0F2FF', fontSize: 14 }}>Restaurando os dados da sua conta...</Text>
+    </View>
+  );
+}
+
+function RootNavigator() {
   const colorScheme = useColorScheme();
-  const [isReady, setIsReady] = useState(false);
-  const [isFirstAccess, setIsFirstAccess] = useState(false);
+  const segments = useSegments();
+  const { user, isLoading, isAccountLoading } = useAuth();
 
-  /**
-   * Fase 1: Inicialização do Motor de Persistência e Avaliação de Estado (Onboarding)
-   * Processo assíncrono que inicializa o esquema de banco de dados offline-first (SQLite)
-   * e valida a existência de um perfil veicular no cache de longo prazo (AsyncStorage).
-   */
   useEffect(() => {
-    async function bootstrapSystem() {
-      try {
-        // Inicializa as tabelas do banco relacional
-        await initDatabase();
+    if (isLoading || (user && isAccountLoading)) return;
 
-        // Valida o estado de onboarding do usuário
-        const veiculoCadastrado = await AsyncStorage.getItem('@veiculo_cadastrado');
-        
-        if (veiculoCadastrado === null) {
-          setIsFirstAccess(true);
-        }
-      } catch (error) {
-        console.error("[Arquitetura de Dados] Falha crítica durante o bootstrap do sistema:", error);
-      } finally {
-        setIsReady(true);
-      }
+    const group = segments[0];
+    const authRoute = group === '(auth)';
+    const authPage = segments[1];
+
+    if (!user && !authRoute) {
+      router.replace('/(auth)/login' as any);
+    } else if (user && authRoute && authPage !== 'cadastro') {
+      router.replace('/(tabs)' as any);
     }
+  }, [user, isLoading, isAccountLoading, segments]);
 
-    bootstrapSystem();
+  if (isLoading) return <AccountRestoreScreen />;
+
+  return (
+    <View style={{ flex: 1 }}>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        </Stack>
+      </ThemeProvider>
+      {user && isAccountLoading && (
+        <View style={[StyleSheet.absoluteFillObject, { zIndex: 10, elevation: 10 }]}>
+          <AccountRestoreScreen />
+        </View>
+      )}
+    </View>
+  );
+}
+
+export default function RootLayout() {
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    initDatabase()
+      .catch((error) => {
+        console.error('[Arquitetura de Dados] Falha ao inicializar o SQLite:', error);
+      })
+      .finally(() => setIsReady(true));
   }, []);
 
-  /**
-   * Fase 2: Controlador de Roteamento Dinâmico
-   * Acionado mediante a conclusão do bootstrap. Redireciona usuários não 
-   * autenticados para a esteira de cadastro ou libera a interface principal.
-   */
   useEffect(() => {
-    if (isReady) {
-      if (isFirstAccess) {
-        // Desbloqueia a Splash Screen e aloca uma janela de 150ms para a montagem 
-        // segura do Router DOM antes do redirecionamento
-        SplashScreen.hideAsync();
-        setTimeout(() => {
-          router.replace('/(auth)/cadastro' as any);
-        }, 150);
-      } else {
-        // Transição suave para a interface principal em usuários com cache válido
-        SplashScreen.hideAsync();
-      }
-    }
-  }, [isReady, isFirstAccess]);
+    if (isReady) void SplashScreen.hideAsync();
+  }, [isReady]);
 
-  // Aplica o bloqueio de pintura (Render Blocking) enquanto a Fase 1 não for finalizada
-  if (!isReady) {
-    return null; 
-  }
+  if (!isReady) return null;
 
   return (
     <AppProvider>
       <AuthProvider>
-        <View style={{ flex: 1 }}>
-          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            </Stack>
-          </ThemeProvider>
-        </View>
+        <RootNavigator />
       </AuthProvider>
     </AppProvider>
   );

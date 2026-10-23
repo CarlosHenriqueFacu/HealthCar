@@ -19,9 +19,10 @@ import Animated, { FadeIn, FadeInUp, FadeOutUp } from "react-native-reanimated";
 
 import { HealthCarHeader } from '@/components/HealthCarHeader';
 import { useApp } from '@/contexts/AppContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 // IMPORTAÇÃO DA CAMADA DE PERSISTÊNCIA
-import { salvarFalhaDTCLocal } from '@/database/database';
+import { iniciarSessaoLocal, obterResumoSessoes, obterVeiculoLocal, salvarFalhaDTCLocal } from '@/database/database';
 
 const { OBDBluetooth } = NativeModules;
 
@@ -56,6 +57,7 @@ const DTC_DICTIONARY: Record<string, { desc: string, system: string, severity: "
  */
 export default function ScannerScreen() {
   const { theme, t } = useApp();
+  const { user } = useAuth();
   
   const isDark = theme === 'dark';
   const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
@@ -176,9 +178,15 @@ export default function ScannerScreen() {
 
       // --- GRAVAÇÃO NA BASE DE DADOS (SQLite) ---
       if (newFaults.length > 0) {
+        if (!user?.uid) throw new Error('Entre na sua conta para salvar o diagnóstico.');
+        const vehicle = await obterVeiculoLocal(user.uid);
+        if (!vehicle) throw new Error('Cadastre um veículo antes de salvar um diagnóstico.');
+        const sessions = await obterResumoSessoes(user.uid, vehicle.id);
+        const sessionId = sessions[0]?.id ?? await iniciarSessaoLocal(user.uid, vehicle.id, 'ISO_15765-4');
         for (const fault of newFaults) {
           await salvarFalhaDTCLocal(
-            "SESSAO_DIAGNOSTICO_ATIVA", 
+            user.uid,
+            sessionId,
             fault.code, 
             fault.desc, 
             fault.system, 

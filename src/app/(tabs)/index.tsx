@@ -32,8 +32,18 @@ import { HealthCarHeader } from "@/components/HealthCarHeader";
 import * as Notifications from 'expo-notifications';
 import RNBluetoothClassic from "react-native-bluetooth-classic";
 import { useApp } from '../../contexts/AppContext';
+import { useAuth } from '../../contexts/AuthContext';
 
-import { iniciarSessaoLocal, obterResumoSessoes, salvarFalhaDTCLocal, salvarLeituraTelemetria } from '../../database/database';
+import {
+  atualizarDistanciaSessaoLocal,
+  atualizarQuilometragemVeiculoLocal,
+  atualizarOdometroVeiculoLocal,
+  iniciarSessaoLocal,
+  obterResumoSessoes,
+  obterVeiculoLocal,
+  salvarFalhaDTCLocal,
+  salvarLeituraTelemetria,
+} from '../../database/database';
 
 /**
  * Configuração global do tratador de notificações Push (Foreground).
@@ -64,6 +74,7 @@ let glob_faultsCount = 0;
  */
 export default function HomeScreen() {
   const { theme, t } = useApp();
+  const { user, isAccountLoading } = useAuth();
   
   // --- DESIGN SYSTEM & THEME CONFIGURATION ---
   const isDark = theme === 'dark';
@@ -126,26 +137,44 @@ export default function HomeScreen() {
    * Carrega preferências locais e tenta restabelecer comunicação Bluetooth pré-existente.
    */
   useEffect(() => {
+    ref_sessaoId.current = null;
+    setIsActive(false);
     async function setupApp() {
       try {
-        const veiculoCadastrado = await AsyncStorage.getItem('@veiculo_cadastrado');
-        //Redireciona para /login 
-        if (veiculoCadastrado === null) {
-          router.replace('/(auth)/login' as any);
+        if (!user?.uid || isAccountLoading) return;
+        const veiculoSalvo = await obterVeiculoLocal(user.uid);
+        if (!veiculoSalvo) {
+          router.replace('/(auth)/cadastro' as any);
           return; 
-        } 
-        const veiculoSalvo = JSON.parse(veiculoCadastrado);
+        }
+        await AsyncStorage.multiSet([
+          ['@veiculo_cadastrado', JSON.stringify(veiculoSalvo)],
+          ['@veiculo_cadastrado_uid', user.uid],
+        ]);
         setCarroConfigurado(veiculoSalvo);
         
         let kmInicialOffline = Number(veiculoSalvo.km);
-        const savedOdo = await AsyncStorage.getItem('@virtual_odometro');
-        if (savedOdo !== null) {
-          const odoParsed = JSON.parse(savedOdo);
-          setVirtualOdometro(odoParsed);
-          if (odoParsed.isCalibrated && odoParsed.lastObdKm > 0) {
-            kmInicialOffline = odoParsed.offset + odoParsed.lastObdKm;
-            setKmObdRaw(odoParsed.lastObdKm);
+        let odoParsed = {
+          offset: Number(veiculoSalvo.odometroOffset ?? 0),
+          lastObdKm: Number(veiculoSalvo.ultimoObdKm ?? 0),
+          isCalibrated: Boolean(veiculoSalvo.odometroCalibrado),
+        };
+        const savedOdo = await AsyncStorage.getItem(`@virtual_odometro:${user.uid}`);
+        if (!odoParsed.isCalibrated && savedOdo) {
+          const legacyOdo = JSON.parse(savedOdo);
+          if (legacyOdo?.isCalibrated) {
+            odoParsed = legacyOdo;
+            await atualizarOdometroVeiculoLocal(
+              user.uid, veiculoSalvo.id, Number(legacyOdo.offset ?? 0),
+              Number(legacyOdo.lastObdKm ?? 0), true,
+            );
           }
+          await AsyncStorage.removeItem(`@virtual_odometro:${user.uid}`);
+        }
+        setVirtualOdometro(odoParsed);
+        if (odoParsed.isCalibrated && odoParsed.lastObdKm > 0) {
+          kmInicialOffline = odoParsed.offset + odoParsed.lastObdKm;
+          setKmObdRaw(odoParsed.lastObdKm);
         }
 
         setTelemetry(prev => ({ ...prev, kmTotal: kmInicialOffline }));
@@ -164,11 +193,11 @@ export default function HomeScreen() {
           const checkConnection = await OBDBluetooth.sendCommand("AT");
           if (checkConnection && !String(checkConnection).includes("ERR")) {
             if(veiculoSalvo.id){
-                const sessoes: any = await obterResumoSessoes();
+                const sessoes: any = await obterResumoSessoes(user.uid, veiculoSalvo.id);
                 if(sessoes && sessoes.length > 0) {
                    ref_sessaoId.current = sessoes[0].id;
                 } else {
-                   ref_sessaoId.current = await iniciarSessaoLocal(veiculoSalvo.id, "ISO_15765-4");
+                   ref_sessaoId.current = await iniciarSessaoLocal(user.uid, veiculoSalvo.id, "ISO_15765-4");
                 }
             }
             showPill("Conexão ativa sincronizada", "success");
@@ -190,12 +219,12 @@ export default function HomeScreen() {
         }
       } catch (e) { }
     }
-    setTimeout(setupApp, 100);
+    const setupTimer = setTimeout(setupApp, 100);
     
     // Listener de estado do App (Background/Foreground)
     const subscription = AppState.addEventListener('change', nextAppState => { appState.current = nextAppState; });
-    return () => { subscription.remove(); };
-  }, []);
+    return () => { clearTimeout(setupTimer); subscription.remove(); };
+  }, [user?.uid, isAccountLoading]);
 
   /**
    * Aciona uma notificação Push local para alertas do veículo.
@@ -230,8 +259,8 @@ export default function HomeScreen() {
 
       if (notificarSeSubir && currentErrors > glob_faultsCount) {
         dispararAlerta("⚠️ Nova Falha Detectada", "O sistema de injeção registrou um novo código de erro. Faça a varredura no Scanner OBD-II.");
-        if(ref_sessaoId.current){
-           await salvarFalhaDTCLocal(ref_sessaoId.current, "UNSCANNED_DTC", "Falha genérica identificada pelo monitoramento passivo em background.", "Injeção Eletrônica", "warning");
+        if(user?.uid && ref_sessaoId.current){
+           await salvarFalhaDTCLocal(user.uid, ref_sessaoId.current, "UNSCANNED_DTC", "Falha genérica identificada pelo monitoramento passivo em background.", "Injeção Eletrônica", "warning");
         }
       }
       setFaultCount(currentErrors);
@@ -245,10 +274,13 @@ export default function HomeScreen() {
   async function sincronizarOdometroComEcu() {
     try {
       const { OBDBluetooth } = NativeModules;
-      const odoCache = await AsyncStorage.getItem('@virtual_odometro');
-      const odoReal = odoCache ? JSON.parse(odoCache) : virtualOdometro;
-      const veiculoCache = await AsyncStorage.getItem('@veiculo_cadastrado');
-      const veiculoReal = veiculoCache ? JSON.parse(veiculoCache) : carroConfigurado;
+      if (!user?.uid) return;
+      const veiculoReal = await obterVeiculoLocal(user.uid) ?? carroConfigurado;
+      const odoReal = {
+        offset: Number(veiculoReal.odometroOffset ?? virtualOdometro.offset),
+        lastObdKm: Number(veiculoReal.ultimoObdKm ?? virtualOdometro.lastObdKm),
+        isCalibrated: Boolean(veiculoReal.odometroCalibrado ?? virtualOdometro.isCalibrated),
+      };
 
       const respostaObd = await OBDBluetooth.sendCommand('0131');
       let obdRawValue = parseHex(respostaObd, "31");
@@ -271,8 +303,16 @@ export default function HomeScreen() {
         const kmRealCalculado = odoReal.offset + obdRawValue;
         setTelemetry(prev => ({ ...prev, kmTotal: kmRealCalculado }));
         const odoDataAtualizado = { ...odoReal, lastObdKm: obdRawValue };
-        await AsyncStorage.setItem('@virtual_odometro', JSON.stringify(odoDataAtualizado));
+        if (obdRawValue !== odoReal.lastObdKm) {
+          await atualizarOdometroVeiculoLocal(user.uid, veiculoReal.id, odoReal.offset, obdRawValue, odoReal.isCalibrated);
+        }
         setVirtualOdometro(odoDataAtualizado);
+        if (Math.abs(kmRealCalculado - Number(veiculoReal.km ?? 0)) >= 1) {
+          await atualizarQuilometragemVeiculoLocal(user.uid, veiculoReal.id, kmRealCalculado);
+          const updatedVehicle = { ...veiculoReal, km: String(kmRealCalculado) };
+          setCarroConfigurado(updatedVehicle);
+          await AsyncStorage.setItem('@veiculo_cadastrado', JSON.stringify(updatedVehicle));
+        }
       }
     } catch (e) {}
   }
@@ -320,9 +360,9 @@ export default function HomeScreen() {
         catch (e: any) { showPill(`Falha de conexão: ${e.message}`, "error"); setIsConnecting(false); return; }
 
         if(targetVehicleId){
-            const sessoes: any = await obterResumoSessoes();
+            const sessoes: any = user?.uid ? await obterResumoSessoes(user.uid, targetVehicleId) : [];
             if(sessoes && sessoes.length > 0) ref_sessaoId.current = sessoes[0].id;
-            else ref_sessaoId.current = await iniciarSessaoLocal(targetVehicleId, "ISO_15765-4");
+            else if (user?.uid) ref_sessaoId.current = await iniciarSessaoLocal(user.uid, targetVehicleId, "ISO_15765-4");
         }
 
         showPill("Conectado ao scanner OBD2 com sucesso!", "success");
@@ -406,23 +446,17 @@ export default function HomeScreen() {
       const resgatarSessao = async () => {
         try {
           let vId = carroConfigurado.id;
-          if (!vId) {
-            const vCache = await AsyncStorage.getItem('@veiculo_cadastrado');
-            if (vCache) vId = JSON.parse(vCache).id;
-          }
-          if (!vId) vId = "veiculo_tcc_padrao";
+          if (!vId && user?.uid) vId = (await obterVeiculoLocal(user.uid))?.id ?? '';
+          if (!vId || !user?.uid) return;
 
-          const sessoes: any = await obterResumoSessoes();
+          const sessoes: any = await obterResumoSessoes(user.uid, vId);
           if (sessoes && sessoes.length > 0) {
               ref_sessaoId.current = sessoes[0].id;
           } else {
-              const novaSessao = await iniciarSessaoLocal(vId, "ISO_15765-4");
-              ref_sessaoId.current = novaSessao || `sessao_auto_${Date.now()}`;
+              ref_sessaoId.current = await iniciarSessaoLocal(user.uid, vId, "ISO_15765-4");
           }
         } catch (error) {
-          if (!ref_sessaoId.current) {
-             ref_sessaoId.current = `sessao_emergencia_${Date.now()}`;
-          }
+          console.error('[SQLite] Não foi possível abrir a sessão da conta.', error);
         }
       };
 
@@ -450,7 +484,7 @@ export default function HomeScreen() {
               // Gerenciamento de Odometria Dinâmica (Trip KM)
               let currentKmDay = telemetry.kmDay; 
               try {
-                const viagemSalva = await AsyncStorage.getItem('@viagem_atual');
+                const viagemSalva = user?.uid ? await AsyncStorage.getItem(`@viagem_atual:${user.uid}`) : null;
                 if (viagemSalva) {
                   const val = parseFloat(viagemSalva);
                   if (!isNaN(val)) currentKmDay = val;
@@ -462,7 +496,7 @@ export default function HomeScreen() {
                 const respRPM = await OBDBluetooth.sendCommand("010C");
                 rpmLido = parseHex(respRPM, "0C");
                 if (rpmLido > 0 && sID) {
-                   await salvarLeituraTelemetria(sID, "010C", rpmLido, "RPM");
+                   if (user?.uid) await salvarLeituraTelemetria(user.uid, sID, "010C", rpmLido, "RPM");
                 }
               } catch (e: any) { }
               
@@ -471,7 +505,7 @@ export default function HomeScreen() {
                 const respTemp = await OBDBluetooth.sendCommand("0105");
                 tempLida = parseHex(respTemp, "05");
                 if (tempLida > 0 && sID) {
-                   await salvarLeituraTelemetria(sID, "0105", tempLida, "°C");
+                   if (user?.uid) await salvarLeituraTelemetria(user.uid, sID, "0105", tempLida, "°C");
                 }
               } catch (e: any) { }
 
@@ -483,9 +517,9 @@ export default function HomeScreen() {
                 if (speedLido >= 0 && !String(respSpeed).includes("ERROR") && !String(respSpeed).includes("TIMEOUT") && !String(respSpeed).includes("NODATA")) {
                   const deltaHours = 5000 / 3600000; // Constante de tempo do loop
                   currentKmDay += speedLido * deltaHours;
-                  AsyncStorage.setItem('@viagem_atual', currentKmDay.toString()).catch(() => {});
+                  if (user?.uid) AsyncStorage.setItem(`@viagem_atual:${user.uid}`, currentKmDay.toString()).catch(() => {});
                   
-                  if (speedLido > 0 && sID) await salvarLeituraTelemetria(sID, "010D", speedLido, "km/h");
+                  if (speedLido > 0 && sID && user?.uid) await salvarLeituraTelemetria(user.uid, sID, "010D", speedLido, "km/h");
                 }
               } catch (e) {}
 
@@ -496,7 +530,7 @@ export default function HomeScreen() {
                   const rawFuel = parseHex(respFuel, "2F");
                   if (rawFuel > 0) {
                     fuelLido = rawFuel;
-                    if (sID) await salvarLeituraTelemetria(sID, "012F", fuelLido, "%");
+                    if (sID && user?.uid) await salvarLeituraTelemetria(user.uid, sID, "012F", fuelLido, "%");
                   }
                 }
               } catch (e) {}
@@ -508,7 +542,7 @@ export default function HomeScreen() {
               else if (voltSimulado >= 12.2 && voltSimulado <= 12.8) statusBat = "batIdeal";
               else if (voltSimulado < 12.0) statusBat = "batFraca";
               
-              if(sID) await salvarLeituraTelemetria(sID, "ATRV", voltSimulado, "V");
+              if(sID && user?.uid) await salvarLeituraTelemetria(user.uid, sID, "ATRV", voltSimulado, "V");
               setBatteryStatus(statusBat);
 
               // Atualiza o estado consolidado da View
@@ -520,6 +554,9 @@ export default function HomeScreen() {
                 temp: tempLida > 0 ? tempLida : prev.temp,
                 kmDay: parseFloat(currentKmDay.toFixed(1)) 
               }));
+              if (sID && user?.uid) {
+                await atualizarDistanciaSessaoLocal(user.uid, sID, Math.round(currentKmDay * 1000));
+              }
 
               // Tarefas de manutenção (Ciclo Lento) a cada 6 execuções (~30 segundos)
               slowCycleCounter++;
@@ -550,7 +587,7 @@ export default function HomeScreen() {
         if (transitionDelay) clearTimeout(transitionDelay);
         if (loopLento) clearTimeout(loopLento); 
       };
-    }, [isActive])
+    }, [isActive, user?.uid, carroConfigurado.id])
   );
 
   /**
@@ -566,9 +603,14 @@ export default function HomeScreen() {
       const novoOffset = painelKmInformado - baseObd;
       const dadosOdometro = { offset: novoOffset, lastObdKm: baseObd, isCalibrated: true };
       
-      await AsyncStorage.setItem('@virtual_odometro', JSON.stringify(dadosOdometro));
       const veiculoAtualizado = { ...carroConfigurado, km: painelKmInformado.toString() };
-      await AsyncStorage.setItem('@veiculo_cadastrado', JSON.stringify(veiculoAtualizado));
+      if (!user?.uid || !carroConfigurado.id) return;
+      await atualizarQuilometragemVeiculoLocal(user.uid, carroConfigurado.id, painelKmInformado);
+      await atualizarOdometroVeiculoLocal(user.uid, carroConfigurado.id, novoOffset, baseObd, true);
+      await AsyncStorage.multiSet([
+        ['@veiculo_cadastrado', JSON.stringify(veiculoAtualizado)],
+        ['@veiculo_cadastrado_uid', user.uid],
+      ]);
       
       setCarroConfigurado(veiculoAtualizado);
       setVirtualOdometro(dadosOdometro);

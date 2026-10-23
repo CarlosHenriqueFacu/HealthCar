@@ -14,6 +14,7 @@ import { router } from "expo-router";
 import Svg, { Circle, Defs, Line, LinearGradient, Polyline, Stop } from "react-native-svg";
 import { ScreenContainer } from "../../components/screen-container";
 import { useApp } from "../../contexts/AppContext";
+import { useAuth } from "../../contexts/AuthContext";
 
 // IMPORTAÇÃO DA CAMADA DE PERSISTÊNCIA (SQLite)
 import { obterDadosGrafico, obterResumoSessoes } from "../../database/database";
@@ -37,6 +38,7 @@ interface TemperatureData {
  */
 export default function TemperatureDetailsScreen() {
   const { theme, t } = useApp();
+  const { user } = useAuth();
   
   // --- ESTADOS DA INTERFACE ---
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
@@ -60,13 +62,14 @@ export default function TemperatureDetailsScreen() {
     async function carregarTelemetria() {
       try {
         // 1. Obtém a sessão de diagnóstico mais recente
-        const sessoes = await obterResumoSessoes();
+        if (!user?.uid) return;
+        const sessoes = await obterResumoSessoes(user.uid);
         
         if (sessoes && sessoes.length > 0) {
           const sessaoAtiva: any = sessoes[0];
           
           // 2. Extrai os dados em lote do PID 0105 (Temperatura)
-          const leituras: any = await obterDadosGrafico(sessaoAtiva.id, "0105");
+          const leituras: any = await obterDadosGrafico(user.uid, sessaoAtiva.id, "0105");
 
           if (leituras && leituras.length > 0) {
             // 3. Transformação (Parsing) dos timestamps Unix para string horária local
@@ -93,7 +96,7 @@ export default function TemperatureDetailsScreen() {
     }
 
     carregarTelemetria();
-  }, []);
+  }, [user?.uid]);
 
   // --- CÁLCULOS ESTATÍSTICOS DE BORDAS ---
   const dataToRender = chartData.length > 0 ? chartData : [{ time: "--:--", temp: 0 }];

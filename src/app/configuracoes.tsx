@@ -18,7 +18,7 @@ import { getAuthErrorMessage, signOutCurrentUser } from '../services/firebase';
 export default function ConfiguracoesScreen() {
   // Extração das variáveis de estado e métodos do contexto global (Context API)
   const { theme, language, toggleTheme, toggleLanguage, t } = useApp();
-  const { user } = useAuth();
+  const { user, syncStatus, syncNow } = useAuth();
 
   // Estados locais para controlar a abertura/fechamento das janelas de escolha (Modais)
   const [showLangModal, setShowLangModal] = useState(false);
@@ -76,6 +76,16 @@ export default function ConfiguracoesScreen() {
     ]);
   };
 
+  const syncDescription = syncStatus.phase === 'syncing'
+    ? 'Sincronizando com a nuvem…'
+    : syncStatus.phase === 'error'
+      ? `Dados neste aparelho; falha na nuvem${syncStatus.pendingCount ? ` · ${syncStatus.pendingCount} pendentes` : ''}`
+      : syncStatus.pendingCount > 0
+        ? `${syncStatus.pendingCount} alterações aguardando internet`
+        : syncStatus.lastSyncedAt
+          ? `Última cópia: ${new Date(syncStatus.lastSyncedAt).toLocaleString('pt-BR')}`
+          : 'Cópia de segurança na nuvem';
+
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
       
@@ -87,6 +97,7 @@ export default function ConfiguracoesScreen() {
         >
           <MaterialIcons name="arrow-back" size={24} color={textColor} />
         </Pressable>
+
         <Text style={[styles.headerTitle, { color: textColor }]}>{t('configuracoes')}</Text>
       </View>
 
@@ -109,6 +120,21 @@ export default function ConfiguracoesScreen() {
           </View>
           <MaterialIcons name="chevron-right" size={24} color={subTextColor} />
         </Pressable>
+
+        {user && (
+          <Pressable
+            style={({ pressed }) => [styles.menuItem, { borderBottomColor: borderColor }, pressed && styles.menuItemPressed]}
+            onPress={() => void syncNow()}
+            disabled={syncStatus.phase === 'syncing'}
+          >
+            <MaterialIcons name={syncStatus.phase === 'error' ? 'cloud-off' : 'cloud-sync'} size={28} color={syncStatus.phase === 'error' ? '#FFB300' : '#00B4FF'} />
+            <View style={styles.menuTextContainer}>
+              <Text style={[styles.menuTitle, { color: textColor }]}>Sincronização</Text>
+              <Text style={[styles.menuSub, { color: subTextColor }]}>{syncDescription}</Text>
+            </View>
+            <MaterialIcons name="refresh" size={22} color={subTextColor} />
+          </Pressable>
+        )}
 
         {/* Opção: Configuração do Veículo */}
         <Pressable 
