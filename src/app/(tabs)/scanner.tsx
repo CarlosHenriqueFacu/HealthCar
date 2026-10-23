@@ -6,6 +6,8 @@ import {
   Alert,
   Modal,
   NativeModules,
+  PermissionsAndroid,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -73,6 +75,22 @@ export default function ScannerScreen() {
   const healthScore = Math.max(0, 100 - (faults.length * 13));
   const isHealthy = faults.length === 0 && !scanning;
 
+  async function garantirPermissoesBluetooth() {
+    if (Platform.OS !== "android" || Platform.Version < 31) return;
+
+    const permissoes = await PermissionsAndroid.requestMultiple([
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+    ]);
+    const autorizadas = Object.values(permissoes).every(
+      permissao => permissao === PermissionsAndroid.RESULTS.GRANTED,
+    );
+
+    if (!autorizadas) {
+      throw new Error("Permita o acesso a dispositivos Bluetooth próximos para conectar o scanner.");
+    }
+  }
+
   // Auto-Scan: Dispara a varredura automaticamente ao abrir a tela
   useEffect(() => {
     handleScan();
@@ -82,6 +100,7 @@ export default function ScannerScreen() {
    * @method connectToScanner
    */
   async function connectToScanner() {
+    await garantirPermissoesBluetooth();
     const devices = await RNBluetoothClassic.getBondedDevices();
     const obdDevice = devices.find((d: any) => 
       d.name && (
@@ -113,8 +132,13 @@ export default function ScannerScreen() {
     setScanStage("Negociando protocolo OBD-II...");
     setFaults([]); 
     setShowDbAlert(false);
+    let backgroundPollingPaused = false;
 
     try {
+      await garantirPermissoesBluetooth();
+      // Reserva o canal Bluetooth para a varredura até a ECU responder.
+      await OBDBluetooth.pauseBackgroundPolling(true);
+      backgroundPollingPaused = true;
       // UX Delay: Simula handshake
       await new Promise(resolve => setTimeout(resolve, 800));
       setScanStage("A consultar Centralina (ECU)...");
@@ -168,9 +192,15 @@ export default function ScannerScreen() {
 
     } catch (error) {
       setIsConnected(false);
-      Alert.alert("Aviso de Conexão", "Não foi possível extrair a matriz da ECU. Verifique a conexão Bluetooth.");
+      const mensagem = error instanceof Error && error.message.includes("Permita o acesso")
+        ? error.message
+        : "Não foi possível extrair a matriz da ECU. Verifique a conexão Bluetooth.";
+      Alert.alert("Aviso de Conexão", mensagem);
       console.log("[Scanner Error]", error);
     } finally {
+      if (backgroundPollingPaused) {
+        await OBDBluetooth.pauseBackgroundPolling(false).catch(() => {});
+      }
       setScanning(false);
       setScanStage("");
     }
@@ -190,7 +220,12 @@ export default function ScannerScreen() {
           style: "destructive",
           onPress: async () => {
             setClearing(true);
+            let backgroundPollingPaused = false;
             try {
+              await garantirPermissoesBluetooth();
+              // Evita que o serviço consuma a resposta do comando de limpeza (04).
+              await OBDBluetooth.pauseBackgroundPolling(true);
+              backgroundPollingPaused = true;
               try {
                 await OBDBluetooth.sendCommand("04");
               } catch (err) {
@@ -203,6 +238,9 @@ export default function ScannerScreen() {
               setIsConnected(false);
               Alert.alert("Erro de Comunicação", "O veículo recusou o comando de limpeza.");
             } finally {
+              if (backgroundPollingPaused) {
+                await OBDBluetooth.pauseBackgroundPolling(false).catch(() => {});
+              }
               setClearing(false);
             }
           }

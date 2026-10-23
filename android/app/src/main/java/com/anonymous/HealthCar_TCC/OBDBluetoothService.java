@@ -70,7 +70,14 @@ public class OBDBluetoothService extends Service {
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();
 
-        startForeground(1, notification);
+        try {
+            startForeground(1, notification);
+        } catch (Exception e) {
+            // Falhas de permissão ou configuração do serviço não devem encerrar o app inteiro.
+            Log.e("HealthCar_Background", "Não foi possível iniciar o serviço em primeiro plano.", e);
+            stopSelf(startId);
+            return START_NOT_STICKY;
+        }
 
         if (!isMonitoring) {
             iniciarLoopDeMonitoramento();

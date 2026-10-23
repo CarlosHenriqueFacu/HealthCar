@@ -157,7 +157,10 @@ export default function HomeScreen() {
         
         // Verifica status da conexão Bluetooth via Módulo Nativo
         const { OBDBluetooth } = NativeModules;
+        let deveReconectar = false;
         try {
+          // Evita leituras concorrentes enquanto a tela confirma a conexão existente.
+          await OBDBluetooth.pauseBackgroundPolling(true);
           const checkConnection = await OBDBluetooth.sendCommand("AT");
           if (checkConnection && !String(checkConnection).includes("ERR")) {
             if(veiculoSalvo.id){
@@ -168,14 +171,23 @@ export default function HomeScreen() {
                    ref_sessaoId.current = await iniciarSessaoLocal(veiculoSalvo.id, "ISO_15765-4");
                 }
             }
-            setIsActive(true);
             showPill("Conexão ativa sincronizada", "success");
             await sincronizarOdometroComEcu();
             await verificarFalhasEcu();
           } else {
-            tentarConexaoAutomatica(veiculoSalvo.id);
+            deveReconectar = true;
           }
-        } catch (e) { tentarConexaoAutomatica(veiculoSalvo.id); }
+        } catch (e) {
+          deveReconectar = true;
+        } finally {
+          await OBDBluetooth.pauseBackgroundPolling(false).catch(() => {});
+        }
+
+        if (deveReconectar) {
+          tentarConexaoAutomatica(veiculoSalvo.id);
+        } else {
+          setIsActive(true);
+        }
       } catch (e) { }
     }
     setTimeout(setupApp, 100);
@@ -269,6 +281,8 @@ export default function HomeScreen() {
    * Estabelece conexão serial RFCOMM com dispositivos emparelhados compatíveis.
    */
   async function tentarConexaoAutomatica(veiculoParamId?: string) {
+    let obdBluetooth: any = null;
+    let backgroundPollingPaused = false;
     try {
       const targetVehicleId = veiculoParamId || carroConfigurado.id;
       setIsConnecting(true);
@@ -298,7 +312,11 @@ export default function HomeScreen() {
 
       if (obdDevice) {
         const { OBDBluetooth } = NativeModules;
-        try { await OBDBluetooth.connect(obdDevice.address); } 
+        obdBluetooth = OBDBluetooth;
+        // Mantém o adaptador livre para o handshake e as primeiras leituras da tela.
+        await OBDBluetooth.pauseBackgroundPolling(true);
+        backgroundPollingPaused = true;
+        try { await OBDBluetooth.connect(obdDevice.address); }
         catch (e: any) { showPill(`Falha de conexão: ${e.message}`, "error"); setIsConnecting(false); return; }
 
         if(targetVehicleId){
@@ -307,7 +325,6 @@ export default function HomeScreen() {
             else ref_sessaoId.current = await iniciarSessaoLocal(targetVehicleId, "ISO_15765-4");
         }
 
-        setIsActive(true); 
         showPill("Conectado ao scanner OBD2 com sucesso!", "success");
 
         // Inicialização de hardware ELM327 (Comandos AT)
@@ -321,14 +338,20 @@ export default function HomeScreen() {
 
           await sincronizarOdometroComEcu();
           await verificarFalhasEcu(false);
+          setIsActive(true);
         } catch (erroLeitura) {
           setIsActive(false);
           ref_sessaoId.current = null;
           showPill("Sinal OBD2 perdido. Tentando restabelecer...", "error");
         }
       } else { showPill("Nenhum scanner OBD2 emparelhado.", "error"); }
-    } catch (error: any) { showPill(`Erro de conexão: ${error.message}`, "error"); } 
-    finally { setIsConnecting(false); }
+    } catch (error: any) { showPill(`Erro de conexão: ${error.message}`, "error"); }
+    finally {
+      if (backgroundPollingPaused && obdBluetooth) {
+        await obdBluetooth.pauseBackgroundPolling(false).catch(() => {});
+      }
+      setIsConnecting(false);
+    }
   }
 
   /**
