@@ -1,15 +1,16 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useEffect, useState } from "react";
-import { ActivityIndicator, Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import { ActivityIndicator, Alert, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import Svg, { Defs, Line, LinearGradient, Rect, Stop } from "react-native-svg";
 import { ScreenContainer } from "../../components/screen-container";
 import { useApp } from "../../contexts/AppContext";
+import { useAuth } from "../../contexts/AuthContext";
+import { useFocusEffect } from 'expo-router';
 
 // IMPORTAÇÃO DA CAMADA DE PERSISTÊNCIA (SQLite)
-import { obterDadosGrafico, obterHistoricoAbastecimento, obterResumoSessoes, salvarAbastecimentoLocal } from "../../database/database";
+import { obterDadosGrafico, obterHistoricoAbastecimento, obterResumoSessoes, obterVeiculoLocal, salvarAbastecimentoLocal } from "../../database/database";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -32,12 +33,18 @@ interface RefillData {
  */
 export default function FuelDetailsScreen() {
   const { theme, t } = useApp();
+  const { user, syncNow } = useAuth();
   
   // --- ESTADOS DA INTERFACE ---
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [currentLevel, setCurrentLevel] = useState<number>(0);
   const [abastecimentos, setAbastecimentos] = useState<RefillData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [vehicle, setVehicle] = useState<any>(null);
+  const [showRefuelForm, setShowRefuelForm] = useState(false);
+  const [litersInput, setLitersInput] = useState('');
+  const [costInput, setCostInput] = useState('');
+  const [mileageInput, setMileageInput] = useState('');
 
   // Paleta corporativa
   const isDark = theme === 'dark';
@@ -53,24 +60,27 @@ export default function FuelDetailsScreen() {
    * @effect Pipeline de Agregação Mista (Telemetria + CRUD Relacional)
    * @description Puxa o nível instantâneo da ECU e cruza com a tabela de abastecimento manual.
    */
-  async function carregarDadosCombustivel() {
+  const carregarDadosCombustivel = useCallback(async () => {
     setIsLoading(true);
+    setCurrentLevel(0);
+    setAbastecimentos([]);
     try {
       // 1. Extração do Nível Atual (Telemetria)
-      const sessoes = await obterResumoSessoes();
+      if (!user?.uid) return;
+      const currentVehicle = await obterVeiculoLocal(user.uid);
+      setVehicle(currentVehicle);
+      const sessoes = currentVehicle ? await obterResumoSessoes(user.uid, currentVehicle.id) : [];
       if (sessoes && sessoes.length > 0) {
         const sessaoAtiva: any = sessoes[0];
-        const leiturasCombustivel: any = await obterDadosGrafico(sessaoAtiva.id, "012F");
+        const leiturasCombustivel: any = await obterDadosGrafico(user.uid, sessaoAtiva.id, "012F");
         if (leiturasCombustivel && leiturasCombustivel.length > 0) {
           setCurrentLevel(leiturasCombustivel[leiturasCombustivel.length - 1].valor);
         }
       }
 
       // 2. Extração do Histórico de Abastecimento (Tabela CRUD)
-      const veiculoCadastrado = await AsyncStorage.getItem('@veiculo_cadastrado');
-      if (veiculoCadastrado) {
-        const veiculo = JSON.parse(veiculoCadastrado);
-        const historico: any = await obterHistoricoAbastecimento(veiculo.id);
+      if (currentVehicle) {
+        const historico: any = await obterHistoricoAbastecimento(user.uid, currentVehicle.id);
         
         if (historico && historico.length > 0) {
           const processado = historico.map((h: any) => {
@@ -93,35 +103,35 @@ export default function FuelDetailsScreen() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [user?.uid]);
 
-  useEffect(() => {
-    carregarDadosCombustivel();
-  }, []);
+  useFocusEffect(useCallback(() => {
+    void carregarDadosCombustivel();
+  }, [carregarDadosCombustivel]));
 
-  /**
-   * @method injectTestData
-   * @description Função de utilidade (apenas para ambiente de desenvolvimento) 
-   * que injeta logs fictícios na tabela 'abastecimento_local' para validar a renderização do SVG.
-   */
-  async function injectTestData() {
+  async function saveRefuel() {
+    const liters = Number(litersInput.replace(',', '.'));
+    const cost = Number(costInput.replace(',', '.'));
+    const mileage = Number(mileageInput.replace(/\D/g, ''));
+    if (!user?.uid || !vehicle) {
+      Alert.alert('Veículo não encontrado', 'Cadastre um veículo antes de registrar um abastecimento.');
+      return;
+    }
+    if (!Number.isFinite(liters) || liters <= 0 || !Number.isFinite(mileage) || mileage <= 0) {
+      Alert.alert('Confira os dados', 'Informe a quantidade de litros e a quilometragem.');
+      return;
+    }
     try {
-      const veiculoCadastrado = await AsyncStorage.getItem('@veiculo_cadastrado');
-      if (veiculoCadastrado) {
-        const veiculo = JSON.parse(veiculoCadastrado);
-        
-        // Injeta 3 abastecimentos simulados em datas diferentes (Timestamp)
-        await salvarAbastecimentoLocal(veiculo.id, 45, 250.50, 42100);
-        await new Promise(resolve => setTimeout(resolve, 100)); // Delay para timestamp diferente
-        await salvarAbastecimentoLocal(veiculo.id, 32, 180.00, 42550);
-        await new Promise(resolve => setTimeout(resolve, 100));
-        await salvarAbastecimentoLocal(veiculo.id, 40, 220.00, 43100);
-
-        console.log("Dados de teste injetados com sucesso!");
-        await carregarDadosCombustivel(); // Recarrega o gráfico na hora
-      }
+      await salvarAbastecimentoLocal(user.uid, vehicle.id, liters, Number.isFinite(cost) ? cost : 0, mileage);
+      setShowRefuelForm(false);
+      setLitersInput('');
+      setCostInput('');
+      setMileageInput('');
+      await carregarDadosCombustivel();
+      void syncNow().catch(() => {});
     } catch (error) {
-      console.log("Erro ao injetar dados:", error);
+      Alert.alert('Não foi possível salvar', 'O abastecimento não foi gravado no SQLite. Tente novamente.');
+      console.error('[Abastecimento] Falha ao gravar no SQLite:', error);
     }
   }
 
@@ -149,9 +159,8 @@ export default function FuelDetailsScreen() {
         </Pressable>
         <Text style={[styles.headerTitle, { color: textColor }]}>{t('combustivel')}</Text>
         
-        {/* BOTÃO DE INJEÇÃO DE DADOS (Exclusivo para Testes) */}
-        <Pressable onPress={injectTestData} style={styles.testBtn}>
-           <MaterialIcons name="science" size={20} color="#00B4FF" />
+        <Pressable onPress={() => { setMileageInput(String(vehicle?.km ?? '')); setShowRefuelForm(true); }} style={styles.testBtn}>
+           <MaterialIcons name="add" size={20} color="#00B4FF" />
         </Pressable>
       </View>
 
@@ -281,6 +290,21 @@ export default function FuelDetailsScreen() {
         </View>
 
       </ScrollView>
+
+      <Modal visible={showRefuelForm} transparent animationType="slide" onRequestClose={() => setShowRefuelForm(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: cardColor, borderColor }]}>
+            <View style={styles.modalTitleRow}>
+              <Text style={[styles.chartTitle, { color: textColor }]}>Registrar abastecimento</Text>
+              <Pressable onPress={() => setShowRefuelForm(false)}><MaterialIcons name="close" size={22} color={subTextColor} /></Pressable>
+            </View>
+            <TextInput value={litersInput} onChangeText={setLitersInput} placeholder="Litros" placeholderTextColor={subTextColor} keyboardType="decimal-pad" style={[styles.formInput, { color: textColor, borderColor, backgroundColor: bgColor }]} />
+            <TextInput value={costInput} onChangeText={setCostInput} placeholder="Valor total (R$)" placeholderTextColor={subTextColor} keyboardType="decimal-pad" style={[styles.formInput, { color: textColor, borderColor, backgroundColor: bgColor }]} />
+            <TextInput value={mileageInput} onChangeText={setMileageInput} placeholder="Quilometragem" placeholderTextColor={subTextColor} keyboardType="numeric" style={[styles.formInput, { color: textColor, borderColor, backgroundColor: bgColor }]} />
+            <Pressable onPress={() => void saveRefuel()} style={styles.saveButton}><Text style={styles.saveButtonText}>Salvar no aparelho</Text></Pressable>
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
@@ -291,6 +315,12 @@ const styles = StyleSheet.create({
   headerTitle: { flex: 1, fontSize: 18, fontWeight: "700" },
   headerSpacer: { width: 40 },
   testBtn: { padding: 8, backgroundColor: '#00B4FF22', borderRadius: 8 },
+  modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.7)' },
+  modalCard: { borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, padding: 20, paddingBottom: 34 },
+  modalTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  formInput: { borderWidth: 1, borderRadius: 12, minHeight: 48, marginBottom: 10, paddingHorizontal: 13 },
+  saveButton: { minHeight: 48, borderRadius: 12, backgroundColor: '#00B4FF', alignItems: 'center', justifyContent: 'center', marginTop: 5 },
+  saveButtonText: { color: '#04131A', fontSize: 14, fontWeight: '800' },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, gap: 16, paddingBottom: 40 },
   

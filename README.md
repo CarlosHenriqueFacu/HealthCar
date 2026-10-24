@@ -76,9 +76,10 @@ O app usa o Firebase JS SDK para cadastro, login e redefinição de senha por e-
 
    Para gerar o APK de teste, use `eas build --platform android --profile preview`. A configuração Firebase padrão já será incluída mesmo sem variáveis configuradas no ambiente do EAS.
 
-6. Para testar, crie uma conta pela tela de cadastro. Em **Authentication > Usuários**, confirme que a conta foi criada. Em **Firestore Database > Dados**, confirme o documento `users/{UID}` e os campos `email`, `displayName` e `vehicle`. Saia em **Configurações > Sair da conta** e entre novamente com o mesmo e-mail e senha.
+6. Para testar em aparelho, crie uma conta pela tela de cadastro. Em **Authentication > Usuários**, confirme que a conta foi criada. No Firestore, os dados ficam sob `users/{UID}`: o documento da conta, `vehicles/{vehicleId}` e subcoleções de viagens, manutenções, abastecimentos, falhas e blocos de telemetria. A tela **Configurações > Sincronização** mostra a fila pendente e permite solicitar uma sincronização.
+7. Com a conta conectada, registre uma manutenção e um abastecimento; depois faça uma leitura OBD para gerar viagem, telemetria ou falhas. Desative a internet e continue usando o app: os registros devem permanecer disponíveis no SQLite. Reative a rede e aguarde a fila sincronizar. Por fim, entre com a mesma conta em outro aparelho para conferir a restauração dos registros.
 
-O Firebase Authentication armazena as contas e credenciais. O perfil e os dados do veículo são gravados no Cloud Firestore e também no armazenamento local do dispositivo. As regras permitem que cada pessoa leia e altere somente o documento associado ao próprio UID. Não versione o arquivo `.env`.
+O SQLite é a base usada pelo app durante o uso. Cada registro local pertence ao UID autenticado e grava uma entrada na fila de sincronização; quando a rede está disponível, a fila é enviada ao Firestore e os dados da conta são restaurados no aparelho. A sessão do Firebase Auth identifica a conta, mas a operação offline continua disponível no aparelho que já contém os dados locais. As regras Firestore deste repositório limitam a leitura e gravação ao UID autenticado e devem ser publicadas no projeto Firebase antes do teste. Não versione o arquivo `.env`.
 
 ## Learn more
 

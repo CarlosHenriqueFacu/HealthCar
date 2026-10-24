@@ -6,6 +6,7 @@ import { router } from "expo-router";
 import Svg, { Defs, Line, LinearGradient, Rect, Stop } from "react-native-svg";
 import { ScreenContainer } from "../../components/screen-container";
 import { useApp } from "../../contexts/AppContext";
+import { useAuth } from "../../contexts/AuthContext";
 
 // IMPORTAÇÃO DA CAMADA DE PERSISTÊNCIA (SQLite)
 import { obterDadosGrafico, obterResumoSessoes } from "../../database/database";
@@ -30,6 +31,7 @@ interface RpmAggregatedData {
  */
 export default function RPMDetailsScreen() {
   const { theme, t } = useApp();
+  const { user } = useAuth();
   
   // --- ESTADOS DA INTERFACE ---
   const [selectedPeriod, setSelectedPeriod] = useState<number | null>(null);
@@ -55,13 +57,14 @@ export default function RPMDetailsScreen() {
   useEffect(() => {
     async function carregarTelemetriaRPM() {
       try {
-        const sessoes = await obterResumoSessoes();
+        if (!user?.uid) return;
+        const sessoes = await obterResumoSessoes(user.uid);
         
         if (sessoes && sessoes.length > 0) {
           const sessaoAtiva: any = sessoes[0];
           
           // Extrai leituras brutas do PID 010C (RPM)
-          const leiturasBrutas: any = await obterDadosGrafico(sessaoAtiva.id, "010C");
+          const leiturasBrutas: any = await obterDadosGrafico(user.uid, sessaoAtiva.id, "010C");
 
           if (leiturasBrutas && leiturasBrutas.length > 0) {
             // Atualiza o card superior com a última leitura capturada
@@ -105,7 +108,7 @@ export default function RPMDetailsScreen() {
     }
 
     carregarTelemetriaRPM();
-  }, []);
+  }, [user?.uid]);
 
   // --- ESTATÍSTICAS GLOBAIS DA SESSÃO ---
   const dataToRender = aggregatedData.length > 0 ? aggregatedData : [{ period: "N/A", peak: 0, avg: 0 }];

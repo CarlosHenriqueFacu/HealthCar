@@ -28,6 +28,8 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
     private InputStream inputStream;
     private OutputStream outputStream;
     private ReactApplicationContext reactContext;
+    // Serializa cada envio e sua resposta para a tela e o serviço não lerem o mesmo socket juntos.
+    private final Object ioLock = new Object();
     
     /** 
      * UUID padrão Universal para portas seriais (SPP - Serial Port Profile) no Bluetooth.
@@ -36,7 +38,7 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
     private static final UUID MY_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
 
     // SEMÁFORO: Controla quem está lendo o Bluetooth (App ou Serviço de Segundo Plano)
-    private boolean isAppPolling = false;
+    private volatile boolean isAppPolling = false;
 
     public OBDBluetoothModule(ReactApplicationContext reactContext) {
         super(reactContext);
@@ -87,95 +89,99 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void connect(String macAddress, Promise promise) {
-        try {
-            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-            if (adapter == null) {
-                promise.reject("ERR", "Hardware Bluetooth não suportado ou inoperante.");
-                return;
-            }
-
-            BluetoothDevice device = adapter.getRemoteDevice(macAddress);
-            adapter.cancelDiscovery(); 
-
-            int maxRetries = 5; 
-            int attempt = 0;
-            boolean connected = false;
-            Exception lastException = null;
-
-            while (attempt < maxRetries && !connected) {
-                try {
-                    attempt++;
-                    socket = device.createInsecureRfcommSocketToServiceRecord(MY_UUID);
-                    socket.connect();
-                    connected = true; 
-                } catch (Exception e) {
-                    lastException = e;
-                    if (socket != null) {
-                        try { socket.close(); } catch (Exception ignored) {}
-                    }
-                    Thread.sleep(500); 
+        synchronized (ioLock) {
+            try {
+                BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+                if (adapter == null) {
+                    promise.reject("ERR", "Hardware Bluetooth não suportado ou inoperante.");
+                    return;
                 }
-            }
 
-            if (connected) {
-                inputStream = socket.getInputStream();
-                outputStream = socket.getOutputStream();
-                startForegroundMonitor();
-                promise.resolve("Conectado com sucesso na tentativa " + attempt + "!");
-            } else {
-                promise.reject("ERR_CONNECTION", "Socket falhou após " + maxRetries + " tentativas. " + lastException.getMessage());
-            }
+                BluetoothDevice device = adapter.getRemoteDevice(macAddress);
+                adapter.cancelDiscovery();
 
-        } catch (Exception e) {
-            promise.reject("ERR_CONNECTION", "Falha crítica no adaptador: " + e.getMessage());
+                int maxRetries = 5;
+                int attempt = 0;
+                boolean connected = false;
+                Exception lastException = null;
+
+                while (attempt < maxRetries && !connected) {
+                    try {
+                        attempt++;
+                        socket = device.createInsecureRfcommSocketToServiceRecord(MY_UUID);
+                        socket.connect();
+                        connected = true;
+                    } catch (Exception e) {
+                        lastException = e;
+                        if (socket != null) {
+                            try { socket.close(); } catch (Exception ignored) {}
+                        }
+                        Thread.sleep(500);
+                    }
+                }
+
+                if (connected) {
+                    inputStream = socket.getInputStream();
+                    outputStream = socket.getOutputStream();
+                    startForegroundMonitor();
+                    promise.resolve("Conectado com sucesso na tentativa " + attempt + "!");
+                } else {
+                    promise.reject("ERR_CONNECTION", "Socket falhou após " + maxRetries + " tentativas. " + lastException.getMessage());
+                }
+
+            } catch (Exception e) {
+                promise.reject("ERR_CONNECTION", "Falha crítica no adaptador: " + e.getMessage());
+            }
         }
     }
 
     @ReactMethod
     public void sendCommand(String command, Promise promise) {
-        if (socket == null || !socket.isConnected() || inputStream == null || outputStream == null) {
-            promise.reject("ERR", "I/O stream bloqueado. Scanner inativo.");
-            return;
-        }
-
-        try {
-            while (inputStream.available() > 0) {
-                inputStream.read();
+        synchronized (ioLock) {
+            if (socket == null || !socket.isConnected() || inputStream == null || outputStream == null) {
+                promise.reject("ERR", "I/O stream bloqueado. Scanner inativo.");
+                return;
             }
 
-            String fullCommand = command + "\r";
-            outputStream.write(fullCommand.getBytes());
-            outputStream.flush();
-
-            StringBuilder response = new StringBuilder();
-            long startTime = System.currentTimeMillis();
-            long timeout = 2000; 
-
-            byte[] buffer = new byte[1024];
-
-            while ((System.currentTimeMillis() - startTime) < timeout) {
-                if (inputStream.available() > 0) {
-                    int bytesRead = inputStream.read(buffer);
-                    String chunk = new String(buffer, 0, bytesRead);
-                    response.append(chunk);
-
-                    if (response.toString().contains(">")) {
-                        promise.resolve(response.toString());
-                        return;
-                    }
-                } else {
-                    Thread.sleep(50);
+            try {
+                while (inputStream.available() > 0) {
+                    inputStream.read();
                 }
-            }
 
-            if (response.length() > 0) {
-                promise.resolve("INCOMPLETO: " + response.toString());
-            } else {
-                promise.reject("TIMEOUT", "Sem sinal do microcontrolador após 2000ms.");
-            }
+                String fullCommand = command + "\r";
+                outputStream.write(fullCommand.getBytes());
+                outputStream.flush();
 
-        } catch (Exception e) {
-            promise.reject("ERR_READ", "Falha catastrófica de I/O: " + e.getMessage());
+                StringBuilder response = new StringBuilder();
+                long startTime = System.currentTimeMillis();
+                long timeout = 2000;
+
+                byte[] buffer = new byte[1024];
+
+                while ((System.currentTimeMillis() - startTime) < timeout) {
+                    if (inputStream.available() > 0) {
+                        int bytesRead = inputStream.read(buffer);
+                        String chunk = new String(buffer, 0, bytesRead);
+                        response.append(chunk);
+
+                        if (response.toString().contains(">")) {
+                            promise.resolve(response.toString());
+                            return;
+                        }
+                    } else {
+                        Thread.sleep(50);
+                    }
+                }
+
+                if (response.length() > 0) {
+                    promise.resolve("INCOMPLETO: " + response.toString());
+                } else {
+                    promise.reject("TIMEOUT", "Sem sinal do microcontrolador após 2000ms.");
+                }
+
+            } catch (Exception e) {
+                promise.reject("ERR_READ", "Falha catastrófica de I/O: " + e.getMessage());
+            }
         }
     }
 
@@ -183,10 +189,15 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
     public void disconnect(Promise promise) {
         try {
             stopForegroundMonitor();
-            
-            if (inputStream != null) inputStream.close();
-            if (outputStream != null) outputStream.close();
-            if (socket != null) socket.close();
+
+            synchronized (ioLock) {
+                if (inputStream != null) inputStream.close();
+                if (outputStream != null) outputStream.close();
+                if (socket != null) socket.close();
+                inputStream = null;
+                outputStream = null;
+                socket = null;
+            }
             promise.resolve("Sessão finalizada graciosamente.");
         } catch (IOException e) {
             promise.reject("ERR", "Vazamento de memória detectado ao fechar conexões: " + e.getMessage());
@@ -206,35 +217,38 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
     }
 
     public String sendCommandNative(String command) {
-        if (!isConnectedNative()) return null;
+        synchronized (ioLock) {
+            if (!isConnectedNative()) return null;
 
-        try {
-            while (inputStream.available() > 0) inputStream.read();
+            try {
+                while (inputStream.available() > 0) inputStream.read();
 
-            String fullCommand = command + "\r";
-            outputStream.write(fullCommand.getBytes());
-            outputStream.flush();
+                String fullCommand = command + "\r";
+                outputStream.write(fullCommand.getBytes());
+                outputStream.flush();
 
-            StringBuilder response = new StringBuilder();
-            long startTime = System.currentTimeMillis();
-            
-            while ((System.currentTimeMillis() - startTime) < 2000) {
-                if (inputStream.available() > 0) {
-                    byte[] buffer = new byte[1024];
-                    int bytesRead = inputStream.read(buffer);
-                    response.append(new String(buffer, 0, bytesRead));
-                    
-                    if (response.toString().contains(">")) {
-                        return response.toString();
+                StringBuilder response = new StringBuilder();
+                long startTime = System.currentTimeMillis();
+
+                while ((System.currentTimeMillis() - startTime) < 2000) {
+                    if (inputStream.available() > 0) {
+                        byte[] buffer = new byte[1024];
+                        int bytesRead = inputStream.read(buffer);
+                        response.append(new String(buffer, 0, bytesRead));
+
+                        if (response.toString().contains(">")) {
+                            return response.toString();
+                        }
+                    } else {
+                        Thread.sleep(50);
                     }
-                } else {
-                    Thread.sleep(50);
                 }
+
+                return response.length() > 0 ? response.toString() : null;
+
+            } catch (Exception e) {
+                return null;
             }
-            return response.length() > 0 ? response.toString() : null;
-            
-        } catch (Exception e) {
-            return null;
         }
     }
 }
