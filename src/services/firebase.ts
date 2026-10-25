@@ -13,7 +13,7 @@ import {
   type User,
 } from 'firebase/auth';
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app';
-import { doc, getFirestore, serverTimestamp, setDoc } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey:
@@ -65,6 +65,10 @@ function getFirebaseApp() {
   return firebaseApp;
 }
 
+export function getFirebaseFirestore() {
+  return getFirestore(getFirebaseApp());
+}
+
 export function getFirebaseAuth() {
   if (authInstance) {
     return authInstance;
@@ -113,39 +117,6 @@ export async function loginWithEmail(email: string, password: string) {
     password,
   );
   return credential.user;
-}
-
-interface VehicleProfile {
-  marca: string;
-  veiculo: string;
-  motor: string;
-  ano: string;
-  km: string;
-  combustivel: string;
-}
-
-export async function saveUserProfile(
-  user: User,
-  profile: {
-    displayName: string;
-    firstName?: string;
-    lastName?: string;
-    email: string;
-    vehicle: VehicleProfile;
-  },
-) {
-  await setDoc(
-    doc(getFirestore(getFirebaseApp()), 'users', user.uid),
-    {
-      displayName: profile.displayName,
-      firstName: profile.firstName ?? null,
-      lastName: profile.lastName ?? null,
-      email: user.email ?? profile.email,
-      vehicle: profile.vehicle,
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true },
-  );
 }
 
 export function observeAuthState(

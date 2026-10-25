@@ -20,11 +20,8 @@ import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { BluetoothTutorialModal } from '../../components/ui/BluetoothTutorialModal';
 import { useAuth } from '../../contexts/AuthContext';
-import {
-  getAuthErrorMessage,
-  registerWithEmail,
-  saveUserProfile,
-} from '../../services/firebase';
+import { obterVeiculoLocal, salvarPerfilLocal, salvarVeiculoLocal } from '../../database/database';
+import { getAuthErrorMessage, registerWithEmail } from '../../services/firebase';
 import type { User } from 'firebase/auth';
 
 // ============================================================================
@@ -36,7 +33,7 @@ const OPCOES_MOTOR = ['1.0', '1.0 Turbo', '1.3', '1.4', '1.6', '1.8', '2.0', '2.
 
 export default function CadastroScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, syncNow } = useAuth();
   
   // ============================================================================
   // ESTADOS GLOBAIS DA INTERFACE
@@ -66,29 +63,30 @@ export default function CadastroScreen() {
   // ============================================================================
   useEffect(() => {
     const carregarDadosExistentes = async () => {
+      if (!user) {
+        setIsEditing(false);
+        return;
+      }
+      setIsEditing(true);
+
       try {
-        const dadosSalvos = await AsyncStorage.getItem('@veiculo_cadastrado');
-        if (dadosSalvos !== null) {
-          const parsed = JSON.parse(dadosSalvos);
-          
-          // Preenche os campos caso os dados já existam na persistência local
-          setMarca(parsed.marca || '');
-          setVeiculo(parsed.veiculo || '');
-          setMotor(parsed.motor || '');
-          setAno(parsed.ano || '');
-          setKm(parsed.km || '');
-          setCombustivel(parsed.combustivel || '');
-          
-          // Sinaliza ao componente que esta é uma sessão de edição, e não de criação
-          setIsEditing(true);
-        }
+        const parsed = await obterVeiculoLocal(user.uid);
+        if (!parsed) return;
+
+        setMarca(parsed.marca || '');
+        setVeiculo(parsed.veiculo || '');
+        setMotor(parsed.motor || '');
+        setAno(parsed.ano || '');
+        setKm(parsed.km || '');
+        setCombustivel(parsed.combustivel || '');
+        setIsEditing(true);
       } catch (error) {
         console.error("Falha ao recuperar os dados do veículo: ", error);
       }
     };
 
     carregarDadosExistentes();
-  }, []);
+  }, [user?.uid]);
 
   // ============================================================================
   // CONTROLADORES DE EVENTO
@@ -130,21 +128,27 @@ export default function CadastroScreen() {
         setNewlyRegisteredUser(authenticatedUser);
       }
 
-      const dadosVeiculo = { marca, veiculo, motor, ano, km, combustivel };
-
-      if (authenticatedUser) {
-        await saveUserProfile(authenticatedUser, {
-          displayName:
-            authenticatedUser.displayName ?? `${nome.trim()} ${sobrenome.trim()}`.trim(),
-          firstName: nome.trim() || undefined,
-          lastName: sobrenome.trim() || undefined,
-          email: authenticatedUser.email ?? email.trim(),
-          vehicle: dadosVeiculo,
-        });
+      if (!authenticatedUser) {
+        throw new Error('A sessão da conta não está disponível. Entre novamente e tente salvar.');
       }
-      
-      // Persistência local obrigatória dos parâmetros do veículo
-      await AsyncStorage.setItem('@veiculo_cadastrado', JSON.stringify(dadosVeiculo));
+
+      const dadosVeiculo = { marca, veiculo, motor, ano, km: km || '0', combustivel };
+      const cachedVehicle = await AsyncStorage.getItem('@veiculo_cadastrado');
+      const cachedId = isEditing && cachedVehicle ? JSON.parse(cachedVehicle)?.id : undefined;
+      const vehicleId = await salvarVeiculoLocal(authenticatedUser.uid, dadosVeiculo, cachedId);
+      await salvarPerfilLocal(authenticatedUser.uid, {
+        displayName: authenticatedUser.displayName ?? `${nome.trim()} ${sobrenome.trim()}`.trim(),
+        firstName: nome.trim() || authenticatedUser.displayName?.split(' ')[0],
+        lastName: sobrenome.trim() || undefined,
+        email: authenticatedUser.email ?? email.trim(),
+        vehicleId,
+      });
+      const vehicleCache = { ...dadosVeiculo, id: vehicleId };
+      await AsyncStorage.multiSet([
+        ['@veiculo_cadastrado', JSON.stringify(vehicleCache)],
+        ['@veiculo_cadastrado_uid', authenticatedUser.uid],
+      ]);
+      void syncNow().catch(() => {});
       
       // Rotina de roteamento condicional baseada no estado arquitetural
       if (isEditing) {
@@ -155,8 +159,8 @@ export default function CadastroScreen() {
         setShowBluetoothModal(true);
       }
     } catch (error) {
-      console.error('[Cadastro] Falha ao criar conta ou salvar perfil:', error);
-      Alert.alert('Não foi possível salvar', getAuthErrorMessage(error));
+      console.error('[Cadastro] Falha ao criar conta ou salvar dados locais:', error);
+      Alert.alert('Não foi possível salvar', error instanceof Error ? error.message : getAuthErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }

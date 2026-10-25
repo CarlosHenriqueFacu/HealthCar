@@ -23,11 +23,12 @@ import Animated, {
 import * as Notifications from 'expo-notifications';
 import RNBluetoothClassic from "react-native-bluetooth-classic";
 import { useApp } from '../contexts/AppContext';
+import { useAuth } from '../contexts/AuthContext';
 
 // ============================================================================
 // CAMADA DE PERSISTÊNCIA (DATA LAYER)
 // ============================================================================
-import { iniciarSessaoLocal, obterResumoSessoes, salvarLeituraTelemetria } from '@/database/database';
+import { atualizarDistanciaSessaoLocal, iniciarSessaoLocal, obterResumoSessoes, obterVeiculoLocal, salvarLeituraTelemetria } from '@/database/database';
 
 /**
  * Configuração do manipulador de notificações em foreground.
@@ -54,6 +55,9 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
  */
 export default function RealtimeScreen() {
   const { theme, t } = useApp();
+  const { user } = useAuth();
+  const tripStorageKey = user?.uid ? `@viagem_atual:${user.uid}` : null;
+  const faultCountStorageKey = user?.uid ? `@falhas_count:${user.uid}` : null;
   
   // Constantes de formatação do tema
   const isDark = theme === 'dark';
@@ -140,6 +144,9 @@ export default function RealtimeScreen() {
       let isActive = true; 
       let cicloLentoCounter = 0; 
       let amostragemDbCounter = 0;
+      currentSessionRef.current = null;
+      tripAccumulatorRef.current = 0;
+      setTripDistance(0);
 
       /**
        * 1. Sincronização Hand-off (Lê a Viagem Global onde a Home parou)
@@ -147,7 +154,7 @@ export default function RealtimeScreen() {
        */
       const syncViagemGlobal = async () => {
         try {
-          const viagemSalva = await AsyncStorage.getItem('@viagem_atual');
+          const viagemSalva = tripStorageKey ? await AsyncStorage.getItem(tripStorageKey) : null;
           if (viagemSalva) {
             const val = parseFloat(viagemSalva);
             if (!isNaN(val)) {
@@ -221,7 +228,7 @@ export default function RealtimeScreen() {
                 setTripDistance(tripAccumulatorRef.current);
                 
                 // Salva na Memória Global (Fire-and-Forget para não bloquear o loop de 1.2s)
-                AsyncStorage.setItem('@viagem_atual', tripAccumulatorRef.current.toString()).catch(() => {});
+                if (tripStorageKey) AsyncStorage.setItem(tripStorageKey, tripAccumulatorRef.current.toString()).catch(() => {});
               }
               lastSpeedTimeRef.current = now;
             }
@@ -288,10 +295,11 @@ export default function RealtimeScreen() {
             try {
               const sID = currentSessionRef.current;
               if (sID) {
-                if (realRpm > 0) await salvarLeituraTelemetria(sID, "010C", realRpm, "RPM");
-                if (currentSpeed > 0) await salvarLeituraTelemetria(sID, "010D", currentSpeed, "km/h");
-                if (currentTempRef.current > 0) await salvarLeituraTelemetria(sID, "0105", currentTempRef.current, "°C");
-                if (currentFuelRef.current > 0) await salvarLeituraTelemetria(sID, "012F", currentFuelRef.current, "%");
+                if (user?.uid && realRpm > 0) await salvarLeituraTelemetria(user.uid, sID, "010C", realRpm, "RPM");
+                if (user?.uid && currentSpeed > 0) await salvarLeituraTelemetria(user.uid, sID, "010D", currentSpeed, "km/h");
+                if (user?.uid && currentTempRef.current > 0) await salvarLeituraTelemetria(user.uid, sID, "0105", currentTempRef.current, "°C");
+                if (user?.uid && currentFuelRef.current > 0) await salvarLeituraTelemetria(user.uid, sID, "012F", currentFuelRef.current, "%");
+                if (user?.uid) await atualizarDistanciaSessaoLocal(user.uid, sID, Math.round(tripAccumulatorRef.current * 1000));
 
                 msgBanco = "\n[✔ DB LOCAL] Flush de Time-Series concluído.";
               } else {
@@ -305,15 +313,15 @@ export default function RealtimeScreen() {
             try {
                const falhasResp = await perguntarAoCarro("03");
                const currentErrors = contarErrosDTC(falhasResp);
-               const savedFaultsStr = await AsyncStorage.getItem('@falhas_count');
+               const savedFaultsStr = faultCountStorageKey ? await AsyncStorage.getItem(faultCountStorageKey) : null;
                const savedFaults = savedFaultsStr ? parseInt(savedFaultsStr) : 0;
 
                if (currentErrors > savedFaults && (now - alertThrottlerRef.current.dtc > 120000)) {
                   dispararAlerta("⚠️ Nova Falha Detectada", "O sistema de injeção registrou um novo código de erro em tempo real.");
-                  AsyncStorage.setItem('@falhas_count', currentErrors.toString()).catch(()=>{});
+                  if (faultCountStorageKey) AsyncStorage.setItem(faultCountStorageKey, currentErrors.toString()).catch(()=>{});
                   alertThrottlerRef.current.dtc = now;
                } else if (currentErrors < savedFaults) {
-                  AsyncStorage.setItem('@falhas_count', currentErrors.toString()).catch(()=>{});
+                  if (faultCountStorageKey) AsyncStorage.setItem(faultCountStorageKey, currentErrors.toString()).catch(()=>{});
                }
             } catch(e) {}
           }
@@ -350,23 +358,16 @@ export default function RealtimeScreen() {
 
           // Se nenhuma sessão de gravação estiver ativa, configura uma nova
           if (!currentSessionRef.current) {
-            let veiculoIdDB = "VEICULO_DESCONHECIDO";
-            try {
-              const veiculoCadastrado = await AsyncStorage.getItem('@veiculo_cadastrado');
-              if (veiculoCadastrado) {
-                const parsed = JSON.parse(veiculoCadastrado);
-                if (parsed && parsed.id) {
-                  veiculoIdDB = String(parsed.id);
-                }
-              }
-            } catch (e) {}
+            if (!user?.uid) throw new Error('A conta não está autenticada.');
+            const vehicle = await obterVeiculoLocal(user.uid);
+            if (!vehicle) throw new Error('Não há veículo local cadastrado para esta conta.');
             
             // Tenta pegar a sessão que a Home criou para gravar no mesmo "caderno"
-            const sessoes: any = await obterResumoSessoes();
+            const sessoes: any = await obterResumoSessoes(user.uid, vehicle.id);
             if(sessoes && sessoes.length > 0) {
                currentSessionRef.current = sessoes[0].id;
             } else {
-               currentSessionRef.current = await iniciarSessaoLocal(veiculoIdDB, "ISO_15765-4");
+               currentSessionRef.current = await iniciarSessaoLocal(user.uid, vehicle.id, "ISO_15765-4");
             }
           }
 
@@ -457,7 +458,7 @@ export default function RealtimeScreen() {
         // [SEMÁFORO LIBERADO] -> Avisa o Java que a tela fechou, ele pode voltar a monitorar em Background!
         try { OBDBluetooth.pauseBackgroundPolling(false); } catch (e) {}
       };
-    }, [])
+    }, [user?.uid, tripStorageKey, faultCountStorageKey])
   );
 
   /**

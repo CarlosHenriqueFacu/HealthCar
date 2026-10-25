@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "HealthCar_TCC",
+    "name": "HealthCar",
     "slug": "HealthCar_TCC",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -57,7 +57,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "69769b1a-cff1-4156-b4b0-0c66b8f36eac"
+        "projectId": "7f81350a-65d1-4aea-9128-1cb78afd10c4"
       }
     },
     "owner": ""

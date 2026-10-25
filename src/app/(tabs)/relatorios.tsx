@@ -2,29 +2,20 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { ScreenContainer } from '@/components/screen-container';
 import { HealthCarHeader } from '@/components/HealthCarHeader';
 import { useApp } from '@/contexts/AppContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { obterHistoricoAbastecimento, obterHistoricoManutencao, obterVeiculoLocal } from '@/database/database';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-// As séries abaixo preservam os dados demonstrativos já apresentados em Relatórios.
-const OIL_HISTORY = [
-  { date: '12/09/2025', km: '45.820', type: 'Sintético 5W-30', next: '48.320' },
-  { date: '15/03/2025', km: '43.100', type: 'Sintético 5W-30', next: '45.600' },
-  { date: '20/09/2024', km: '40.350', type: 'Sintético 5W-30', next: '42.850' },
-];
-
-const MAINTENANCE_HISTORY = [
-  { date: '12/09/2025', service: 'Troca de óleo e filtro', km: '45.820', cost: 'R$ 280' },
-  { date: '15/03/2025', service: 'Revisão dos freios', km: '43.100', cost: 'R$ 450' },
-  { date: '10/01/2025', service: 'Alinhamento e balanceamento', km: '41.800', cost: 'R$ 120' },
-  { date: '20/09/2024', service: 'Troca de velas de ignição', km: '40.350', cost: 'R$ 380' },
-  { date: '05/06/2024', service: 'Filtro de ar e cabine', km: '38.900', cost: 'R$ 95' },
-];
-
-// Dados para o gráfico existente de litros abastecidos por mês.
-const MONTHLY_FUEL = [18, 22, 19, 25, 21, 28, 24, 20, 26, 23, 19, 22];
 const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
 export default function ReportsScreen() {
   const { theme, t } = useApp();
+  const { user } = useAuth();
+  const [maintenanceHistory, setMaintenanceHistory] = useState<any[]>([]);
+  const [refuelHistory, setRefuelHistory] = useState<any[]>([]);
+  const [currentVehicle, setCurrentVehicle] = useState<any>(null);
   const isDark = theme === 'dark';
   const background = isDark ? '#0A0A0F' : '#F1F5F9';
   const card = isDark ? '#12141A' : '#FFFFFF';
@@ -32,14 +23,47 @@ export default function ReportsScreen() {
   const muted = isDark ? '#8892A4' : '#64748B';
   const border = isDark ? '#252B37' : '#E2E8F0';
   const track = isDark ? '#252B37' : '#CBD5E1';
-  const maxFuel = Math.max(...MONTHLY_FUEL);
-  const totalFuel = MONTHLY_FUEL.reduce((sum, value) => sum + value, 0);
-  // Os cartões de resumo são derivados dos mesmos registros demonstrativos exibidos abaixo.
-  const totalMaintenance = MAINTENANCE_HISTORY.reduce(
-    (sum, item) => sum + Number(item.cost.replace(/\D/g, '')),
-    0,
-  );
+  const monthlyFuel = Array.from({ length: 12 }, (_, month) => refuelHistory
+    .filter((entry) => new Date(entry.dataAbastecimento).getFullYear() === new Date().getFullYear()
+      && new Date(entry.dataAbastecimento).getMonth() === month)
+    .reduce((sum, entry) => sum + Number(entry.litros ?? 0), 0));
+  const maxFuel = Math.max(...monthlyFuel, 1);
+  const totalFuel = refuelHistory.reduce((sum, item) => sum + Number(item.litros ?? 0), 0);
+  const totalMaintenance = maintenanceHistory.reduce((sum, item) => sum + Number(item.custo ?? 0), 0);
   const formattedMaintenance = totalMaintenance.toLocaleString('pt-BR');
+  const oilHistory = maintenanceHistory
+    .filter((item) => /óleo|oleo/i.test(String(item.tipo)))
+    .slice(0, 3)
+    .map((item) => ({
+      date: new Date(item.dataRealizada).toLocaleDateString('pt-BR'),
+      km: Number(item.kmNaOcasiao).toLocaleString('pt-BR'),
+      kmValue: Number(item.kmNaOcasiao),
+      type: String(item.tipo),
+      next: item.proximoKm ? Number(item.proximoKm).toLocaleString('pt-BR') : '—',
+      nextKm: Number(item.proximoKm ?? 0),
+    }));
+  const currentKm = Number(currentVehicle?.km ?? 0);
+  const nextOilKm = oilHistory[0]?.nextKm ?? 0;
+  const oilRemaining = nextOilKm ? Math.max(0, nextOilKm - currentKm) : 0;
+  const oilInterval = nextOilKm ? Math.max(1, nextOilKm - oilHistory[0].kmValue) : 1;
+  const oilProgress = nextOilKm ? Math.max(0, Math.min(100, (oilRemaining / oilInterval) * 100)) : 0;
+
+  const loadReports = useCallback(async () => {
+    if (!user?.uid) return;
+    const vehicle = await obterVeiculoLocal(user.uid);
+    setCurrentVehicle(vehicle);
+    if (!vehicle) {
+      setMaintenanceHistory([]);
+      setRefuelHistory([]);
+      return;
+    }
+    setMaintenanceHistory(await obterHistoricoManutencao(user.uid, vehicle.id));
+    setRefuelHistory(await obterHistoricoAbastecimento(user.uid, vehicle.id));
+  }, [user?.uid]);
+
+  useFocusEffect(useCallback(() => {
+    void loadReports();
+  }, [loadReports]));
 
   return (
     <ScreenContainer style={{ backgroundColor: background }} edges={['top', 'left', 'right']}>
@@ -72,7 +96,7 @@ export default function ReportsScreen() {
               <Text style={[styles.metricLabel, { color: muted }]}>Abastecimentos</Text>
             </View>
             <Text style={[styles.metricValue, { color: text }]}>{totalFuel} L</Text>
-            <Text style={[styles.metricCaption, { color: muted }]}>Registros mensais</Text>
+            <Text style={[styles.metricCaption, { color: muted }]}>Histórico registrado</Text>
           </View>
         </View>
 
@@ -88,7 +112,7 @@ export default function ReportsScreen() {
             </View>
             <Text style={[styles.summaryValue, { color: text }]}>R$ {formattedMaintenance}</Text>
             <Text style={[styles.summaryCaption, { color: muted }]}>
-              {MAINTENANCE_HISTORY.length} serviços no histórico de manutenção.
+              {maintenanceHistory.length} serviços no histórico de manutenção.
             </Text>
           </View>
         </View>
@@ -100,7 +124,7 @@ export default function ReportsScreen() {
           <Text style={[styles.cardTitle, { color: text }]}>{t('litrosAbastecidos')}</Text>
           <Text style={[styles.cardSubtitle, { color: muted }]}>Acompanhe os litros registrados ao longo do ano.</Text>
           <View style={styles.chart}>
-            {MONTHLY_FUEL.map((value, index) => {
+            {monthlyFuel.map((value, index) => {
               const height = (value / maxFuel) * 78;
               const isMax = value === maxFuel;
               return (
@@ -125,13 +149,13 @@ export default function ReportsScreen() {
               <MaterialIcons name="opacity" size={20} color="#FFB300" />
             </View>
             <View style={styles.oilCopy}>
-              <Text style={[styles.cardTitle, { color: text }]}>{t('faltamKm')} 2.400 km</Text>
-              <Text style={[styles.cardSubtitle, { color: muted }]}>52% {t('doIntervalo')}</Text>
+              <Text style={[styles.cardTitle, { color: text }]}>{nextOilKm ? `${t('faltamKm')} ${oilRemaining.toLocaleString('pt-BR')} km` : 'Sem próxima troca registrada'}</Text>
+              <Text style={[styles.cardSubtitle, { color: muted }]}>{nextOilKm ? `Atual: ${currentKm.toLocaleString('pt-BR')} km · próxima: ${nextOilKm.toLocaleString('pt-BR')} km` : 'Registre a próxima troca na manutenção.'}</Text>
             </View>
-            <Text style={styles.oilPercent}>52%</Text>
+            {nextOilKm > 0 && <Text style={styles.oilPercent}>{Math.round(oilProgress)}%</Text>}
           </View>
           <View style={[styles.oilTrack, { backgroundColor: track }]}>
-            <View style={styles.oilFill} />
+            <View style={[styles.oilFill, { width: `${oilProgress}%` }]} />
           </View>
         </View>
 
@@ -139,11 +163,12 @@ export default function ReportsScreen() {
           <Text style={[styles.sectionTitle, { color: text }]}>{t('historicoOleo')}</Text>
         </View>
         <View style={[styles.sectionCard, { backgroundColor: card, borderColor: border }]}>
-          {OIL_HISTORY.map((item, index) => (
+          {oilHistory.length === 0 && <Text style={[styles.historySubtitle, { color: muted }]}>Nenhuma troca de óleo registrada.</Text>}
+          {oilHistory.map((item, index) => (
             <View key={`${item.date}-${item.km}`} style={styles.oilHistoryRow}>
               <View style={styles.timelineColumn}>
                 <View style={styles.timelineDot} />
-                {index < OIL_HISTORY.length - 1 && <View style={[styles.timelineLine, { backgroundColor: track }]} />}
+                {index < oilHistory.length - 1 && <View style={[styles.timelineLine, { backgroundColor: track }]} />}
               </View>
               <View style={styles.historyCopy}>
                 <Text style={[styles.historyDate, { color: muted }]}>{item.date}</Text>
@@ -158,13 +183,14 @@ export default function ReportsScreen() {
           <Text style={[styles.sectionTitle, { color: text }]}>{t('historicoManutencao')}</Text>
         </View>
         <View style={[styles.sectionCard, { backgroundColor: card, borderColor: border }]}>
-          {MAINTENANCE_HISTORY.map((item, index) => (
-            <View key={`${item.date}-${item.service}`} style={[styles.maintenanceRow, index > 0 && { borderTopColor: border, borderTopWidth: 1 }]}>
+          {maintenanceHistory.length === 0 && <Text style={[styles.historySubtitle, { color: muted }]}>Nenhuma manutenção registrada.</Text>}
+          {maintenanceHistory.map((item, index) => (
+            <View key={item.id} style={[styles.maintenanceRow, index > 0 && { borderTopColor: border, borderTopWidth: 1 }]}>
               <View style={styles.maintenanceRowCopy}>
-                <Text style={[styles.historyDate, { color: muted }]}>{item.date} · {item.km} km</Text>
-                <Text style={[styles.historyTitle, { color: text }]}>{item.service}</Text>
+                <Text style={[styles.historyDate, { color: muted }]}>{new Date(item.dataRealizada).toLocaleDateString('pt-BR')} · {Number(item.kmNaOcasiao).toLocaleString('pt-BR')} km</Text>
+                <Text style={[styles.historyTitle, { color: text }]}>{item.tipo}</Text>
               </View>
-              <Text style={styles.cost}>{item.cost}</Text>
+              <Text style={styles.cost}>{Number(item.custo ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</Text>
             </View>
           ))}
         </View>

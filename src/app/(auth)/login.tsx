@@ -47,8 +47,8 @@ export default function LoginScreen() {
       // Integração com a camada de serviço (BaaS)
       await loginWithEmail(email, senha);
       
-      // Sucesso na autenticação: Retorna para o stack de navegação anterior (Dashboard)
-      router.back();
+      // O guard aguarda a restauração local da conta antes de liberar o Dashboard.
+      router.replace('/(tabs)' as any);
     } catch (error) {
       console.error('[Auth_Login] Falha ao autenticar com e-mail:', error);
       Alert.alert('Falha na Autenticação', getAuthErrorMessage(error));
@@ -140,7 +140,7 @@ export default function LoginScreen() {
           {/* ================= REDIRECIONAMENTO ONBOARDING ================= */}
           <View style={styles.registerContainer}>
             <ThemedText style={styles.registerText}>Ainda não possui acesso? </ThemedText>
-            <TouchableOpacity onPress={() => router.push('/cadastro' as any)} disabled={isSubmitting}>
+            <TouchableOpacity onPress={() => router.push('/(auth)/cadastro' as any)} disabled={isSubmitting}>
               <ThemedText style={styles.registerLink}>Cadastre-se agora</ThemedText>
             </TouchableOpacity>
           </View>
