@@ -14,6 +14,7 @@ import {
 
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
+import { TermsModal } from '../../components/TermsModal'; 
 import { getAuthErrorMessage, loginWithEmail } from '../../services/firebase';
 
 /**
@@ -28,21 +29,35 @@ export default function LoginScreen() {
   const [email, setEmail] = useState<string>('');
   const [senha, setSenha] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  
+  // Controle do modal de Termos de Uso
+  const [showTermsModal, setShowTermsModal] = useState<boolean>(false);
 
   /**
    * @method handleLogin
-   * @description Valida o formulário localmente e orquestra a chamada de autenticação 
-   * no provedor de identidade (Firebase). Previne concorrência de requisições travando 
-   * o estado de submissão.
+   * @description Valida o formulário localmente e exibe os termos de responsabilidade
+   * antes de orquestrar a chamada de autenticação.
    */
-  const handleLogin = async (): Promise<void> => {
+  const handleLogin = (): void => {
     // Validação de Frontend (Early Return)
     if (!email.trim() || !senha) {
       Alert.alert('Campos obrigatórios', 'Informe seu e-mail e sua senha para prosseguir.');
       return;
     }
 
+    // Intercepta a tentativa de login e obriga o aceite dos termos
+    setShowTermsModal(true);
+  };
+
+  /**
+   * @method prosseguirComLogin
+   * @description Função executada somente se o usuário aceitar os Termos no Modal.
+   * Dispara a comunicação com o provedor de identidade (Firebase).
+   */
+  const prosseguirComLogin = async (): Promise<void> => {
+    setShowTermsModal(false); // Esconde o termo da frente
     setIsSubmitting(true);
+    
     try {
       // Integração com a camada de serviço (BaaS)
       await loginWithEmail(email, senha);
@@ -66,13 +81,9 @@ export default function LoginScreen() {
       >
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           
-          {/* ================= HEADER (Navegação) ================= */}
+          {/* ================= HEADER (Título) ================= */}
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} disabled={isSubmitting}>
-              <MaterialIcons name="arrow-back" size={24} color="#F0F2FF" />
-            </TouchableOpacity>
             <ThemedText type="title" style={styles.titulo}>Autenticação</ThemedText>
-            <View style={{ width: 40 }} />
           </View>
 
           {/* ================= BRANDING & BOAS-VINDAS ================= */}
@@ -147,6 +158,14 @@ export default function LoginScreen() {
 
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* NOVO: Modal de Termos de Responsabilidade e Privacidade */}
+      <TermsModal 
+        visible={showTermsModal} 
+        onAccept={prosseguirComLogin} 
+        onDecline={() => setShowTermsModal(false)} 
+      />
+
     </ThemedView>
   );
 }
@@ -166,20 +185,13 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center', // Alterado para centralizar o título
     marginBottom: 32,
     position: 'absolute',
     top: 40,
     left: 24,
     right: 24,
     zIndex: 10,
-  },
-  backBtn: {
-    padding: 8,
-    backgroundColor: '#12141A',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#1E2235',
   },
   titulo: {
     fontSize: 20,

@@ -1,38 +1,24 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { useFocusEffect } from "expo-router";
 import { useApp } from '../contexts/AppContext';
+import { useAuth } from '../contexts/AuthContext';
+import { obterDadosGrafico, obterResumoSessoes } from '../database/database';
 
-/**
- * @interface FuelChartProps
- * @description Propriedades aceites pelo componente de gráfico de consumo.
- */
 interface FuelChartProps {
-  /** Array numérico com o volume consumido (em litros) por período */
-  data?: number[];
-  /** 
-   * Array de strings (Opcional). Se não fornecido, o componente utilizará 
-   * os rótulos de dias da semana baseados no idioma atual do sistema (PT/EN).
-   */
-  labels?: string[];
-  /** Callback executado ao interagir (tocar) na área do gráfico */
   onPress?: () => void;
 }
 
-const DEFAULT_DATA = [32, 45, 28, 55, 40, 62, 38];
+const CAPACIDADE_TANQUE_LITROS = 50; 
 
-/**
- * Componente FuelChart
- * @description Exibe um gráfico de barras vertical representando o consumo
- * diário de combustível. Suporta injeção dinâmica de temas e internacionalização.
- */
-export function FuelChart({ 
-  data = DEFAULT_DATA, 
-  labels,
-  onPress
-}: FuelChartProps) {
-  // Extração do estado global de tema e dicionário de traduções (t)
+export function FuelChart({ onPress }: FuelChartProps) {
   const { theme, t } = useApp();
+  const { user } = useAuth();
   
-  // Resolução da paleta dinâmica baseada no tema ativo
+  const [chartData, setChartData] = useState<number[]>([0, 0, 0, 0, 0, 0, 0]);
+  const [chartLabels, setChartLabels] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
   const isDark = theme === 'dark';
   const cardColor = isDark ? '#12141A' : '#FFFFFF';
   const borderColor = isDark ? '#1E2235' : '#E2E8F0';
@@ -40,12 +26,87 @@ export function FuelChart({
   const subTextColor = isDark ? '#8892A4' : '#64748B';
   const trackColor = isDark ? '#1E2235' : '#CBD5E1';
 
-  // Determina os rótulos do eixo X de forma inteligente
-  // Usa o array fornecido por props OU pega do dicionário internacionalizado (Seg-Dom / Mon-Sun)
-  const chartLabels = labels || [t('seg'), t('ter'), t('qua'), t('qui'), t('sex'), t('sab'), t('dom')];
+  const processarConsumoReal = async () => {
+    try {
+      if (!user?.uid) return;
+      const sessoes = await obterResumoSessoes(user.uid);
+      
+      const defaultLabels = [t('dom'), t('seg'), t('ter'), t('qua'), t('qui'), t('sex'), t('sab')];
+      
+      if (!sessoes || sessoes.length === 0) {
+        setChartLabels(defaultLabels.map(l => l.substring(0,3)));
+        setIsLoading(false);
+        return;
+      }
 
-  // Cálculo do valor máximo para normalização proporcional das barras
-  const maxVal = Math.max(...data);
+      const agora = Date.now();
+      const seteDiasMs = 7 * 24 * 60 * 60 * 1000;
+      const limiteSeteDias = agora - seteDiasMs;
+      
+      const sessoesValidas = sessoes.filter((s: any) => s.inicio >= limiteSeteDias);
+      const mapaDias: { [key: number]: { distMeters: number, fuelDroppedPerc: number } } = {};
+
+      for (const sessao of sessoesValidas) {
+        const diaIndex = new Date(sessao.inicio).getDay(); // 0 a 6
+        
+        const leiturasCombustivel: any = await obterDadosGrafico(user.uid, sessao.id, "012F");
+        
+        let variacaoCombustivel = 0;
+        if (leiturasCombustivel && leiturasCombustivel.length >= 2) {
+          const combustivelInicio = leiturasCombustivel[0].valor;
+          const combustivelFim = leiturasCombustivel[leiturasCombustivel.length - 1].valor;
+          if (combustivelInicio > combustivelFim) {
+              variacaoCombustivel = combustivelInicio - combustivelFim;
+          }
+        }
+
+        const distanciaSessaoMeters = sessao.distanciaPercorrida || 0;
+
+        if (!mapaDias[diaIndex]) {
+            mapaDias[diaIndex] = { distMeters: 0, fuelDroppedPerc: 0 };
+        }
+        
+        mapaDias[diaIndex].distMeters += distanciaSessaoMeters;
+        mapaDias[diaIndex].fuelDroppedPerc += variacaoCombustivel;
+      }
+
+      const dataArray = [0, 0, 0, 0, 0, 0, 0];
+      for (let i = 0; i < 7; i++) {
+          if (mapaDias[i] && mapaDias[i].distMeters > 0 && mapaDias[i].fuelDroppedPerc > 0) {
+              const litrosConsumidos = (mapaDias[i].fuelDroppedPerc / 100) * CAPACIDADE_TANQUE_LITROS;
+              dataArray[i] = parseFloat(litrosConsumidos.toFixed(1));
+          }
+      }
+
+      // Reorganiza o array para que o dia atual fique na última posição do gráfico (à direita)
+      const hojeIndex = new Date().getDay();
+      const orderedData = [];
+      const orderedLabels = [];
+      
+      for (let i = 1; i <= 7; i++) {
+         const targetIndex = (hojeIndex + i) % 7;
+         orderedData.push(dataArray[targetIndex]);
+         orderedLabels.push(defaultLabels[targetIndex].substring(0, 3));
+      }
+
+      setChartData(orderedData);
+      setChartLabels(orderedLabels);
+      
+    } catch (error) {
+      console.log("[FuelChart Error]", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      processarConsumoReal();
+    }, [user?.uid])
+  );
+
+  const maxVal = Math.max(...chartData, 1); // Evita divisão por zero
+  const isAllZero = chartData.every(val => val === 0);
 
   return (
     <Pressable 
@@ -53,42 +114,50 @@ export function FuelChart({
       style={({ pressed }) => [
         styles.container,
         { backgroundColor: cardColor, borderColor: borderColor },
-        pressed && { opacity: 0.8 } // Feedback visual tátil
+        pressed && { opacity: 0.8 } 
       ]}
     >
       <Text style={[styles.title, { color: textColor }]}>{t('consumoSemanal')}</Text>
       <Text style={[styles.subtitle, { color: subTextColor }]}>{t('litrosPorDia')}</Text>
 
-      <View style={styles.chartArea}>
-        {data.map((val, i) => {
-          // Normaliza a altura da barra entre 0 e 100%
-          const heightPct = (val / maxVal) * 100;
-          const isMax = val === maxVal;
-          
-          return (
-            <View key={i} style={styles.barWrapper}>
-              <Text style={[styles.barValue, { color: subTextColor }, isMax && styles.barValueMax]}>
-                {val}L
-              </Text>
-              <View style={[styles.barTrack, { backgroundColor: trackColor }]}>
-                <View
-                  style={[
-                    styles.barFill,
-                    { height: `${heightPct}%` as any },
-                    isMax && styles.barFillMax,
-                  ]}
-                />
+      {isLoading ? (
+         <View style={[styles.chartArea, { justifyContent: 'center', alignItems: 'center' }]}>
+            <ActivityIndicator size="small" color="#00B4FF" />
+         </View>
+      ) : isAllZero ? (
+         <View style={[styles.chartArea, { justifyContent: 'center', alignItems: 'center' }]}>
+            <Text style={{ color: subTextColor, fontSize: 11 }}>Sem dados registados nesta semana.</Text>
+         </View>
+      ) : (
+        <View style={styles.chartArea}>
+          {chartData.map((val, i) => {
+            const heightPct = (val / maxVal) * 100;
+            const isMax = val === maxVal && val > 0;
+            
+            return (
+              <View key={i} style={styles.barWrapper}>
+                <Text style={[styles.barValue, { color: subTextColor }, isMax && styles.barValueMax]}>
+                  {val > 0 ? `${val}L` : ''}
+                </Text>
+                <View style={[styles.barTrack, { backgroundColor: trackColor }]}>
+                  <View
+                    style={[
+                      styles.barFill,
+                      { height: `${heightPct}%` as any },
+                      isMax && styles.barFillMax,
+                    ]}
+                  />
+                </View>
+                <Text style={[styles.barLabel, { color: subTextColor }]}>{chartLabels[i]}</Text>
               </View>
-              <Text style={[styles.barLabel, { color: subTextColor }]}>{chartLabels[i]}</Text>
-            </View>
-          );
-        })}
-      </View>
+            );
+          })}
+        </View>
+      )}
     </Pressable>
   );
 }
 
-// Estilos base de layout da interface
 const styles = StyleSheet.create({
   container: {
     borderRadius: 16,
@@ -148,5 +217,6 @@ const styles = StyleSheet.create({
   barLabel: {
     fontSize: 10,
     marginTop: 6,
+    textTransform: 'capitalize'
   },
 });

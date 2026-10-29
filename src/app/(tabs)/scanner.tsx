@@ -51,18 +51,21 @@ const DTC_DICTIONARY: Record<string, { desc: string, system: string, severity: "
   "P0133": { desc: "Resposta lenta do sensor de oxigênio (O2)", system: "Emissões", severity: "warning" },
 };
 
-/**
- * @component ScannerScreen
- * @description Interface de diagnóstico profissional (OBD-II). Realiza varreduras ativas 
- * na ECU do veículo para extrair Códigos de Falha (DTCs). 
- * NOTA DE SEGURANÇA (SECURITY POLICY): A função Mode 04 (Clear Trouble Codes) foi desativada
- * por regra de negócio para evitar que o usuário mascare falhas mecânicas severas.
- */
+// ==============================================================================
+// NOVA FUNÇÃO DE SEGURANÇA: TIMEOUT
+// Aborta qualquer operação que demore mais que o tempo estipulado em milissegundos
+// ==============================================================================
+const comTimeout = (promessa: Promise<any>, tempoMs: number, mensagemErro: string) => {
+  return Promise.race([
+    promessa,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(mensagemErro)), tempoMs))
+  ]);
+};
+
 export default function ScannerScreen() {
   const { theme, t } = useApp();
   const { user } = useAuth();
   
-  // --- CONFIGURAÇÃO DE TEMA (DESIGN SYSTEM) ---
   const isDark = theme === 'dark';
   const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
   const cardColor = isDark ? '#12141A' : '#FFFFFF';
@@ -70,16 +73,13 @@ export default function ScannerScreen() {
   const subTextColor = isDark ? '#8892A4' : '#64748B';
   const borderColor = isDark ? '#1E2235' : '#E2E8F0';
 
-  // --- CONTROLE DE ESTADO DA VIEW ---
   const [scanning, setScanning] = useState(false);
-  // Estado usado apenas no indicador visual de conexão do adaptador.
   const [isConnected, setIsConnected] = useState(false);
-  const [scanStage, setScanStage] = useState(""); // Controle de UX: Feedback de Estágios
+  const [scanStage, setScanStage] = useState(""); 
   const [clearing, setClearing] = useState(false);
   const [faults, setFaults] = useState<any[]>([]);
   const [showDbAlert, setShowDbAlert] = useState(false); 
 
-  // Algoritmo de cálculo de pontuação de saúde veicular
   const healthScore = Math.max(0, 100 - (faults.length * 13));
   const isHealthy = faults.length === 0 && !scanning;
 
@@ -97,19 +97,10 @@ export default function ScannerScreen() {
       }
     }
 
-    /*
-     * useEffect Boot Lifecycle
-     * Dispara a varredura de diagnóstico no momento em que a View é montada.
-     */
     useEffect(() => {
       handleScan();
     }, []);
 
-  /**
-   * @method connectToScanner
-   * @description Estabelece um socket RFCOMM isolado para leitura de dados de falha.
-   * Utilizado como Fallback (Recuperação) caso o handshake principal caia.
-   */
   async function connectToScanner() {
     await garantirPermissoesBluetooth();
     const devices = await RNBluetoothClassic.getBondedDevices();
@@ -123,9 +114,14 @@ export default function ScannerScreen() {
     
     if (!obdDevice) throw new Error("Nenhum scanner pareado");
     
-    await OBDBluetooth.connect(obdDevice.address);
+    setScanStage("Conectando ao adaptador Bluetooth...");
     
-    // Configuração ISO do adaptador ELM327
+    // =========================================================
+    // USO DO TIMEOUT: Aguarda no máximo 12 segundos para ligar
+    // =========================================================
+    await comTimeout(OBDBluetooth.connect(obdDevice.address), 12000, "TIMEOUT_CONEXAO");
+    
+    setScanStage("Configurando protocolos ISO/SAE...");
     await OBDBluetooth.sendCommand("ATZ");
     await new Promise(resolve => setTimeout(resolve, 1000));
     await OBDBluetooth.sendCommand("ATE0");
@@ -135,11 +131,6 @@ export default function ScannerScreen() {
     setIsConnected(true);
   }
 
-  /**
-   * @method handleScan
-   * @description Solicita a matriz de falhas (Mode 03).
-   * Contém UX Delay (Pausas Controladas) para prover credibilidade analítica ao usuário.
-   */
   async function handleScan() {
     setScanning(true);
     setScanStage("Negociando protocolo OBD-II...");
@@ -149,19 +140,20 @@ export default function ScannerScreen() {
 
     try {
       await garantirPermissoesBluetooth();
-      // Reserva o canal Bluetooth para a varredura até a ECU responder.
       await OBDBluetooth.pauseBackgroundPolling(true);
       backgroundPollingPaused = true;
-      // UX Delay: Simula handshake
       await new Promise(resolve => setTimeout(resolve, 800));
       setScanStage("A consultar Centralina (ECU)...");
       
       let resp;
       try {
-        resp = await OBDBluetooth.sendCommand("03"); // ISO Request: Show stored DTCs
+        // =========================================================
+        // USO DO TIMEOUT: Aguarda no máximo 6 segundos pela ECU
+        // =========================================================
+        resp = await comTimeout(OBDBluetooth.sendCommand("03"), 6000, "TIMEOUT_SCAN");
       } catch (err) {
-        await connectToScanner(); // Tentativa de recuperação de malha
-        resp = await OBDBluetooth.sendCommand("03");
+        await connectToScanner(); 
+        resp = await comTimeout(OBDBluetooth.sendCommand("03"), 8000, "TIMEOUT_SCAN");
       }
       
       if (!resp || String(resp).includes("TIMEOUT") || String(resp).includes("INCOMPLETO")) {
@@ -174,10 +166,8 @@ export default function ScannerScreen() {
       
       await new Promise(resolve => setTimeout(resolve, 800));
 
-      // Chama a função de decodificação binária/hexadecimal
       const codes = parseDTC(String(resp));
       
-      // Mapeia os códigos hexadecimais para seus respectivos dicionários técnicos
       const newFaults = codes.map((code) => ({
         code: code,
         desc: DTC_DICTIONARY[code]?.desc || "Falha identificada pelo módulo de controle.",
@@ -187,8 +177,6 @@ export default function ScannerScreen() {
       
       setFaults(newFaults);
 
-      // --- CAMADA DE TRANSAÇÃO OFFLINE (Write-Ahead Logging SQLite) ---
-      // Realiza a inserção sequencial dos erros no histórico local do usuário
       if (newFaults.length > 0) {
         if (!user?.uid) throw new Error('Entre na sua conta para salvar o diagnóstico.');
         const vehicle = await obterVeiculoLocal(user.uid);
@@ -212,9 +200,14 @@ export default function ScannerScreen() {
 
     } catch (error) {
       setIsConnected(false);
-      const mensagem = error instanceof Error && error.message.includes("Permita o acesso")
-        ? error.message
-        : "Não foi possível extrair a matriz da ECU. Verifique a conexão Bluetooth.";
+      let mensagem = "Não foi possível extrair a matriz da ECU. Verifique a conexão Bluetooth.";
+      
+      if (error instanceof Error) {
+        if (error.message.includes("Permita o acesso")) mensagem = error.message;
+        else if (error.message.includes("pareado")) mensagem = error.message;
+        else if (error.message.includes("TIMEOUT")) mensagem = "Tempo limite excedido. O scanner não respondeu. Certifique-se que o adaptador está bem encaixado e a ignição do carro está LIGADA.";
+      }
+
       Alert.alert("Aviso de Conexão", mensagem);
       console.log("[Scanner Error]", error);
     } finally {
@@ -226,9 +219,6 @@ export default function ScannerScreen() {
     }
   }
 
-  /**
-   * @method handleClearErrors
-   */
   async function handleClearErrors() {
     Alert.alert(
       "Acesso Restrito", 
@@ -236,31 +226,22 @@ export default function ScannerScreen() {
     );
   }
 
-  /**
-   * @method parseDTC
-   * @description Tradutor SAE J2012. Extrai os identificadores de falha da resposta hexadecimal bruta.
-   * Aplica deslocamento de bits para converter o primeiro dígito hexa na letra da categoria do erro (P,C,B,U).
-   */
   function parseDTC(response: string): string[] {
-    // Filtra falsos positivos e quedas momentâneas
     if (!response || response.includes("NO DATA") || response.includes("OK") || response.includes("SEARCHING") || response.includes("ERROR")) {
       return [];
     }
     
     const cleanResp = response.replace(/[\s\r\n>]/g, "").toUpperCase();
     
-    // 43 = Resposta de sucesso do Mode 03
     const index = cleanResp.indexOf("43");
     if (index === -1) return [];
 
     const hexData = cleanResp.substring(index + 2);
     const codes: string[] = [];
 
-    // CAN Bus agrupa DTCs em pares (2 bytes / 4 chars)
     for (let i = 0; i < hexData.length; i += 4) {
       const dtcHex = hexData.substring(i, i + 4);
       
-      // Filtra ruídos da rede, padding nulo (0000) e padding de ECU (5555/AAAA)
       if (
         dtcHex.length === 4 && 
         dtcHex !== "0000" && 
@@ -283,10 +264,6 @@ export default function ScannerScreen() {
     return Array.from(new Set(codes)).filter(c => c.length === 5);
   }
 
-  /**
-   * @method handleSchedule
-   * @description Call To Action (CTA) direcionado para retenção e prestação de serviço.
-   */
   function handleSchedule() {
     Alert.alert(
       t('agendarRevisao'),

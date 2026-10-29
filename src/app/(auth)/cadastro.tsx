@@ -19,6 +19,7 @@ import {
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { BluetoothTutorialModal } from '../../components/ui/BluetoothTutorialModal';
+import { TermsModal } from '../../components/TermsModal'; 
 import { useAuth } from '../../contexts/AuthContext';
 import { obterVeiculoLocal, salvarPerfilLocal, salvarVeiculoLocal } from '../../database/database';
 import { getAuthErrorMessage, registerWithEmail } from '../../services/firebase';
@@ -42,7 +43,12 @@ export default function CadastroScreen() {
   const [sobrenome, setSobrenome] = useState('');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [confirmarSenha, setConfirmarSenha] = useState(''); // NOVO ESTADO
   
+  // Controle de visibilidade das senhas (Olhinho)
+  const [mostrarSenha, setMostrarSenha] = useState(false);
+  const [mostrarConfirmarSenha, setMostrarConfirmarSenha] = useState(false);
+
   const [veiculo, setVeiculo] = useState('');
   const [ano, setAno] = useState('');
   const [km, setKm] = useState('');
@@ -50,13 +56,14 @@ export default function CadastroScreen() {
   const [combustivel, setCombustivel] = useState('');
   const [motor, setMotor] = useState('');
 
-  // Estado arquitetural: Define se o usuário está criando ou editando um perfil
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [newlyRegisteredUser, setNewlyRegisteredUser] = useState<User | null>(null);
 
   const [showBluetoothModal, setShowBluetoothModal] = useState(false);
   const [selectModalConfig, setSelectModalConfig] = useState({ visible: false, type: '', title: '', data: [] as string[] });
+  
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
   // ============================================================================
   // CICLO DE VIDA (MOUNT) - RECUPERAÇÃO DE DADOS EXISTENTES
@@ -103,20 +110,33 @@ export default function CadastroScreen() {
   };
 
   const handleCadastro = async () => {
-    if (!isEditing && (!nome.trim() || !sobrenome.trim() || !email.trim() || !senha)) {
-      Alert.alert(
-        'Campos obrigatórios',
-        'Informe nome, sobrenome, e-mail e senha para criar sua conta.',
-      );
-      return;
+    // VALIDAÇÕES DA NOVA CONTA
+    if (!isEditing) {
+      if (!nome.trim() || !sobrenome.trim() || !email.trim() || !senha || !confirmarSenha) {
+        Alert.alert('Campos obrigatórios', 'Informe nome, sobrenome, e-mail e preencha ambas as senhas para criar sua conta.');
+        return;
+      }
+      if (senha.length < 6) {
+        Alert.alert('Senha inválida', 'A senha deve ter pelo menos 6 caracteres.');
+        return;
+      }
+      if (senha !== confirmarSenha) {
+        Alert.alert('Senhas não coincidem', 'Verifique se você digitou a mesma senha nos dois campos.');
+        return;
+      }
+      
+      // Exibe os termos após passar em todas as validações
+      setShowTermsModal(true);
+    } else {
+      // Se for edição, apenas grava os novos dados do veículo
+      prosseguirComCadastro();
     }
+  };
 
-    if (!isEditing && senha.length < 6) {
-      Alert.alert('Senha inválida', 'A senha deve ter pelo menos 6 caracteres.');
-      return;
-    }
-
+  const prosseguirComCadastro = async () => {
+    setShowTermsModal(false);
     setIsSubmitting(true);
+    
     try {
       let authenticatedUser = user ?? newlyRegisteredUser;
       if (!isEditing && !authenticatedUser) {
@@ -136,6 +156,7 @@ export default function CadastroScreen() {
       const cachedVehicle = await AsyncStorage.getItem('@veiculo_cadastrado');
       const cachedId = isEditing && cachedVehicle ? JSON.parse(cachedVehicle)?.id : undefined;
       const vehicleId = await salvarVeiculoLocal(authenticatedUser.uid, dadosVeiculo, cachedId);
+      
       await salvarPerfilLocal(authenticatedUser.uid, {
         displayName: authenticatedUser.displayName ?? `${nome.trim()} ${sobrenome.trim()}`.trim(),
         firstName: nome.trim() || authenticatedUser.displayName?.split(' ')[0],
@@ -143,6 +164,7 @@ export default function CadastroScreen() {
         email: authenticatedUser.email ?? email.trim(),
         vehicleId,
       });
+      
       const vehicleCache = { ...dadosVeiculo, id: vehicleId };
       await AsyncStorage.multiSet([
         ['@veiculo_cadastrado', JSON.stringify(vehicleCache)],
@@ -150,12 +172,9 @@ export default function CadastroScreen() {
       ]);
       void syncNow().catch(() => {});
       
-      // Rotina de roteamento condicional baseada no estado arquitetural
       if (isEditing) {
-        // Retorna ao menu de configurações caso seja uma atualização de dados
         router.back();
       } else {
-        // Aciona o fluxo de onboarding (Pareamento Bluetooth) para novos usuários
         setShowBluetoothModal(true);
       }
     } catch (error) {
@@ -217,7 +236,34 @@ export default function CadastroScreen() {
 
               <View style={styles.inputContainer}>
                 <MaterialIcons name="lock" size={20} color="#8892A4" style={styles.icon} />
-                <TextInput style={styles.input} placeholder="Senha" placeholderTextColor="#8892A4" secureTextEntry autoComplete="new-password" value={senha} onChangeText={setSenha} />
+                <TextInput 
+                  style={styles.input} 
+                  placeholder="Senha" 
+                  placeholderTextColor="#8892A4" 
+                  secureTextEntry={!mostrarSenha} 
+                  autoComplete="new-password" 
+                  value={senha} 
+                  onChangeText={setSenha} 
+                />
+                <TouchableOpacity onPress={() => setMostrarSenha(!mostrarSenha)} style={styles.eyeIcon}>
+                  <MaterialIcons name={mostrarSenha ? "visibility" : "visibility-off"} size={20} color="#8892A4" />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.inputContainer}>
+                <MaterialIcons name="lock-outline" size={20} color="#8892A4" style={styles.icon} />
+                <TextInput 
+                  style={styles.input} 
+                  placeholder="Confirmar Senha" 
+                  placeholderTextColor="#8892A4" 
+                  secureTextEntry={!mostrarConfirmarSenha} 
+                  autoComplete="new-password" 
+                  value={confirmarSenha} 
+                  onChangeText={setConfirmarSenha} 
+                />
+                <TouchableOpacity onPress={() => setMostrarConfirmarSenha(!mostrarConfirmarSenha)} style={styles.eyeIcon}>
+                  <MaterialIcons name={mostrarConfirmarSenha ? "visibility" : "visibility-off"} size={20} color="#8892A4" />
+                </TouchableOpacity>
               </View>
             </>
           )}
@@ -314,6 +360,12 @@ export default function CadastroScreen() {
         </View>
       </Modal>
 
+      <TermsModal 
+        visible={showTermsModal} 
+        onAccept={prosseguirComCadastro} 
+        onDecline={() => setShowTermsModal(false)} 
+      />
+
       <BluetoothTutorialModal 
         visible={showBluetoothModal} 
         onClose={finalizarOnboarding} 
@@ -334,6 +386,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between' },
   inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#12141A', borderWidth: 1, borderColor: '#1E2235', borderRadius: 12, marginBottom: 16, height: 54 },
   icon: { paddingLeft: 16 },
+  eyeIcon: { padding: 12, paddingRight: 16 }, // Adicionado estilo para a área clicável do olho
   input: { flex: 1, color: '#F0F2FF', fontSize: 15, paddingHorizontal: 12, height: '100%' },
   inputSelector: { flex: 1, color: '#F0F2FF', fontSize: 15, paddingHorizontal: 12, paddingTop: 16 },
   inputSelectorPlaceholder: { color: '#8892A4' },

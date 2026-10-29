@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Alert, // <--- O ALERT É NECESSÁRIO AQUI
   AppState,
   Dimensions,
   Modal,
@@ -43,6 +44,7 @@ import {
   obterVeiculoLocal,
   salvarFalhaDTCLocal,
   salvarLeituraTelemetria,
+  obterHistoricoManutencao
 } from '../../database/database';
 
 Notifications.setNotificationHandler({
@@ -79,7 +81,6 @@ export default function HomeScreen() {
   const [telemetry, setTelemetry] = useState(TELEMETRY_IDLE);
   const [batteryStatus, setBatteryStatus] = useState("batDesconhecido");
   
-  // --- MODO DESENVOLVEDOR & RAIO-X ---
   const [devMode, setDevMode] = useState(false);
   const [dbStatus, setDbStatus] = useState<'ok' | 'error'>('ok');
   const [xrayLogs, setXrayLogs] = useState<{time: string, msg: string, type: 'info'|'success'|'error'|'warn'}[]>([]);
@@ -92,6 +93,8 @@ export default function HomeScreen() {
   const fuelHistoryRef = useRef<number[]>([]);
   const appState = useRef(AppState.currentState);
   const [faultCount, setFaultCount] = useState(glob_faultsCount);
+
+  const lastBatteryAlertTime = useRef<number>(0); 
 
   const [carroConfigurado, setCarroConfigurado] = useState({
     id: '', marca: 'Carregando...', veiculo: '', ano: '', motor: '', km: '0'
@@ -121,16 +124,14 @@ export default function HomeScreen() {
   const pillStyle = useAnimatedStyle(() => ({ transform: [{ translateY: pillTranslateY.value }] }));
   const headerGlowStyle = useAnimatedStyle(() => ({ opacity: headerGlow.value }));
 
-  // Função central do Raio-X
   const logXRay = useCallback((msg: string, type: 'info'|'success'|'error'|'warn' = 'info') => {
     const time = new Date().toLocaleTimeString('pt-BR', { hour12: false });
     setXrayLogs(prev => {
       const newLogs = [{ time, msg, type }, ...prev];
-      return newLogs.slice(0, 50); // Mantém as últimas 50 ações
+      return newLogs.slice(0, 50); 
     });
   }, []);
 
-  // Gatilho do Easter Egg: 7 Toques
   const handleSecretTap = () => {
     tapCount.current += 1;
     if (tapTimeout.current) clearTimeout(tapTimeout.current);
@@ -141,7 +142,7 @@ export default function HomeScreen() {
       setDevMode(prev => {
         const nextState = !prev;
         showPill(nextState ? "Modo Desenvolvedor: Ativado" : "Modo Desenvolvedor: Desativado", "info");
-        if (nextState) logXRay("🔧 Raio-X do Sistema Iniciado.", "warn");
+        if (nextState) logXRay("Sessão de Depuração Iniciada.", "warn");
         return nextState;
       });
       tapCount.current = 0;
@@ -196,7 +197,6 @@ export default function HomeScreen() {
         const { OBDBluetooth } = NativeModules;
         let deveReconectar = false;
         try {
-          // Evita leituras concorrentes enquanto a tela confirma a conexão existente.
           await OBDBluetooth.pauseBackgroundPolling(true);
           const checkConnection = await OBDBluetooth.sendCommand("AT");
           if (checkConnection && !String(checkConnection).includes("ERR")) {
@@ -229,13 +229,37 @@ export default function HomeScreen() {
     }
     const setupTimer = setTimeout(setupApp, 100);
     
-    const subscription = AppState.addEventListener('change', nextAppState => { appState.current = nextAppState; });
-    return () => { clearTimeout(setupTimer); subscription.remove(); };
+    const subscription = AppState.addEventListener('change', nextAppState => { 
+      appState.current = nextAppState; 
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        const sessaoSegura = ref_sessaoId.current || "";
+        const usuarioSeguro = user?.uid || "";
+        try { NativeModules.OBDBluetooth.pauseBackgroundPollingWithSession(false, sessaoSegura, usuarioSeguro); } catch(e){}
+      } else if (nextAppState === 'active') {
+        try { NativeModules.OBDBluetooth.pauseBackgroundPolling(true); } catch(e){}
+      }
+    });
+
+    return () => { 
+      clearTimeout(setupTimer); 
+      subscription.remove(); 
+    };
   }, [user?.uid, isAccountLoading]);
 
-  const dispararAlerta = async (titulo: string, mensagem: string) => {
-    await Notifications.scheduleNotificationAsync({ content: { title: titulo, body: mensagem, sound: true }, trigger: null });
-  };
+  useEffect(() => {
+    const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
+      const rota = response.notification.request.content.data?.route;
+      if (rota) {
+        router.push(rota as any); 
+      } else {
+        router.push('/scanner' as any); 
+      }
+    });
+
+    return () => {
+      responseListener.remove();
+    };
+  }, []);
 
   function contarErrosDTC(response: string): number {
     if (!response) return glob_faultsCount;
@@ -255,7 +279,7 @@ export default function HomeScreen() {
   async function verificarFalhasEcu(notificarSeSubir = false) {
     try {
       const { OBDBluetooth } = NativeModules;
-      if (devMode) logXRay("🔍 Escaneando Central (ECU) por falhas pendentes...", "info");
+      if (devMode) logXRay("Escaneando Central (ECU) por falhas pendentes...", "info");
       const falhasResp = await OBDBluetooth.sendCommand("03");
       const currentErrors = contarErrosDTC(falhasResp);
 
@@ -265,9 +289,10 @@ export default function HomeScreen() {
         const cooldownExpirou = (agora - glob_lastDtcAlertTime) > COOLDOWN_MESMO_ERRO;
 
         if (ehNovoErro || cooldownExpirou) {
-          dispararAlerta("⚠️ Atenção: Falha no Motor", `O sistema identificou ${currentErrors} código(s) de erro. Acesse o Scanner OBD-II para detalhes.`);
-          logXRay(`⚠️ DTC Detectado! A ECU reportou ${currentErrors} falha(s).`, "warn");
-          if (ehNovoErro && ref_sessaoId.current && user?.uid) await salvarFalhaDTCLocal(user.uid, ref_sessaoId.current, "UNSCANNED_DTC", "Falha genérica identificada pelo monitoramento passivo do painel.", "Injeção Eletrônica", "warning");
+          logXRay(`DTC Detectado! A ECU reportou ${currentErrors} falha(s). (Push gerenciado pelo Native Service)`, "warn");
+          if (ehNovoErro && ref_sessaoId.current && user?.uid) {
+             await salvarFalhaDTCLocal(user.uid, ref_sessaoId.current, "UNSCANNED_DTC", "Falha genérica identificada pelo monitoramento passivo do painel.", "Injeção Eletrônica", "warning");
+          }
         }
       }
       
@@ -287,7 +312,7 @@ export default function HomeScreen() {
         isCalibrated: Boolean(veiculoReal.odometroCalibrado ?? virtualOdometro.isCalibrated),
       };
 
-      if (devMode) logXRay("📊 Sincronizando Odômetro Virtual com VSS da ECU...", "info");
+      if (devMode) logXRay("Sincronizando Odômetro Virtual com VSS da ECU...", "info");
       const respostaObd = await OBDBluetooth.sendCommand('0131');
       let obdRawValue = parseHex(respostaObd, "31");
 
@@ -310,7 +335,8 @@ export default function HomeScreen() {
           await atualizarOdometroVeiculoLocal(user.uid, veiculoReal.id, odoReal.offset, obdRawValue, odoReal.isCalibrated);
         }
         setVirtualOdometro(odoDataAtualizado);
-        if (devMode) logXRay(`✅ Odômetro calibrado e gravado localmente: ${kmRealCalculado}km`, "success");
+        if (devMode) logXRay(`Odômetro calibrado e gravado localmente: ${kmRealCalculado}km`, "success");
+        
         if (Math.abs(kmRealCalculado - Number(veiculoReal.km ?? 0)) >= 1) {
           await atualizarQuilometragemVeiculoLocal(user.uid, veiculoReal.id, kmRealCalculado);
           const updatedVehicle = { ...veiculoReal, km: String(kmRealCalculado) };
@@ -326,9 +352,11 @@ export default function HomeScreen() {
     let backgroundPollingPaused = false;
     try {
       const targetVehicleId = veiculoParamId || carroConfigurado.id;
+      const { OBDBluetooth } = NativeModules;
+      
       setIsConnecting(true);
       showPill(t('conectando'), "info");
-      logXRay("🔄 Escaneando dispositivos Bluetooth pareados (Procurando ELM327)...", "info");
+      logXRay("Escaneando dispositivos Bluetooth pareados...", "info");
 
       if (Platform.OS === 'android' && Platform.Version >= 31) {
         const granted = await PermissionsAndroid.requestMultiple([
@@ -336,7 +364,7 @@ export default function HomeScreen() {
         ]);
         if (granted['android.permission.BLUETOOTH_CONNECT'] !== PermissionsAndroid.RESULTS.GRANTED) {
           showPill("Permissão de Bluetooth negada!", "error");
-          logXRay("❌ Permissões Bluetooth não concedidas pelo sistema Android.", "error");
+          logXRay("Permissões Bluetooth não concedidas pelo sistema Android.", "error");
           setIsConnecting(false);
           return;
         }
@@ -345,7 +373,7 @@ export default function HomeScreen() {
       const enabled = await RNBluetoothClassic.isBluetoothEnabled();
       if (!enabled) {
         showPill("Bluetooth desativado.", "error");
-        logXRay("❌ Hardware Bluetooth do smartphone está desligado.", "error");
+        logXRay("Hardware Bluetooth do smartphone está desligado.", "error");
         setIsConnecting(false);
         return;
       }
@@ -356,21 +384,20 @@ export default function HomeScreen() {
       if (obdDevice) {
         logXRay(`Adaptador compatível encontrado: ${obdDevice.name} [${obdDevice.address}]`, "info");
         logXRay("Abrindo socket de comunicação RFCOMM...", "info");
-        const { OBDBluetooth } = NativeModules;
         obdBluetooth = OBDBluetooth;
-        // Mantém o adaptador livre para o handshake e as primeiras leituras da tela.
+        
         await OBDBluetooth.pauseBackgroundPolling(true);
-       try { 
-        await OBDBluetooth.connect(obdDevice.address); 
-      }
-      catch (e: any) { 
-        showPill("Buscando sinal do veículo...", "info");
-        logXRay("⚠️ Falha ao abrir socket. Adaptador pode estar fora de alcance ou desligado.", "warn");
-        setIsConnecting(false);
-        const delayRec = appState.current === 'active' ? 5000 : 60000;
-        setTimeout(() => tentarConexaoAutomatica(targetVehicleId), delayRec);
-        return; 
-      }
+        try { 
+          await OBDBluetooth.connect(obdDevice.address); 
+        }
+        catch (e: any) { 
+          showPill("Buscando sinal do veículo...", "info");
+          logXRay("Falha ao abrir socket. Adaptador fora de alcance ou desligado.", "warn");
+          setIsConnecting(false);
+          const delayRec = appState.current === 'active' ? 5000 : 60000;
+          setTimeout(() => tentarConexaoAutomatica(targetVehicleId), delayRec);
+          return; 
+        }
 
         if(targetVehicleId){
             const sessoes: any = user?.uid ? await obterResumoSessoes(user.uid, targetVehicleId) : [];
@@ -379,7 +406,7 @@ export default function HomeScreen() {
         }
 
         showPill("Conectado ao scanner OBD2 com sucesso!", "success");
-        logXRay("✅ Handshake serial estabelecido com o veículo.", "success");
+        logXRay("Handshake serial estabelecido com o veículo.", "success");
 
         try {
           logXRay("Injetando comandos de inicialização (ATZ, ATE0, ATSP0)...", "info");
@@ -389,24 +416,47 @@ export default function HomeScreen() {
           await OBDBluetooth.sendCommand("ATSP0");
           await OBDBluetooth.sendCommand("0100");
           await new Promise(resolve => setTimeout(resolve, 1000));
-          logXRay("✅ Protocolos de telemetria configurados.", "success");
+          logXRay("Protocolos de telemetria configurados.", "success");
 
           await sincronizarOdometroComEcu();
           await verificarFalhasEcu(false);
           setIsActive(true);
+          
+          // =========================================================
+          // ALERTA DE BATERIA MOVIDO PARA CÁ! (Após sucesso da conexão)
+          // =========================================================
+          setTimeout(async () => {
+              try {
+                const isBateriaLivre = await OBDBluetooth.verificarEsolicitarBateriaLivre();
+                if (!isBateriaLivre) {
+                    Alert.alert(
+                        "Permissão Necessária",
+                        "Para que o HealthCar continue protegendo o motor e alertando sobre manutenções com o celular no bolso, selecione a opção 'Não restrito' na próxima tela.",
+                        [
+                            { text: "Entendi", onPress: () => console.log("Usuário redirecionado.") }
+                        ],
+                        { cancelable: false }
+                    );
+                    logXRay("Solicitação de permissão de bateria (Doze Mode) exibida.", "warn");
+                }
+              } catch (e) {
+                 logXRay("Aviso: Módulo de verificação de bateria não suportado.", "warn");
+              }
+          }, 1500); 
+
         } catch (erroLeitura) {
           setIsActive(false);
           ref_sessaoId.current = null;
           showPill("Falha ao inicializar comunicação com a ECU.", "error");
-          logXRay("❌ Erro nos comandos AT. A injeção eletrônica recusou a conexão.", "error");
+          logXRay("Erro nos comandos AT. A injeção eletrônica recusou a conexão.", "error");
           
           const delayRec = appState.current === 'active' ? 5000 : 60000;
           setTimeout(() => tentarConexaoAutomatica(targetVehicleId), delayRec);
         }
       } else { 
         showPill("Nenhum scanner OBD2 emparelhado.", "error"); 
-        logXRay("❌ Adaptador ELM327 não consta na lista de pareados do celular.", "error");
-    }
+        logXRay("Adaptador ELM327 não consta na lista de pareados do celular.", "error");
+      }
     } catch (error: any) { showPill(`Erro de conexão: ${error.message}`, "error"); }
     finally {
       if (backgroundPollingPaused && obdBluetooth) {
@@ -452,26 +502,25 @@ export default function HomeScreen() {
       let loopLento: ReturnType<typeof setTimeout>;
       let isFocused = true;
       let slowCycleCounter = 0;
-      let falhasDeComunicacao = 0; // Contador de Queda Silenciosa (Simulador/Carro Desligado)
+      let falhasDeComunicacao = 0; 
       let transitionDelay: ReturnType<typeof setTimeout>;
 
-      // Isolamento de falhas do SQLite (Sem incomodar o usuário)
       const safeSave = async (sid: string, pid: string, val: number, unit: string) => {
         try {
           if (user?.uid) await salvarLeituraTelemetria(user.uid, sid, pid, val, unit);
           if (dbErrorNotified.current) {
              dbErrorNotified.current = false;
              setDbStatus('ok');
-             logXRay("✅ I/O Recuperado. Gravação no SQLite restabelecida.", "success");
+             logXRay("I/O Recuperado. Gravação no SQLite restabelecida.", "success");
           }
           if (devMode && dbStatus === 'ok' && pid === "010C") {
-            logXRay(`📥 PID [${pid}] lido com sucesso. 📤 Gravado localmente.`, "success");
+            logXRay(`PID [${pid}] lido com sucesso. Gravado localmente.`, "success");
           }
         } catch (e) {
           if (!dbErrorNotified.current) {
              dbErrorNotified.current = true;
              setDbStatus('error');
-             logXRay("❌ Falha de I/O no SQLite. Dados não salvos neste ciclo, mantendo conexão serial ativa.", "error");
+             logXRay("Falha de I/O no SQLite. Dados não salvos neste ciclo.", "error");
           }
         }
       };
@@ -516,37 +565,32 @@ export default function HomeScreen() {
                 }
               } catch(e){}
 
-              if (devMode) logXRay(" Iniciando pool de leitura de sensores...", "info");
+              if (devMode) logXRay("Iniciando pool de leitura de sensores...", "info");
 
-              // --- TESTE DE QUEDA SILENCIOSA (BLINDADO CONTRA SIMULADORES) ---
               const respRPM = await OBDBluetooth.sendCommand("010C");
               const strRpm = String(respRPM).replace(/\s/g, "").toUpperCase();
               
-              // Se a resposta vier vazia, apenas com o prompt ">", com erros, OU sem o cabeçalho oficial "410C"
               if (!strRpm || strRpm === ">" || strRpm.includes("ERROR") || strRpm.includes("NODATA") || strRpm.includes("TIMEOUT") || !strRpm.includes("410C")) {
                 falhasDeComunicacao++;
-                if (devMode) logXRay(`⚠️ Sinal vazio ou corrompido recebido. Tentativa falha #${falhasDeComunicacao}`, "warn");
+                if (devMode) logXRay(`Sinal vazio ou corrompido recebido. Tentativa falha #${falhasDeComunicacao}`, "warn");
               } else {
-                falhasDeComunicacao = 0; // A ECU respondeu perfeitamente
+                falhasDeComunicacao = 0; 
                 rpmLido = parseHex(respRPM, "0C");
-                if (rpmLido >= 0 && sID && user?.uid) await salvarLeituraTelemetria(user.uid, sID, "010C", rpmLido, "RPM");
+                if (rpmLido >= 0 && sID && user?.uid) await safeSave(sID, "010C", rpmLido, "RPM");
               }
 
-              // Se falhar 3 vezes seguidas, declara queda e exibe notificação
               if (falhasDeComunicacao >= 3) {
                  throw new Error("ECU_SLEEP");
               }
               
-              // TEMP
               try {
                 const respTemp = await OBDBluetooth.sendCommand("0105");
                 tempLida = parseHex(respTemp, "05");
                 if (tempLida > 0 && sID) {
-                   if (user?.uid) await salvarLeituraTelemetria(user.uid, sID, "0105", tempLida, "°C");
+                   if (user?.uid) await safeSave(sID, "0105", tempLida, "°C");
                 }
               } catch (e: any) { }
 
-              // VELOCIDADE
               try {
                 const respSpeed = await OBDBluetooth.sendCommand("010D");
                 speedLido = parseHex(respSpeed, "0D");
@@ -555,45 +599,54 @@ export default function HomeScreen() {
                   currentKmDay += speedLido * deltaHours;
                   if (user?.uid) AsyncStorage.setItem(`@viagem_atual:${user.uid}`, currentKmDay.toString()).catch(() => {});
                   
-                  if (speedLido > 0 && sID && user?.uid) await salvarLeituraTelemetria(user.uid, sID, "010D", speedLido, "km/h");
+                  if (speedLido > 0 && sID && user?.uid) await safeSave(sID, "010D", speedLido, "km/h");
                 }
               } catch (e) {}
 
-              // COMBUSTIVEL
               try {
                 if (speedLido < 10 || fuelHistoryRef.current.length === 0) {
                   const respFuel = await OBDBluetooth.sendCommand("012F");
                   const rawFuel = parseHex(respFuel, "2F");
                   if (rawFuel > 0) {
                     fuelLido = rawFuel;
-                    if (sID && user?.uid) await salvarLeituraTelemetria(user.uid, sID, "012F", fuelLido, "%");
+                    if (sID && user?.uid) await safeSave(sID, "012F", fuelLido, "%");
                   }
                 }
               } catch (e) {}
 
-              let voltSimulado = 12.6; 
+              let voltLido = 0; 
               let statusBat = "batDesconhecido";
-              if (voltSimulado >= 13.5) statusBat = "batCarregando";
-              else if (voltSimulado >= 12.2 && voltSimulado <= 12.8) statusBat = "batIdeal";
-              else if (voltSimulado < 12.0) statusBat = "batFraca";
+              try {
+                const respVolt = await OBDBluetooth.sendCommand("ATRV");
+                const match = String(respVolt).match(/[\d\.]+/); 
+                if (match) {
+                  voltLido = parseFloat(match[0]);
+                }
+              } catch(e){}
+
+              if (voltLido === 0) voltLido = 12.6; 
+
+              if (voltLido >= 13.5) statusBat = "batCarregando"; 
+              else if (voltLido >= 12.2 && voltLido <= 13.4) statusBat = "batIdeal"; 
+              else if (voltLido < 12.2) statusBat = "batFraca"; 
               
-              if(sID && user?.uid) await salvarLeituraTelemetria(user.uid, sID, "ATRV", voltSimulado, "V");
+              if(sID && user?.uid) await safeSave(sID, "ATRV", voltLido, "V");
               setBatteryStatus(statusBat);
 
               setTelemetry(prev => ({ 
                 ...prev, 
                 rpm: rpmLido > 0 ? rpmLido : prev.rpm, 
-                volt: voltSimulado, 
+                volt: voltLido, 
                 fuel: fuelLido > 0 ? fuelLido / 100 : prev.fuel, 
                 temp: tempLida > 0 ? tempLida : prev.temp,
                 kmDay: parseFloat(currentKmDay.toFixed(1)) 
               }));
+              
               if (sID && user?.uid) {
                 await atualizarDistanciaSessaoLocal(user.uid, sID, Math.round(currentKmDay * 1000));
               }
 
               slowCycleCounter++;
-              // Acelerado: Agora busca falhas DTC a cada 2 execuções (10 segundos) em vez de 30s.
               if (slowCycleCounter >= 2) { 
                 slowCycleCounter = 0;
                 await sincronizarOdometroComEcu();
@@ -607,10 +660,10 @@ export default function HomeScreen() {
               
               if (error.message === "ECU_SLEEP") {
                  showPill("Comunicação com o veículo perdida. Verifique a ignição.", "error");
-                 logXRay("❌ A ECU parou de enviar dados. Adaptador ligado, mas injeção desligada (Sleep Mode).", "error");
+                 logXRay("A ECU parou de enviar dados. Adaptador ligado, mas injeção desligada.", "error");
               } else {
                  showPill("Conexão Bluetooth interrompida. Reconectando...", "error");
-                 logXRay("❌ Desconexão crítica de hardware. RFCOMM Socket destruído.", "error");
+                 logXRay("Desconexão crítica de hardware. RFCOMM Socket destruído.", "error");
               }
               
               const delayRec = appState.current === 'active' ? 5000 : 60000;
@@ -693,7 +746,6 @@ export default function HomeScreen() {
       </Animated.View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* --- HEADER COM EASTER EGG (7 TOQUES) --- */}
       <Pressable onPress={handleSecretTap}>
         <HealthCarHeader />
       </Pressable>
@@ -879,7 +931,7 @@ export default function HomeScreen() {
     </ScreenContainer>
   );
 }
-// --- STYLE DEFINITIONS ---
+
 const styles = StyleSheet.create({
   pillContainer: { position: 'absolute', top: 0, left: 20, right: 20, flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 30, zIndex: 100, gap: 10, elevation: 10, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
   pillInfo: { backgroundColor: '#00B4FF' },
@@ -930,14 +982,11 @@ const styles = StyleSheet.create({
   toolCardSub: { fontSize: 10, lineHeight: 14 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 12 },
   profileBtn: { padding: 4, borderRadius: 20, borderWidth: 1, borderColor: "#00B4FF44", backgroundColor: "#00B4FF11" },
-  
-  // --- ESTILOS DO RAIO-X (Console) ---
   xrayContainer: { marginHorizontal: 16, marginTop: 24, borderRadius: 12, borderWidth: 1, height: 220, overflow: 'hidden' },
   xrayHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderBottomWidth: 1, borderBottomColor: '#00B4FF22', backgroundColor: '#0F172A' },
   xrayTitle: { fontSize: 11, fontWeight: '800', color: '#00B4FF', letterSpacing: 1 },
   xrayScroll: { padding: 12 },
   xrayText: { fontSize: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginBottom: 4, lineHeight: 16 },
-
   modalOverlay: { flex: 1, backgroundColor: "rgba(10, 10, 15, 0.7)", justifyContent: "center", alignItems: "center", padding: 20 },
   modalBox: { width: "100%", borderRadius: 24, padding: 24, borderWidth: 1, alignItems: "center", shadowColor: "#00B4FF", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.2, shadowRadius: 30, elevation: 10 },
   modalIconBox: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: 16, borderWidth: 1, borderColor: "#00B4FF44" },
