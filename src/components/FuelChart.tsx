@@ -1,152 +1,120 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useApp } from '../contexts/AppContext';
+import { useCallback, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 
-/**
- * @interface FuelChartProps
- * @description Propriedades aceites pelo componente de gráfico de consumo.
- */
+import { ChartPeriodToggle } from './ChartPeriodToggle';
+import { useApp } from '../contexts/AppContext';
+import { useAuth } from '../contexts/AuthContext';
+import { obterAbastecimentosPorPeriodo, obterVeiculoLocal } from '../database/database';
+import { buildChartBuckets, type ChartPeriod } from '../utils/chart-period';
+
 interface FuelChartProps {
-  /** Array numérico com o volume consumido (em litros) por período */
-  data?: number[];
-  /** 
-   * Array de strings (Opcional). Se não fornecido, o componente utilizará 
-   * os rótulos de dias da semana baseados no idioma atual do sistema (PT/EN).
-   */
-  labels?: string[];
-  /** Callback executado ao interagir (tocar) na área do gráfico */
   onPress?: () => void;
 }
 
-const DEFAULT_DATA = [32, 45, 28, 55, 40, 62, 38];
+interface FuelChartPoint {
+  key: string;
+  label: string;
+  liters: number;
+}
 
-/**
- * Componente FuelChart
- * @description Exibe um gráfico de barras vertical representando o consumo
- * diário de combustível. Suporta injeção dinâmica de temas e internacionalização.
- */
-export function FuelChart({ 
-  data = DEFAULT_DATA, 
-  labels,
-  onPress
-}: FuelChartProps) {
-  // Extração do estado global de tema e dicionário de traduções (t)
-  const { theme, t } = useApp();
-  
-  // Resolução da paleta dinâmica baseada no tema ativo
+export function FuelChart({ onPress }: FuelChartProps) {
+  const { theme, t, language } = useApp();
+  const { user } = useAuth();
+  const [period, setPeriod] = useState<ChartPeriod>('day');
+  const [data, setData] = useState<FuelChartPoint[]>(() =>
+    buildChartBuckets('day').map((bucket) => ({ ...bucket, liters: 0 })),
+  );
+
   const isDark = theme === 'dark';
   const cardColor = isDark ? '#12141A' : '#FFFFFF';
   const borderColor = isDark ? '#1E2235' : '#E2E8F0';
   const textColor = isDark ? '#F0F2FF' : '#0F172A';
   const subTextColor = isDark ? '#8892A4' : '#64748B';
   const trackColor = isDark ? '#1E2235' : '#CBD5E1';
+  const locale = language === 'en' ? 'en-US' : 'pt-BR';
 
-  // Determina os rótulos do eixo X de forma inteligente
-  // Usa o array fornecido por props OU pega do dicionário internacionalizado (Seg-Dom / Mon-Sun)
-  const chartLabels = labels || [t('seg'), t('ter'), t('qua'), t('qui'), t('sex'), t('sab'), t('dom')];
+  const loadData = useCallback(async () => {
+    const buckets = buildChartBuckets(period, locale);
+    if (!user?.uid) {
+      setData(buckets.map((bucket) => ({ ...bucket, liters: 0 })));
+      return;
+    }
+    const vehicle = await obterVeiculoLocal(user.uid);
+    if (!vehicle) {
+      setData(buckets.map((bucket) => ({ ...bucket, liters: 0 })));
+      return;
+    }
+    const summary = await obterAbastecimentosPorPeriodo(user.uid, vehicle.id, period);
+    const byPeriod = new Map(summary.map((item) => [item.periodKey, Number(item.litros ?? 0)]));
+    setData(buckets.map((bucket) => ({ ...bucket, liters: byPeriod.get(bucket.key) ?? 0 })));
+  }, [locale, period, user?.uid]);
 
-  // Cálculo do valor máximo para normalização proporcional das barras
-  const maxVal = Math.max(...data);
+  useFocusEffect(useCallback(() => {
+    void loadData().catch((error) => console.error('[Gráfico] Falha ao carregar abastecimentos:', error));
+  }, [loadData]));
+
+  const maxVal = Math.max(...data.map((point) => point.liters), 1);
 
   return (
-    <Pressable 
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.container,
-        { backgroundColor: cardColor, borderColor: borderColor },
-        pressed && { opacity: 0.8 } // Feedback visual tátil
-      ]}
-    >
-      <Text style={[styles.title, { color: textColor }]}>{t('consumoSemanal')}</Text>
-      <Text style={[styles.subtitle, { color: subTextColor }]}>{t('litrosPorDia')}</Text>
+    <View style={[styles.container, { backgroundColor: cardColor, borderColor }]}>
+      <View style={styles.header}>
+        <View style={styles.headingCopy}>
+          <Text style={[styles.title, { color: textColor }]}>{period === 'day' ? t('consumoDiario') : t('consumoMensal')}</Text>
+          <Text style={[styles.subtitle, { color: subTextColor }]}>
+            {period === 'day' ? t('litrosPorDia') : t('litrosPorMes')}
+          </Text>
+        </View>
+        <ChartPeriodToggle
+          value={period}
+          onChange={setPeriod}
+          cardColor={cardColor}
+          borderColor={borderColor}
+          mutedColor={subTextColor}
+          dayLabel={t('dia')}
+          monthLabel={t('mes')}
+        />
+      </View>
 
-      <View style={styles.chartArea}>
-        {data.map((val, i) => {
-          // Normaliza a altura da barra entre 0 e 100%
-          const heightPct = (val / maxVal) * 100;
-          const isMax = val === maxVal;
-          
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Abrir detalhes de consumo"
+        onPress={onPress}
+        style={({ pressed }) => [styles.chartArea, pressed && { opacity: 0.8 }]}
+      >
+        {data.map((point) => {
+          const heightPct = (point.liters / maxVal) * 100;
+          const isMax = point.liters > 0 && point.liters === maxVal;
           return (
-            <View key={i} style={styles.barWrapper}>
-              <Text style={[styles.barValue, { color: subTextColor }, isMax && styles.barValueMax]}>
-                {val}L
+            <View key={point.key} style={styles.barWrapper}>
+              <Text style={[styles.barValue, { color: isMax ? '#00B4FF' : subTextColor }]}>
+                {point.liters > 0 ? `${point.liters.toFixed(1)}L` : '—'}
               </Text>
               <View style={[styles.barTrack, { backgroundColor: trackColor }]}>
-                <View
-                  style={[
-                    styles.barFill,
-                    { height: `${heightPct}%` as any },
-                    isMax && styles.barFillMax,
-                  ]}
-                />
+                {point.liters > 0 && (
+                  <View style={[styles.barFill, { height: `${heightPct}%` }, isMax && styles.barFillMax]} />
+                )}
               </View>
-              <Text style={[styles.barLabel, { color: subTextColor }]}>{chartLabels[i]}</Text>
+              <Text style={[styles.barLabel, { color: subTextColor }]}>{point.label}</Text>
             </View>
           );
         })}
-      </View>
-    </Pressable>
+      </Pressable>
+    </View>
   );
 }
 
-// Estilos base de layout da interface
 const styles = StyleSheet.create({
-  container: {
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-  },
-  title: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 2,
-  },
-  subtitle: {
-    fontSize: 11,
-    marginBottom: 16,
-  },
-  chartArea: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    height: 100,
-    gap: 6,
-  },
-  barWrapper: {
-    flex: 1,
-    alignItems: "center",
-    height: "100%",
-    justifyContent: "flex-end",
-  },
-  barValue: {
-    fontSize: 9,
-    marginBottom: 4,
-  },
-  barValueMax: {
-    color: "#00B4FF",
-    fontWeight: "700",
-  },
-  barTrack: {
-    width: "100%",
-    height: 70,
-    borderRadius: 4,
-    overflow: "hidden",
-    justifyContent: "flex-end",
-  },
-  barFill: {
-    width: "100%",
-    backgroundColor: "#0090D4",
-    borderRadius: 4,
-    minHeight: 4,
-  },
-  barFillMax: {
-    backgroundColor: "#00B4FF",
-    shadowColor: "#00B4FF",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  barLabel: {
-    fontSize: 10,
-    marginTop: 6,
-  },
+  container: { borderRadius: 16, padding: 16, borderWidth: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 14 },
+  headingCopy: { flex: 1 },
+  title: { fontSize: 14, fontWeight: '600', marginBottom: 2 },
+  subtitle: { fontSize: 11 },
+  chartArea: { flexDirection: 'row', alignItems: 'flex-end', height: 100, gap: 5 },
+  barWrapper: { flex: 1, alignItems: 'center', height: '100%', justifyContent: 'flex-end' },
+  barValue: { fontSize: 8, marginBottom: 4 },
+  barTrack: { width: '100%', height: 66, borderRadius: 4, overflow: 'hidden', justifyContent: 'flex-end' },
+  barFill: { width: '100%', backgroundColor: '#087EAE', borderRadius: 4, minHeight: 3 },
+  barFillMax: { backgroundColor: '#00B4FF' },
+  barLabel: { fontSize: 9, marginTop: 6 },
 });
