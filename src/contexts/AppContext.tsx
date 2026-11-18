@@ -109,6 +109,9 @@ const dicionario = {
     // --- Escopo: Gráficos da Home e Detalhes de Consumo ---
     consumoSemanal: 'Consumo Semanal',
     litrosPorDia: 'Litros por dia',
+    litrosPorMes: 'Litros por mês',
+    dia: 'Dia',
+    mes: 'Mês',
     seg: 'Seg',
     ter: 'Ter',
     qua: 'Qua',
@@ -124,14 +127,14 @@ const dicionario = {
     minima: 'Mínima',
     media: 'Média',
     maxima: 'Máxima',
-    oscilacaoTermica: 'Oscilação Térmica (24h)',
-    dadosHorarios: 'Dados Horários',
+    oscilacaoTermica: 'Temperatura por período',
+    dadosHorarios: 'Leituras por período',
 
     // --- Escopo: Detalhes Técnicos - RPM ---
     rpmAtual: 'RPM Atual',
     doMaximo: 'do máximo',
     pico: 'Pico',
-    picosPorPeriodo: 'Picos por Período (24h)',
+    picosPorPeriodo: 'Picos de RPM por período',
     detalhesPorPeriodo: 'Detalhes por Período',
 
     // --- Escopo: Detalhes Técnicos - Combustível ---
@@ -241,6 +244,9 @@ const dicionario = {
     // --- Escopo: Gráficos da Home e Detalhes de Consumo ---
     consumoSemanal: 'Weekly Consumption',
     litrosPorDia: 'Liters per day',
+    litrosPorMes: 'Liters per month',
+    dia: 'Day',
+    mes: 'Month',
     seg: 'Mon',
     ter: 'Tue',
     qua: 'Wed',
@@ -256,14 +262,14 @@ const dicionario = {
     minima: 'Minimum',
     media: 'Avg',
     maxima: 'Maximum',
-    oscilacaoTermica: 'Thermal Oscillation (24h)',
-    dadosHorarios: 'Hourly Data',
+    oscilacaoTermica: 'Temperature by period',
+    dadosHorarios: 'Readings by period',
 
     // --- Escopo: Detalhes Técnicos - RPM ---
     rpmAtual: 'Current RPM',
     doMaximo: 'of max',
     pico: 'Peak',
-    picosPorPeriodo: 'Peaks by Period (24h)',
+    picosPorPeriodo: 'RPM peaks by period',
     detalhesPorPeriodo: 'Details by Period',
 
     // --- Escopo: Detalhes Técnicos - Combustível ---

@@ -2,153 +2,123 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { MaterialIcons } from "@expo/vector-icons";
-import { router, useFocusEffect } from "expo-router";
-import Svg, { Circle, Defs, G, Line, LinearGradient, Polyline, Rect, Stop, Text as SvgText } from "react-native-svg";
+import { router } from "expo-router";
+import Svg, { Defs, Line, LinearGradient, Rect, Stop } from "react-native-svg";
+import { ChartPeriodToggle } from "../../components/ChartPeriodToggle";
 import { ScreenContainer } from "../../components/screen-container";
 import { useApp } from "../../contexts/AppContext";
 import { useAuth } from "../../contexts/AuthContext";
 
-import { obterDadosGrafico, obterResumoSessoes } from "../../database/database";
+// IMPORTAÇÃO DA CAMADA DE PERSISTÊNCIA (SQLite)
+import { obterTelemetriaPorPeriodo, obterUltimaLeituraVeiculo, obterVeiculoLocal } from "../../database/database";
+import { buildChartBuckets, type ChartPeriod } from "../../utils/chart-period";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
+/**
+ * @interface RpmAggregatedData
+ * @description Estrutura de dados para o pipeline de renderização do gráfico de barras duplas (Pico/Média).
+ */
 interface RpmAggregatedData {
+  key: string;
   period: string;
   peak: number;
   avg: number;
-  startTs: number;
-  endTs: number;
+  sampleCount: number;
 }
 
-interface RawData {
-  timestamp: number;
-  valor: number;
-}
-
+/**
+ * @component RPMDetailsScreen
+ * @description Módulo de análise dinâmica do regime do motor (RPM).
+ * Extrai a série temporal bruta (PID 010C) do SQLite, particiona a telemetria em 
+ * blocos agregados sequenciais e renderiza um gráfico vetorial (SVG) comparativo entre picos e médias.
+ */
 export default function RPMDetailsScreen() {
-  const { theme, t } = useApp();
+  const { theme, t, language } = useApp();
   const { user } = useAuth();
   
-  const [rawTelemetry, setRawTelemetry] = useState<RawData[]>([]);
+  // --- ESTADOS DA INTERFACE ---
+  const [selectedPeriod, setSelectedPeriod] = useState<number | null>(null);
   const [aggregatedData, setAggregatedData] = useState<RpmAggregatedData[]>([]);
-  const [selectedPeriodIndex, setSelectedPeriodIndex] = useState<number>(0);
-  const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
-  
   const [currentRPM, setCurrentRPM] = useState(0);
+  const [period, setPeriod] = useState<ChartPeriod>('day');
   const [isLoading, setIsLoading] = useState(true);
 
+  // Tema dinâmico corporativo
   const isDark = theme === 'dark';
   const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
   const cardColor = isDark ? '#12141A' : '#FFFFFF';
   const textColor = isDark ? '#F0F2FF' : '#0F172A';
   const subTextColor = isDark ? '#8892A4' : '#64748B';
   const borderColor = isDark ? '#1E2235' : '#E2E8F0';
-  const peakColor = "#9C27B0"; 
-  const avgColor = "#00B4FF";  
+  const peakColor = "#9C27B0"; // Roxo (Limites Operacionais)
+  const avgColor = "#00B4FF";  // Azul (Regime Médio)
 
-  const JANELA_24H_MS = 24 * 60 * 60 * 1000;
-
-  const carregarTelemetriaRPM = async () => {
-    try {
-      if (!user?.uid) return;
-      const sessoes = await obterResumoSessoes(user.uid);
-      
-      if (sessoes && sessoes.length > 0) {
-        const sessaoAtiva: any = sessoes[0];
-        const leiturasBrutas: any = await obterDadosGrafico(user.uid, sessaoAtiva.id, "010C");
-
-        if (leiturasBrutas && leiturasBrutas.length > 0) {
-          setCurrentRPM(leiturasBrutas[leiturasBrutas.length - 1].valor);
-
-          const agora = Date.now();
-          const leiturasValidas = leiturasBrutas.filter((l: any) => l.timestamp >= (agora - JANELA_24H_MS));
-          
-          // Garante ordem cronológica
-          leiturasValidas.sort((a: any, b: any) => a.timestamp - b.timestamp);
-
-          if (leiturasValidas.length > 0) {
-            setRawTelemetry(leiturasValidas);
-
-            const numChunks = Math.min(6, leiturasValidas.length);
-            const chunkSize = Math.ceil(leiturasValidas.length / numChunks);
-            const processedChunks: RpmAggregatedData[] = [];
-
-            for (let i = 0; i < numChunks; i++) {
-              const chunk = leiturasValidas.slice(i * chunkSize, (i + 1) * chunkSize);
-              if (chunk.length > 0) {
-                const peak = Math.max(...chunk.map((c: any) => c.valor));
-                const avg = Math.round(chunk.reduce((acc: number, val: any) => acc + val.valor, 0) / chunk.length);
-                
-                const timeStart = new Date(chunk[0].timestamp);
-                const timeEnd = new Date(chunk[chunk.length - 1].timestamp);
-                
-                const fmtTime = (d: Date) => `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-                
-                processedChunks.push({
-                  period: `${fmtTime(timeStart)} - ${fmtTime(timeEnd)}`,
-                  peak,
-                  avg,
-                  startTs: chunk[0].timestamp,
-                  endTs: chunk[chunk.length - 1].timestamp
-                });
-              }
-            }
-            
-            setAggregatedData(processedChunks);
-            
-            // Se for o primeiro load, seleciona o bloco mais recente automaticamente
-            if (aggregatedData.length === 0) {
-                setSelectedPeriodIndex(processedChunks.length - 1);
-            }
-          }
-        }
+  /**
+   * @effect Pipeline de Agregação de Dados (Data Fetching & Chunking)
+   * @description Agrega a telemetria de RPM do veículo por dia ou mês.
+   */
+  useEffect(() => {
+    async function carregarTelemetriaRPM() {
+      setIsLoading(true);
+      setAggregatedData([]);
+      setCurrentRPM(0);
+      try {
+        if (!user?.uid) return;
+        const vehicle = await obterVeiculoLocal(user.uid);
+        if (!vehicle) return;
+        const [summary, latest] = await Promise.all([
+          obterTelemetriaPorPeriodo(user.uid, vehicle.id, '010C', period),
+          obterUltimaLeituraVeiculo(user.uid, vehicle.id, '010C'),
+        ]);
+        const locale = language === 'en' ? 'en-US' : 'pt-BR';
+        const byPeriod = new Map(summary.map((row) => [row.periodKey, row]));
+        const buckets = buildChartBuckets(period, locale);
+        setAggregatedData(buckets.map((bucket) => {
+          const row = byPeriod.get(bucket.key);
+          return row ? {
+            key: bucket.key,
+            period: bucket.label,
+            peak: Math.round(Number(row.maximum)),
+            avg: Math.round(Number(row.average)),
+            sampleCount: Number(row.sampleCount),
+          } : {
+            key: bucket.key,
+            period: bucket.label,
+            peak: 0,
+            avg: 0,
+            sampleCount: 0,
+          };
+        }));
+        setCurrentRPM(latest ? Number(latest.valor) : 0);
+      } catch (error) {
+        console.log("[Data Layer Error] Falha ao agregar telemetria de RPM:", error);
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      console.log("[Data Layer Error]", error);
-    } finally {
-      setIsLoading(false);
     }
-  };
 
-  useFocusEffect(() => {
     carregarTelemetriaRPM();
-    const interval = setInterval(carregarTelemetriaRPM, 3000);
-    return () => clearInterval(interval);
-  });
+  }, [language, period, user?.uid]);
 
-  // --- PREPARAÇÃO DOS DADOS DO GRÁFICO (Filtrado pelo bloco selecionado) ---
-  const activeChunk = aggregatedData[selectedPeriodIndex] || { startTs: 0, endTs: 0 };
-  
-  const chartData = rawTelemetry
-    .filter(d => d.timestamp >= activeChunk.startTs && d.timestamp <= activeChunk.endTs)
-    .map(d => {
-        const dt = new Date(d.timestamp);
-        return {
-            time: `${dt.getHours().toString().padStart(2,'0')}:${dt.getMinutes().toString().padStart(2,'0')}:${dt.getSeconds().toString().padStart(2,'0')}`,
-            rpm: Math.round(d.valor)
-        };
-    });
+  // --- ESTATÍSTICAS GLOBAIS DA SESSÃO ---
+  const dataToRender: RpmAggregatedData[] = aggregatedData.length > 0 ? aggregatedData : [{
+    key: 'empty', period: 'N/A', peak: 0, avg: 0, sampleCount: 0,
+  }];
+  const maxRPM = 6500; // Hard limit típico para visualização (Redline)
+  const peakGlobalRPM = Math.max(...dataToRender.map((d) => d.peak));
+  const sampleCount = aggregatedData.reduce((sum, row) => sum + row.sampleCount, 0);
+  const avgGlobalRPM = sampleCount
+    ? Math.round(aggregatedData.reduce((sum, row) => sum + row.avg * row.sampleCount, 0) / sampleCount)
+    : 0;
 
-  const maxRPM = 6500;
-  const peakGlobalRPM = aggregatedData.length > 0 ? Math.max(...aggregatedData.map(d => d.peak)) : 0;
-  const avgGlobalRPM = aggregatedData.length > 0 ? Math.round(aggregatedData.reduce((sum, d) => sum + d.avg, 0) / aggregatedData.length) : 0;
-  const safePeakGlobal = peakGlobalRPM > 0 ? peakGlobalRPM : 1; 
-
+  // --- GEOMETRIA E ESCALA DO GRÁFICO (SVG) ---
   const chartWidth = SCREEN_WIDTH - 40;
-  const chartHeight = 220;
-  const padding = 35;
-
-  const minChartRpm = chartData.length > 0 ? Math.min(...chartData.map(d => d.rpm)) : 0;
-  const maxChartRpm = chartData.length > 0 ? Math.max(...chartData.map(d => d.rpm)) : 100;
-  const chartRange = maxChartRpm === minChartRpm ? 1 : (maxChartRpm - minChartRpm);
-
-  const points = chartData.map((data, i) => {
-    const x = padding + (i / (chartData.length > 1 ? chartData.length - 1 : 1)) * (chartWidth - padding * 2);
-    const y = chartHeight - padding - ((data.rpm - minChartRpm) / chartRange) * (chartHeight - padding * 2);
-    return { x, y, ...data };
-  });
-
-  const polylinePoints = points.map((p) => `${p.x},${p.y}`).join(" ");
+  const chartHeight = 200;
+  // Dinâmico: A largura das barras ajusta-se à quantidade de blocos gerados (até 6)
+  const numBars = dataToRender.length > 0 ? dataToRender.length : 1;
+  const barWidth = (chartWidth - 40) / numBars;
+  const safePeakGlobal = peakGlobalRPM > 0 ? peakGlobalRPM : 1; // Evita divisão por zero
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
@@ -157,7 +127,7 @@ export default function RPMDetailsScreen() {
         <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}>
           <MaterialIcons name="arrow-back" size={24} color={textColor} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: textColor }]}>Rotação do Motor</Text>
+        <Text style={[styles.headerTitle, { color: textColor }]}>RPM</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -170,7 +140,7 @@ export default function RPMDetailsScreen() {
             <View>
               <Text style={[styles.statusLabel, { color: subTextColor }]}>{t('rpmAtual')}</Text>
               <Text style={[styles.statusValue, { color: peakColor }]}>
-                {isLoading ? "--" : currentRPM} <Text style={{fontSize: 12, fontWeight: '500'}}>RPM</Text>
+                {isLoading ? "--" : (currentRPM / 1000).toFixed(1)}k
               </Text>
             </View>
           </View>
@@ -186,151 +156,161 @@ export default function RPMDetailsScreen() {
         <View style={styles.statsRow}>
           <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
             <Text style={[styles.statLabel, { color: subTextColor }]}>{t('pico')}</Text>
-            <Text style={[styles.statValue, { color: peakColor }]}>{isLoading ? "-" : peakGlobalRPM}</Text>
+            <Text style={[styles.statValue, { color: peakColor }]}>{isLoading ? "-" : (peakGlobalRPM / 1000).toFixed(1)}k</Text>
           </View>
           <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
             <Text style={[styles.statLabel, { color: subTextColor }]}>{t('media')}</Text>
-            <Text style={[styles.statValue, { color: avgColor }]}>{isLoading ? "-" : avgGlobalRPM}</Text>
+            <Text style={[styles.statValue, { color: peakColor }]}>{isLoading ? "-" : (avgGlobalRPM / 1000).toFixed(1)}k</Text>
           </View>
         </View>
 
-        {/* ================= MOTOR GRÁFICO (RAW DATA DO BLOCO SELECIONADO) ================= */}
+        {/* ================= MOTOR GRÁFICO BARRAS DUPLAS (SVG) ================= */}
         <View style={[styles.chartContainer, { backgroundColor: cardColor, borderColor: borderColor }]}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-            <Text style={[styles.chartTitle, { color: textColor, marginBottom: 0 }]}>Detalhe do Período</Text>
-            <Text style={{ fontSize: 11, color: peakColor, fontWeight: 'bold' }}>{activeChunk.period || '--'}</Text>
+          <View style={styles.chartHeader}>
+            <Text style={[styles.chartTitle, { color: textColor }]}>{t('picosPorPeriodo')}</Text>
+            <ChartPeriodToggle
+              value={period}
+              onChange={setPeriod}
+              cardColor={cardColor}
+              borderColor={borderColor}
+              mutedColor={subTextColor}
+              activeColor={peakColor}
+              dayLabel={t('dia')}
+              monthLabel={t('mes')}
+            />
           </View>
           
           {isLoading ? (
             <View style={[styles.emptyChart, { height: chartHeight }]}>
-              <ActivityIndicator size="large" color={avgColor} />
+              <ActivityIndicator size="large" color={peakColor} />
               <Text style={[styles.emptyChartText, { color: subTextColor, marginTop: 12 }]}>Carregando telemetria...</Text>
             </View>
-          ) : chartData.length === 0 ? (
+          ) : aggregatedData.every((row) => row.sampleCount === 0) ? (
             <View style={[styles.emptyChart, { height: chartHeight }]}>
               <MaterialIcons name="insights" size={48} color={borderColor} />
               <Text style={[styles.emptyChartText, { color: subTextColor, marginTop: 12 }]}>Aguardando dados da ECU.</Text>
             </View>
           ) : (
-            <Svg width={chartWidth} height={chartHeight} style={styles.chart}>
-              <Defs>
-                <LinearGradient id="rpmGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <Stop offset="0%" stopColor={avgColor} stopOpacity="0.3" />
-                  <Stop offset="100%" stopColor={avgColor} stopOpacity="0" />
-                </LinearGradient>
-              </Defs>
+            <>
+              <Svg width={chartWidth} height={chartHeight} style={styles.chart}>
+                <Defs>
+                  <LinearGradient id="rpmGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <Stop offset="0%" stopColor={peakColor} stopOpacity="0.3" />
+                    <Stop offset="100%" stopColor={peakColor} stopOpacity="0" />
+                  </LinearGradient>
+                </Defs>
 
-              {[0, 25, 50, 75, 100].map((percent) => (
-                <Line
-                  key={`grid-${percent}`}
-                  x1={padding}
-                  y1={chartHeight - padding - (percent / 100) * (chartHeight - padding * 2)}
-                  x2={chartWidth - padding}
-                  y2={chartHeight - padding - (percent / 100) * (chartHeight - padding * 2)}
-                  stroke={borderColor}
-                  strokeWidth={1}
-                  opacity={isDark ? 0.3 : 1}
-                />
-              ))}
+                {/* Grid Lines Horizontais (Eixo Y) */}
+                {[0, 25, 50, 75, 100].map((percent) => (
+                  <Line
+                    key={`grid-${percent}`}
+                    x1={20}
+                    y1={chartHeight - 30 - (percent / 100) * (chartHeight - 60)}
+                    x2={chartWidth - 20}
+                    y2={chartHeight - 30 - (percent / 100) * (chartHeight - 60)}
+                    stroke={borderColor}
+                    strokeWidth={1}
+                    opacity={isDark ? 0.3 : 1}
+                  />
+                ))}
 
-              <Polyline
-                points={polylinePoints}
-                fill="none"
-                stroke={avgColor}
-                strokeWidth={3}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-
-              {points.map((point, i) => {
-                const isSelected = selectedPointIndex === i;
-                return (
-                  <G key={`point-group-${i}`} onPress={() => setSelectedPointIndex(isSelected ? null : i)}>
-                    <Circle cx={point.x} cy={point.y} r={18} fill="transparent" />
-                    
-                    <Circle
-                      cx={point.x}
-                      cy={point.y}
-                      r={isSelected ? 6 : 2}
-                      fill={avgColor}
-                      opacity={isSelected ? 1 : 0.4}
-                      stroke={cardColor}
-                      strokeWidth={1}
+                {/* Barras de PICO Máximo (Roxo) */}
+                {dataToRender.map((data, i) => {
+                  const barHeight = (data.peak / safePeakGlobal) * (chartHeight - 60);
+                  const x = 20 + i * barWidth + barWidth * 0.05;
+                  return (
+                    <Rect
+                      key={`peak-${i}`}
+                      x={x}
+                      y={chartHeight - 30 - barHeight}
+                      width={barWidth * 0.45}
+                      height={barHeight}
+                      fill={peakColor}
+                      opacity={selectedPeriod === i ? 1 : (isDark ? 0.6 : 0.8)}
+                      rx={3}
                     />
+                  );
+                })}
 
-                    {/* CAIXA DE HORA E MEDIDA FLUTUANTE */}
-                    {isSelected && (
-                      <G>
-                        <Rect x={point.x - 35} y={point.y - 45} width={70} height={35} fill={cardColor} stroke={borderColor} strokeWidth={1} rx={6} />
-                        <SvgText x={point.x} y={point.y - 30} fill={textColor} fontSize="11" fontWeight="bold" textAnchor="middle">
-                          {point.rpm} RPM
-                        </SvgText>
-                        <SvgText x={point.x} y={point.y - 16} fill={subTextColor} fontSize="9" textAnchor="middle">
-                          {point.time}
-                        </SvgText>
-                      </G>
-                    )}
-                  </G>
-                );
-              })}
-            </Svg>
-          )}
+                {/* Barras de MÉDIA Aritmética (Azul) */}
+                {dataToRender.map((data, i) => {
+                  const barHeight = (data.avg / safePeakGlobal) * (chartHeight - 60);
+                  const x = 20 + i * barWidth + barWidth * 0.5;
+                  return (
+                    <Rect
+                      key={`avg-${i}`}
+                      x={x}
+                      y={chartHeight - 30 - barHeight}
+                      width={barWidth * 0.45}
+                      height={barHeight}
+                      fill={avgColor}
+                      opacity={selectedPeriod === i ? 1 : (isDark ? 0.6 : 0.8)}
+                      rx={3}
+                    />
+                  );
+                })}
+              </Svg>
 
-          {chartData.length > 0 && (
-            <View style={styles.timeLabels}>
-              <Text style={[styles.timeLabel, { color: subTextColor }]}>{chartData[0].time}</Text>
-              <Text style={[styles.timeLabel, { color: subTextColor }]}>
-                {chartData[Math.floor(chartData.length / 2)].time}
-              </Text>
-              <Text style={[styles.timeLabel, { color: subTextColor }]}>{chartData[chartData.length - 1].time}</Text>
-            </View>
+              <View style={styles.periodLabels}>
+                {dataToRender.map((data, i) => (
+                  <Text key={`period-${i}`} style={[styles.periodLabel, { color: subTextColor }]}>
+                    {data.period.split("-")[0]}
+                  </Text>
+                ))}
+              </View>
+
+              <View style={styles.legend}>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendColor, { backgroundColor: peakColor }]} />
+                  <Text style={[styles.legendText, { color: subTextColor }]}>{t('pico')}</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendColor, { backgroundColor: avgColor }]} />
+                  <Text style={[styles.legendText, { color: subTextColor }]}>{t('media')}</Text>
+                </View>
+              </View>
+            </>
           )}
         </View>
 
-        {/* ================= DATAGRID: LOG HORÁRIO POR BLOCO ================= */}
+        {/* ================= DATAGRID: RESUMO POR DIA OU MÊS ================= */}
         <View style={[styles.breakdownContainer, { backgroundColor: cardColor, borderColor: borderColor }]}>
-          <Text style={[styles.breakdownTitle, { color: textColor }]}>Selecione o Bloco de Tempo para Filtrar</Text>
+          <Text style={[styles.breakdownTitle, { color: textColor }]}>{t('detalhesPorPeriodo')}</Text>
           
-          {isLoading || aggregatedData.length === 0 ? (
+          {isLoading || aggregatedData.every((row) => row.sampleCount === 0) ? (
             <Text style={{ color: subTextColor, textAlign: 'center', padding: 20 }}>Nenhum log gravado nesta sessão.</Text>
           ) : (
-            [...aggregatedData].reverse().map((data, i) => {
-              const originalIndex = aggregatedData.length - 1 - i;
-              return (
+            aggregatedData.map((data, i) => (
               <Pressable
-                key={`breakdown-${i}`}
-                onPress={() => {
-                    setSelectedPeriodIndex(originalIndex);
-                    setSelectedPointIndex(null); // Reseta a tooltip ao mudar de bloco
-                }}
+                key={data.key}
+                onPress={() => setSelectedPeriod(i)}
                 style={({ pressed }) => [
                   styles.breakdownItem,
                   { borderBottomColor: borderColor },
-                  selectedPeriodIndex === originalIndex && { backgroundColor: isDark ? "#9C27B022" : "#F3E8F5", paddingHorizontal: 8, borderRadius: 8, marginHorizontal: -8, borderBottomColor: 'transparent' },
+                  selectedPeriod === i && { backgroundColor: isDark ? "#9C27B022" : "#F3E8F5", paddingHorizontal: 8, borderRadius: 8, marginHorizontal: -8 },
                   pressed && { opacity: 0.7 }
                 ]}
               >
                 <View style={styles.breakdownLeft}>
                   <Text style={[styles.breakdownPeriod, { color: textColor }]}>{data.period}</Text>
-                  
                   <View style={styles.breakdownBars}>
-                    <View style={styles.barWrapper}>
-                      <View style={[styles.breakdownBarSmall, { backgroundColor: isDark ? "#1E2235" : "#CBD5E1", width: '70%' }]}>
-                        <View style={[styles.breakdownBarFill, { width: `${(data.peak / safePeakGlobal) * 100}%` as any, backgroundColor: peakColor }]} />
-                      </View>
-                      <Text style={[styles.barValueText, { color: peakColor }]}>{data.peak}</Text>
-                    </View>
-                    
-                    <View style={styles.barWrapper}>
-                      <View style={[styles.breakdownBarSmall, { backgroundColor: isDark ? "#1E2235" : "#CBD5E1", width: '70%' }]}>
-                        <View style={[styles.breakdownBarFill, { width: `${(data.avg / safePeakGlobal) * 100}%` as any, backgroundColor: avgColor }]} />
-                      </View>
-                      <Text style={[styles.barValueText, { color: avgColor }]}>{data.avg}</Text>
+                    <View style={[styles.breakdownBarSmall, { backgroundColor: isDark ? "#1E2235" : "#CBD5E1" }]}>
+                      <View style={[styles.breakdownBarFill, { width: `${(data.peak / safePeakGlobal) * 100}%` as any, backgroundColor: peakColor }]} />
                     </View>
                   </View>
                 </View>
+                <View style={styles.breakdownRight}>
+                  <View>
+                    <Text style={[styles.breakdownLabel, { color: subTextColor }]}>{t('pico')}</Text>
+                    <Text style={[styles.breakdownValue, { color: peakColor }]}>{(data.peak / 1000).toFixed(1)}k</Text>
+                  </View>
+                  <View>
+                    <Text style={[styles.breakdownLabel, { color: subTextColor }]}>{t('media')}</Text>
+                    <Text style={[styles.breakdownValue, { color: avgColor }]}>{(data.avg / 1000).toFixed(1)}k</Text>
+                  </View>
+                </View>
               </Pressable>
-            )})
+            ))
           )}
         </View>
       </ScrollView>
@@ -360,22 +340,28 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 18, fontWeight: "700" },
   
   chartContainer: { borderRadius: 16, padding: 16, borderWidth: 1 },
-  chartTitle: { fontSize: 13, fontWeight: "600", marginBottom: 12 },
+  chartHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 },
+  chartTitle: { flex: 1, fontSize: 13, fontWeight: "600" },
   chart: { marginBottom: 8 },
   emptyChart: { justifyContent: "center", alignItems: "center", width: "100%" },
   emptyChartText: { fontSize: 13, fontWeight: "500" },
   
-  timeLabels: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 40 },
-  timeLabel: { fontSize: 10, fontWeight: "600" },
+  periodLabels: { flexDirection: "row", justifyContent: "space-around", paddingHorizontal: 20, marginBottom: 8 },
+  periodLabel: { fontSize: 9, fontWeight: "600" },
+  legend: { flexDirection: "row", gap: 16, justifyContent: "center", marginTop: 8 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  legendColor: { width: 12, height: 12, borderRadius: 2 },
+  legendText: { fontSize: 11 },
   
   breakdownContainer: { borderRadius: 16, padding: 16, borderWidth: 1 },
   breakdownTitle: { fontSize: 13, fontWeight: "600", marginBottom: 12 },
-  breakdownItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, borderBottomWidth: 1 },
-  breakdownLeft: { flex: 1, gap: 10 },
+  breakdownItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1 },
+  breakdownLeft: { flex: 1, gap: 8 },
   breakdownPeriod: { fontSize: 12, fontWeight: "600" },
-  breakdownBars: { gap: 8 },
-  barWrapper: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  breakdownBarSmall: { height: 6, borderRadius: 3, overflow: "hidden" },
-  breakdownBarFill: { height: "100%", borderRadius: 3 },
-  barValueText: { fontSize: 13, fontWeight: "700" },
+  breakdownBars: { gap: 4 },
+  breakdownBarSmall: { height: 4, borderRadius: 2, overflow: "hidden" },
+  breakdownBarFill: { height: "100%", borderRadius: 2 },
+  breakdownRight: { flexDirection: "row", gap: 16 },
+  breakdownLabel: { fontSize: 10, marginBottom: 2 },
+  breakdownValue: { fontSize: 13, fontWeight: "700" },
 });

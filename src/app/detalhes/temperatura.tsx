@@ -12,12 +12,14 @@ import {
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import Svg, { Circle, Defs, Line, LinearGradient, Polyline, Stop } from "react-native-svg";
+import { ChartPeriodToggle } from "../../components/ChartPeriodToggle";
 import { ScreenContainer } from "../../components/screen-container";
 import { useApp } from "../../contexts/AppContext";
 import { useAuth } from "../../contexts/AuthContext";
 
 // IMPORTAÇÃO DA CAMADA DE PERSISTÊNCIA (SQLite)
-import { obterDadosGrafico, obterResumoSessoes } from "../../database/database";
+import { obterTelemetriaPorPeriodo, obterUltimaLeituraVeiculo, obterVeiculoLocal } from "../../database/database";
+import { buildChartBuckets, type ChartPeriod } from "../../utils/chart-period";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -26,8 +28,13 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
  * @description Estrutura de dados para o pipeline de renderização do gráfico Time-Series.
  */
 interface TemperatureData {
-  time: string;
+  key: string;
+  label: string;
   temp: number;
+  minimum: number;
+  maximum: number;
+  sampleCount: number;
+  bucketIndex: number;
 }
 
 /**
@@ -37,12 +44,14 @@ interface TemperatureData {
  * e plota as coordenadas de forma dinâmica em um gráfico vetorial (SVG).
  */
 export default function TemperatureDetailsScreen() {
-  const { theme, t } = useApp();
+  const { theme, t, language } = useApp();
   const { user } = useAuth();
   
   // --- ESTADOS DA INTERFACE ---
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [chartData, setChartData] = useState<TemperatureData[]>([]);
+  const [period, setPeriod] = useState<ChartPeriod>('day');
+  const [latestTemp, setLatestTemp] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
   // Paleta de cores reativa ao contexto global
@@ -56,38 +65,37 @@ export default function TemperatureDetailsScreen() {
 
   /**
    * @effect Pipeline de Extração de Dados (Data Fetching)
-   * @description Consulta a sessão mais recente e extrai os pontos de telemetria correspondentes ao PID 0105.
+   * @description Agrega a telemetria do veículo por dia ou mês a partir dos timestamps locais.
    */
   useEffect(() => {
     async function carregarTelemetria() {
+      setIsLoading(true);
+      setChartData([]);
+      setLatestTemp(0);
       try {
-        // 1. Obtém a sessão de diagnóstico mais recente
         if (!user?.uid) return;
-        const sessoes = await obterResumoSessoes(user.uid);
-        
-        if (sessoes && sessoes.length > 0) {
-          const sessaoAtiva: any = sessoes[0];
-          
-          // 2. Extrai os dados em lote do PID 0105 (Temperatura)
-          const leituras: any = await obterDadosGrafico(user.uid, sessaoAtiva.id, "0105");
-
-          if (leituras && leituras.length > 0) {
-            // 3. Transformação (Parsing) dos timestamps Unix para string horária local
-            const dadosFormatados: TemperatureData[] = leituras.map((l: any) => {
-              const dataObj = new Date(l.timestamp);
-              const horas = dataObj.getHours().toString().padStart(2, '0');
-              const minutos = dataObj.getMinutes().toString().padStart(2, '0');
-              return {
-                time: `${horas}:${minutos}`,
-                temp: Math.round(l.valor)
-              };
-            });
-
-            // Otimização: Limita o gráfico aos últimos 20 pontos para evitar poluição visual (Downsampling)
-            const downsampledData = dadosFormatados.slice(-20);
-            setChartData(downsampledData);
-          }
-        }
+        const vehicle = await obterVeiculoLocal(user.uid);
+        if (!vehicle) return;
+        const [summary, latest] = await Promise.all([
+          obterTelemetriaPorPeriodo(user.uid, vehicle.id, '0105', period),
+          obterUltimaLeituraVeiculo(user.uid, vehicle.id, '0105'),
+        ]);
+        const locale = language === 'en' ? 'en-US' : 'pt-BR';
+        const byPeriod = new Map(summary.map((row) => [row.periodKey, row]));
+        const buckets = buildChartBuckets(period, locale);
+        setChartData(buckets.flatMap((bucket, bucketIndex) => {
+          const row = byPeriod.get(bucket.key);
+          return row ? [{
+            key: bucket.key,
+            label: bucket.label,
+            temp: Number(row.average),
+            minimum: Math.round(Number(row.minimum)),
+            maximum: Math.round(Number(row.maximum)),
+            sampleCount: Number(row.sampleCount),
+            bucketIndex,
+          }] : [];
+        }));
+        setLatestTemp(latest ? Math.round(Number(latest.valor)) : 0);
       } catch (error) {
         console.log("[Data Layer Error] Falha ao extrair plotagem térmica:", error);
       } finally {
@@ -96,15 +104,20 @@ export default function TemperatureDetailsScreen() {
     }
 
     carregarTelemetria();
-  }, [user?.uid]);
+  }, [language, period, user?.uid]);
 
   // --- CÁLCULOS ESTATÍSTICOS DE BORDAS ---
-  const dataToRender = chartData.length > 0 ? chartData : [{ time: "--:--", temp: 0 }];
-  const currentTemp = chartData.length > 0 ? chartData[chartData.length - 1].temp : 0;
-  
-  const minTemp = Math.min(...dataToRender.map((d) => d.temp));
-  const maxTemp = Math.max(...dataToRender.map((d) => d.temp));
-  const avgTemp = Math.round(dataToRender.reduce((sum, d) => sum + d.temp, 0) / dataToRender.length);
+  const dataToRender: TemperatureData[] = chartData.length > 0 ? chartData : [{
+    key: 'empty', label: '--', temp: 0, minimum: 0, maximum: 0, sampleCount: 0, bucketIndex: 0,
+  }];
+  const currentTemp = latestTemp;
+  const minTemp = chartData.length ? Math.min(...chartData.map((d) => d.minimum)) : 0;
+  const maxTemp = chartData.length ? Math.max(...chartData.map((d) => d.maximum)) : 0;
+  const sampleCount = chartData.reduce((sum, row) => sum + row.sampleCount, 0);
+  const avgTemp = sampleCount
+    ? Math.round(chartData.reduce((sum, row) => sum + row.temp * row.sampleCount, 0) / sampleCount)
+    : 0;
+  const axisBuckets = buildChartBuckets(period, language === 'en' ? 'en-US' : 'pt-BR');
 
   // --- GEOMETRIA E ESCALA DO GRÁFICO (SVG) ---
   const chartWidth = SCREEN_WIDTH - 40;
@@ -116,7 +129,8 @@ export default function TemperatureDetailsScreen() {
 
   // Mapeamento de matriz de dados para coordenadas bidimensionais (X, Y)
   const points = dataToRender.map((data, i) => {
-    const x = padding + (i / (dataToRender.length > 1 ? dataToRender.length - 1 : 1)) * (chartWidth - padding * 2);
+    const position = chartData.length > 0 && chartData[i]?.bucketIndex !== undefined ? data.bucketIndex : i;
+    const x = padding + (position / (axisBuckets.length > 1 ? axisBuckets.length - 1 : 1)) * (chartWidth - padding * 2);
     const y = chartHeight - padding - ((data.temp - minTemp) / tempRange) * (chartHeight - padding * 2);
     return { x, y, ...data };
   });
@@ -172,7 +186,19 @@ export default function TemperatureDetailsScreen() {
 
         {/* ================= MOTOR GRÁFICO (SVG) ================= */}
         <View style={[styles.chartContainer, { backgroundColor: cardColor, borderColor: borderColor }]}>
-          <Text style={[styles.chartTitle, { color: textColor }]}>{t('oscilacaoTermica')}</Text>
+          <View style={styles.chartHeader}>
+            <Text style={[styles.chartTitle, { color: textColor }]}>{t('oscilacaoTermica')}</Text>
+            <ChartPeriodToggle
+              value={period}
+              onChange={setPeriod}
+              cardColor={cardColor}
+              borderColor={borderColor}
+              mutedColor={subTextColor}
+              activeColor={primaryColor}
+              dayLabel={t('dia')}
+              monthLabel={t('mes')}
+            />
+          </View>
           
           {isLoading ? (
             <View style={[styles.emptyChart, { height: chartHeight }]}>
@@ -231,19 +257,17 @@ export default function TemperatureDetailsScreen() {
             </Svg>
           )}
 
-          {/* Eixo X (Âncoras de Tempo) */}
+          {/* Eixo X (dias ou meses) */}
           {chartData.length > 0 && (
             <View style={styles.timeLabels}>
-              <Text style={[styles.timeLabel, { color: subTextColor }]}>{chartData[0].time}</Text>
-              <Text style={[styles.timeLabel, { color: subTextColor }]}>
-                {chartData[Math.floor(chartData.length / 2)].time}
-              </Text>
-              <Text style={[styles.timeLabel, { color: subTextColor }]}>{chartData[chartData.length - 1].time}</Text>
+              {axisBuckets.map((bucket) => (
+                <Text key={bucket.key} style={[styles.timeLabel, { color: subTextColor }, period === 'month' && { fontSize: 8 }]}>{bucket.label}</Text>
+              ))}
             </View>
           )}
         </View>
 
-        {/* ================= DATAGRID: LOG HORÁRIO ================= */}
+        {/* ================= DATAGRID: RESUMO POR PERÍODO ================= */}
         <View style={[styles.dataSection, { backgroundColor: cardColor, borderColor: borderColor }]}>
           <Text style={[styles.dataTitle, { color: textColor }]}>{t('dadosHorarios')}</Text>
           
@@ -261,7 +285,7 @@ export default function TemperatureDetailsScreen() {
                   pressed && { opacity: 0.7 }
                 ]}
               >
-                <Text style={[styles.dataTime, { color: subTextColor }]}>{data.time}</Text>
+                <Text style={[styles.dataTime, { color: subTextColor }]}>{data.label}</Text>
                 
                 <View style={[styles.dataBar, { backgroundColor: isDark ? "#1E2235" : "#CBD5E1" }]}>
                   <View
@@ -275,7 +299,7 @@ export default function TemperatureDetailsScreen() {
                     ]}
                   />
                 </View>
-                <Text style={[styles.dataTemp, { color: primaryColor }]}>{data.temp}°C</Text>
+                <Text style={[styles.dataTemp, { color: primaryColor }]}>{Math.round(data.temp)}°C · {data.minimum}–{data.maximum}°</Text>
               </Pressable>
             ))
           )}
@@ -305,7 +329,8 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 18, fontWeight: "700" },
   
   chartContainer: { borderRadius: 16, padding: 16, borderWidth: 1 },
-  chartTitle: { fontSize: 13, fontWeight: "600", marginBottom: 12 },
+  chartHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 },
+  chartTitle: { flex: 1, fontSize: 13, fontWeight: "600" },
   chart: { marginBottom: 8 },
   emptyChart: { justifyContent: "center", alignItems: "center", width: "100%" },
   emptyChartText: { fontSize: 13, fontWeight: "500" },
@@ -319,5 +344,5 @@ const styles = StyleSheet.create({
   dataTime: { width: 50, fontSize: 12, fontWeight: "600" },
   dataBar: { flex: 1, height: 6, borderRadius: 3, overflow: "hidden" },
   dataBarFill: { height: "100%", borderRadius: 3 },
-  dataTemp: { width: 50, fontSize: 12, fontWeight: "700", textAlign: "right" },
+  dataTemp: { width: 82, fontSize: 11, fontWeight: "700", textAlign: "right" },
 });

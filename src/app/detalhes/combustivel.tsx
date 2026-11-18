@@ -4,13 +4,22 @@ import { ActivityIndicator, Alert, Dimensions, Modal, Pressable, ScrollView, Sty
 import { MaterialIcons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import Svg, { Defs, Line, LinearGradient, Rect, Stop } from "react-native-svg";
+import { ChartPeriodToggle } from "../../components/ChartPeriodToggle";
 import { ScreenContainer } from "../../components/screen-container";
 import { useApp } from "../../contexts/AppContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useFocusEffect } from 'expo-router';
 
 // IMPORTAÇÃO DA CAMADA DE PERSISTÊNCIA (SQLite)
-import { obterDadosGrafico, obterHistoricoAbastecimento, obterResumoSessoes, obterVeiculoLocal, salvarAbastecimentoLocal } from "../../database/database";
+import {
+  obterAbastecimentosPorPeriodo,
+  obterDadosGrafico,
+  obterHistoricoAbastecimento,
+  obterResumoSessoes,
+  obterVeiculoLocal,
+  salvarAbastecimentoLocal,
+} from "../../database/database";
+import { buildChartBuckets, type ChartPeriod } from "../../utils/chart-period";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -19,10 +28,18 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
  * @description Estrutura agregada combinando o consumo de combustível e os eventos de abastecimento.
  */
 interface RefillData {
+  key: string;
   dataString: string;
   litros: number;
   custo: number;
   kmOcasiao: number;
+}
+
+interface FuelChartData {
+  key: string;
+  label: string;
+  litros: number;
+  custo: number;
 }
 
 /**
@@ -32,13 +49,17 @@ interface RefillData {
  * de gastos baseado na tabela relacional 'abastecimento_local'.
  */
 export default function FuelDetailsScreen() {
-  const { theme, t } = useApp();
+  const { theme, t, language } = useApp();
   const { user, syncNow } = useAuth();
   
   // --- ESTADOS DA INTERFACE ---
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [currentLevel, setCurrentLevel] = useState<number>(0);
   const [abastecimentos, setAbastecimentos] = useState<RefillData[]>([]);
+  const [period, setPeriod] = useState<ChartPeriod>('day');
+  const [fuelChartData, setFuelChartData] = useState<FuelChartData[]>(() =>
+    buildChartBuckets('day').map((bucket) => ({ ...bucket, litros: 0, custo: 0 })),
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [vehicle, setVehicle] = useState<any>(null);
   const [showRefuelForm, setShowRefuelForm] = useState(false);
@@ -67,8 +88,11 @@ export default function FuelDetailsScreen() {
     try {
       // 1. Extração do Nível Atual (Telemetria)
       if (!user?.uid) return;
+      const locale = language === 'en' ? 'en-US' : 'pt-BR';
+      const buckets = buildChartBuckets(period, locale);
       const currentVehicle = await obterVeiculoLocal(user.uid);
       setVehicle(currentVehicle);
+      setFuelChartData(buckets.map((bucket) => ({ ...bucket, litros: 0, custo: 0 })));
       const sessoes = currentVehicle ? await obterResumoSessoes(user.uid, currentVehicle.id) : [];
       if (sessoes && sessoes.length > 0) {
         const sessaoAtiva: any = sessoes[0];
@@ -80,12 +104,16 @@ export default function FuelDetailsScreen() {
 
       // 2. Extração do Histórico de Abastecimento (Tabela CRUD)
       if (currentVehicle) {
-        const historico: any = await obterHistoricoAbastecimento(user.uid, currentVehicle.id);
+        const [historico, resumoPorPeriodo] = await Promise.all([
+          obterHistoricoAbastecimento(user.uid, currentVehicle.id),
+          obterAbastecimentosPorPeriodo(user.uid, currentVehicle.id, period),
+        ]);
         
         if (historico && historico.length > 0) {
           const processado = historico.map((h: any) => {
             const dataObj = new Date(h.dataAbastecimento);
             return {
+              key: String(h.id),
               dataString: `${dataObj.getDate()}/${(dataObj.getMonth()+1).toString().padStart(2, '0')}`,
               litros: h.litros,
               custo: h.custoTotal,
@@ -97,13 +125,24 @@ export default function FuelDetailsScreen() {
         } else {
           setAbastecimentos([]);
         }
+        const byPeriod = new Map(resumoPorPeriodo.map((item) => [item.periodKey, item]));
+        setFuelChartData(buckets.map((bucket) => {
+          const summary = byPeriod.get(bucket.key);
+          return {
+            ...bucket,
+            litros: Number(summary?.litros ?? 0),
+            custo: Number(summary?.custo ?? 0),
+          };
+        }));
+      } else {
+        setFuelChartData(buckets.map((bucket) => ({ ...bucket, litros: 0, custo: 0 })));
       }
     } catch (error) {
       console.log("[Data Error] Falha ao extrair analítica de combustível:", error);
     } finally {
       setIsLoading(false);
     }
-  }, [user?.uid]);
+  }, [language, period, user?.uid]);
 
   useFocusEffect(useCallback(() => {
     void carregarDadosCombustivel();
@@ -139,10 +178,11 @@ export default function FuelDetailsScreen() {
   const autonomiaEstimada = Math.round((currentLevel / 100) * 600); // Exemplo: Tanque cheio = 600km
   
   // Variáveis do Gráfico de Abastecimentos (Litros colocados por data)
-  const dataToRender = abastecimentos.length > 0 ? abastecimentos : [{ dataString: "--", litros: 0, custo: 0, kmOcasiao: 0 }];
-  const maxLitros = Math.max(...dataToRender.map((d) => d.litros));
+  const dataToRender = fuelChartData;
+  const maxLitros = Math.max(...dataToRender.map((d) => d.litros), 1);
   const safeMax = maxLitros > 0 ? maxLitros : 1; // Previne divisão por zero
-  const totalLitrosMes = abastecimentos.reduce((sum, d) => sum + d.litros, 0);
+  const totalLitrosPeriodo = fuelChartData.reduce((sum, d) => sum + d.litros, 0);
+  const totalCustoPeriodo = fuelChartData.reduce((sum, d) => sum + d.custo, 0);
 
   // --- GEOMETRIA DO GRÁFICO ---
   const chartWidth = SCREEN_WIDTH - 40;
@@ -189,25 +229,40 @@ export default function FuelDetailsScreen() {
         <View style={styles.statsRow}>
           <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
             <Text style={[styles.statLabel, { color: subTextColor }]}>Abastecido</Text>
-            <Text style={[styles.statValue, { color: primaryColor }]}>{isLoading ? "-" : totalLitrosMes.toFixed(1)}L</Text>
+            <Text style={[styles.statValue, { color: primaryColor }]}>{isLoading ? "-" : totalLitrosPeriodo.toFixed(1)}L</Text>
           </View>
           <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
-            <Text style={[styles.statLabel, { color: subTextColor }]}>Gasto (R$)</Text>
+            <Text style={[styles.statLabel, { color: subTextColor }]}>Gasto no período (R$)</Text>
             <Text style={[styles.statValue, { color: primaryColor }]}>
-              {isLoading ? "-" : abastecimentos.reduce((s, d) => s + d.custo, 0).toFixed(2)}
+              {isLoading ? "-" : totalCustoPeriodo.toFixed(2)}
             </Text>
           </View>
         </View>
 
         {/* ================= MOTOR GRÁFICO (SVG) - VOLUME DE ABASTECIMENTO ================= */}
         <View style={[styles.chartContainer, { backgroundColor: cardColor, borderColor: borderColor }]}>
-          <Text style={[styles.chartTitle, { color: textColor }]}>Volume Abastecido</Text>
+          <View style={styles.chartHeader}>
+            <View style={styles.chartHeadingCopy}>
+              <Text style={[styles.chartTitle, { color: textColor }]}>Volume Abastecido</Text>
+              <Text style={[styles.chartSubtitle, { color: subTextColor }]}>{period === 'day' ? 'Últimos 7 dias' : 'Últimos 12 meses'}</Text>
+            </View>
+            <ChartPeriodToggle
+              value={period}
+              onChange={setPeriod}
+              cardColor={cardColor}
+              borderColor={borderColor}
+              mutedColor={subTextColor}
+              activeColor={primaryColor}
+              dayLabel={t('dia')}
+              monthLabel={t('mes')}
+            />
+          </View>
           
           {isLoading ? (
             <View style={[styles.emptyChart, { height: chartHeight }]}>
               <ActivityIndicator size="large" color={primaryColor} />
             </View>
-          ) : abastecimentos.length === 0 ? (
+          ) : fuelChartData.every((entry) => entry.litros === 0) ? (
             <View style={[styles.emptyChart, { height: chartHeight }]}>
               <MaterialIcons name="local-gas-station" size={48} color={borderColor} />
               <Text style={[styles.emptyChartText, { color: subTextColor, marginTop: 12 }]}>Nenhum registro de abastecimento.</Text>
@@ -242,7 +297,7 @@ export default function FuelDetailsScreen() {
                   
                   return (
                     <Rect
-                      key={`bar-${i}`}
+                      key={data.key}
                       x={x}
                       y={y}
                       width={barWidth * 0.8}
@@ -256,9 +311,9 @@ export default function FuelDetailsScreen() {
               </Svg>
 
               <View style={styles.dayLabels}>
-                {dataToRender.map((data, i) => (
-                  <Text key={`day-${i}`} style={[styles.dayLabel, { color: subTextColor }]}>
-                    {data.dataString}
+                {dataToRender.map((data) => (
+                  <Text key={data.key} style={[styles.dayLabel, { color: subTextColor }]}>
+                    {data.label}
                   </Text>
                 ))}
               </View>
@@ -273,8 +328,8 @@ export default function FuelDetailsScreen() {
           {isLoading || abastecimentos.length === 0 ? (
             <Text style={{ color: subTextColor, textAlign: 'center', padding: 20 }}>Registe abastecimentos para ver histórico.</Text>
           ) : (
-            abastecimentos.slice().reverse().map((data, i) => (
-              <View key={`log-${i}`} style={[styles.refillItem, { borderBottomColor: borderColor }]}>
+            abastecimentos.slice().reverse().map((data) => (
+              <View key={data.key} style={[styles.refillItem, { borderBottomColor: borderColor }]}>
                 <MaterialIcons name="local-gas-station" size={24} color="#4CAF50" />
                 <View style={styles.refillContent}>
                   <Text style={[styles.refillDay, { color: textColor }]}>{data.dataString}</Text>
@@ -338,7 +393,10 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 18, fontWeight: "700" },
   
   chartContainer: { borderRadius: 16, padding: 16, borderWidth: 1 },
-  chartTitle: { fontSize: 13, fontWeight: "600", marginBottom: 12 },
+  chartHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 },
+  chartHeadingCopy: { flex: 1 },
+  chartTitle: { fontSize: 13, fontWeight: "600" },
+  chartSubtitle: { fontSize: 10, marginTop: 3 },
   chart: { marginBottom: 8 },
   emptyChart: { justifyContent: "center", alignItems: "center", width: "100%" },
   emptyChartText: { fontSize: 13, fontWeight: "500" },

@@ -18,7 +18,17 @@ import { HealthCarHeader } from '@/components/HealthCarHeader';
 import { ScreenContainer } from '@/components/screen-container';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { obterHistoricoManutencao, obterVeiculoLocal, salvarManutencaoLocal } from '@/database/database';
+import {
+  atualizarManutencaoLocal,
+  excluirManutencaoLocal,
+  obterHistoricoManutencao,
+  obterVeiculoLocal,
+  salvarManutencaoLocal,
+} from '@/database/database';
+
+function dateInputValue(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
 
 export default function MaintenanceScreen() {
   const { theme } = useApp();
@@ -27,11 +37,12 @@ export default function MaintenanceScreen() {
   const [vehicle, setVehicle] = useState<any>(null);
   const [maintenance, setMaintenance] = useState<any[]>([]);
   const [serviceName, setServiceName] = useState('');
-  const [serviceDate, setServiceDate] = useState(new Date().toISOString().slice(0, 10));
+  const [serviceDate, setServiceDate] = useState(() => dateInputValue(new Date()));
   const [serviceKm, setServiceKm] = useState('');
   const [serviceCost, setServiceCost] = useState('');
   const [nextKm, setNextKm] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const isDark = theme === 'dark';
   const background = isDark ? '#0A0A0F' : '#F1F5F9';
   const card = isDark ? '#12141A' : '#FFFFFF';
@@ -57,6 +68,58 @@ export default function MaintenanceScreen() {
     void loadMaintenance();
   }, [loadMaintenance]));
 
+  const openEditForm = (item: any) => {
+    const date = new Date(item.dataRealizada);
+    setEditingId(item.id);
+    setServiceName(String(item.tipo ?? ''));
+    setServiceDate(dateInputValue(date));
+    setServiceKm(String(item.kmNaOcasiao ?? ''));
+    setServiceCost(String(item.custo ?? ''));
+    setNextKm(item.proximoKm ? String(item.proximoKm) : '');
+    setShowForm(true);
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setServiceName('');
+    setServiceDate(dateInputValue(new Date()));
+    setServiceKm('');
+    setServiceCost('');
+    setNextKm('');
+  };
+
+  const deleteMaintenance = async (item: any) => {
+    if (!user?.uid) return;
+    try {
+      await excluirManutencaoLocal(user.uid, item.id);
+      await loadMaintenance();
+      void syncNow().catch(() => {});
+    } catch (error) {
+      Alert.alert('Não foi possível excluir', 'A manutenção continua no histórico deste aparelho. Tente novamente.');
+      console.error('[Manutenção] Falha ao excluir o registro:', error);
+    }
+  };
+
+  const showMaintenanceActions = (item: any) => {
+    Alert.alert('Opções da manutenção', String(item.tipo ?? 'Registro'), [
+      { text: 'Editar', onPress: () => openEditForm(item) },
+      {
+        text: 'Excluir',
+        style: 'destructive',
+        onPress: () => Alert.alert(
+          'Excluir manutenção?',
+          'O registro será removido do histórico e sincronizado com sua conta.',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            { text: 'Excluir', style: 'destructive', onPress: () => void deleteMaintenance(item) },
+          ],
+        ),
+      },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
+  };
+
   const saveMaintenance = async () => {
     if (!user?.uid || !vehicle) {
       Alert.alert('Veículo não encontrado', 'Cadastre um veículo antes de registrar uma manutenção.');
@@ -72,15 +135,15 @@ export default function MaintenanceScreen() {
     }
     setIsSaving(true);
     try {
-      await salvarManutencaoLocal(user.uid, vehicle.id, serviceName.trim(), dateValue, kmValue, costValue, nextKmValue);
+      if (editingId) {
+        await atualizarManutencaoLocal(user.uid, editingId, serviceName.trim(), dateValue, kmValue, costValue, nextKmValue);
+      } else {
+        await salvarManutencaoLocal(user.uid, vehicle.id, serviceName.trim(), dateValue, kmValue, costValue, nextKmValue);
+      }
       await loadMaintenance();
       void syncNow().catch(() => {});
       setServiceName('');
-      setServiceDate(new Date().toISOString().slice(0, 10));
-      setServiceKm(String(vehicle.km ?? ''));
-      setServiceCost('');
-      setNextKm('');
-      setShowForm(false);
+      closeForm();
     } catch (error) {
       Alert.alert('Não foi possível salvar', 'A manutenção não foi gravada no banco local. Tente novamente.');
       console.error('[Manutenção] Falha ao gravar no SQLite:', error);
@@ -121,7 +184,7 @@ export default function MaintenanceScreen() {
         </View>
 
         <Pressable
-          onPress={() => { setServiceKm(String(vehicle?.km ?? '')); setShowForm(true); }}
+          onPress={() => { setEditingId(null); setServiceKm(String(vehicle?.km ?? '')); setShowForm(true); }}
           style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.82 }]}
         >
           <MaterialIcons name="add" size={20} color="#04131A" />
@@ -149,7 +212,7 @@ export default function MaintenanceScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Opções de ${title}`}
-                onPress={() => Alert.alert('Manutenção', 'Este registro é mantido no histórico da sua conta.')}
+                onPress={() => showMaintenanceActions(item)}
                 hitSlop={8}
               >
                 <MaterialIcons name="more-horiz" size={22} color={muted} />
@@ -185,7 +248,7 @@ export default function MaintenanceScreen() {
         )})}
       </ScrollView>
 
-      <Modal visible={showForm} transparent animationType="slide" onRequestClose={() => setShowForm(false)}>
+      <Modal visible={showForm} transparent animationType="slide" onRequestClose={closeForm}>
         {/* Mantém os campos acessíveis quando o teclado reduz a área visível. */}
         <KeyboardAvoidingView
           style={styles.keyboardAvoiding}
@@ -201,10 +264,10 @@ export default function MaintenanceScreen() {
               <View style={[styles.formCard, { backgroundColor: card, borderColor: border }]}>
                 <View style={styles.formHeader}>
                   <View>
-                    <Text style={[styles.formTitle, { color: text }]}>Adicionar manutenção</Text>
+                    <Text style={[styles.formTitle, { color: text }]}>{editingId ? 'Editar manutenção' : 'Adicionar manutenção'}</Text>
                     <Text style={[styles.formSubtitle, { color: muted }]}>O registro funciona mesmo sem internet.</Text>
                   </View>
-                  <Pressable onPress={() => setShowForm(false)} hitSlop={10}>
+                  <Pressable onPress={closeForm} hitSlop={10}>
                     <MaterialIcons name="close" size={22} color={muted} />
                   </Pressable>
                 </View>
@@ -232,7 +295,7 @@ export default function MaintenanceScreen() {
                   disabled={isSaving}
                   style={[styles.saveButton, isSaving && { opacity: 0.6 }]}
                 >
-                  <Text style={styles.saveButtonText}>{isSaving ? 'Salvando…' : 'Salvar manutenção'}</Text>
+                  <Text style={styles.saveButtonText}>{isSaving ? 'Salvando…' : editingId ? 'Salvar alterações' : 'Salvar manutenção'}</Text>
                 </Pressable>
               </View>
             </ScrollView>
