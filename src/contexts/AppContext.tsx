@@ -7,11 +7,6 @@ type Theme = 'dark' | 'light';
 /** Tipagem estrita para os idiomas suportados pela aplicação */
 type Language = 'pt' | 'en';
 
-/**
- * @interface AppContextData
- * @description Contrato de dados providos pelo contexto global da aplicação.
- * Encapsula o estado do tema, idioma e os métodos modificadores persistentes.
- */
 interface AppContextData {
   theme: Theme;
   language: Language;
@@ -23,26 +18,144 @@ interface AppContextData {
 
 const AppContext = createContext<AppContextData>({} as AppContextData);
 
-/**
- * @constant dicionario
- * @description Matriz estática de localização. Mapeia chaves identificadoras
- * para strings traduzidas, suportando os escopos de todas as telas da aplicação.
- */
 const dicionario = {
   pt: {
-    // --- Escopo: Tela de Configurações ---
+    // --- Navegação (Abas) & Cabeçalho ---
+    tabInicio: 'Início',
+    tabManutencao: 'Manutenção',
+    tabScanner: 'Scanner',
+    tabRelatorios: 'Relatórios',
+    abrirConfiguracoes: 'Abrir configurações',
+
+    // --- Comuns / Ações ---
+    cancelar: 'Cancelar',
+    fechar: 'Fechar',
+    voltar: 'Voltar',
+    editar: 'Editar',
+    excluir: 'Excluir',
+    salvando: 'Salvando...',
+    sucesso: 'Sucesso',
+    entendi: 'Entendi',
+    carregando: 'Carregando...',
+    online: 'Online',
+    offline: 'Offline',
+    confiraOsDados: 'Confira os dados',
+    naoFoiPossivelSalvar: 'Não foi possível salvar',
+    veiculoNaoEncontrado: 'Veículo não encontrado',
+
+    // --- Tela de Configurações ---
     configuracoes: 'Configurações',
     conta: 'Conta e Login',
     contaSub: 'Gerenciar sessão ou desconectar',
+    sairDaConta: 'Sair da conta',
+    sairDaContaPergunta: 'Sair da conta?',
+    sairDaContaDesc: 'Você poderá entrar novamente quando quiser.',
+    sair: 'Sair',
+    erroSairConta: 'Não foi possível sair',
+    sincronizacao: 'Sincronização',
+    sincronizandoNuvem: 'Sincronizando com a nuvem…',
+    erroNuvemLocal: 'Dados neste aparelho; falha na nuvem',
+    pendentes: 'pendentes',
+    alteracoesAguardando: 'alterações aguardando internet',
+    ultimaCopia: 'Última cópia:',
+    copiaSegurancaNuvem: 'Cópia de segurança na nuvem',
     veiculo: 'Configuração do Veículo',
     veiculoSub: 'Alterar parâmetros e pareamento',
     idioma: 'Idioma',
     idiomaSub: 'Português (Brasil)',
+    selecioneIdioma: 'Selecione o Idioma',
     tema: 'Tema',
     temaSub: 'Modo Escuro',
     temaSubClaro: 'Modo Claro',
-    
-    // --- Escopo: Tela Inicial (Dashboard Central) ---
+    aparenciaApp: 'Aparência do Aplicativo',
+    modoEscuroOpcao: 'Modo Escuro (Dark Mode)',
+    modoClaroOpcao: 'Modo Claro (Light Mode)',
+
+    // --- Autenticação (Login, Cadastro, Recuperação) ---
+    autenticacao: 'Autenticação',
+    loginBoasVindas: 'Bem-vindo de volta! Insira suas credenciais para acessar a telemetria e o scanner do veículo.',
+    email: 'E-mail',
+    senha: 'Senha',
+    confirmarSenha: 'Confirmar Senha',
+    esqueciSenha: 'Esqueci minha senha',
+    autenticando: 'Autenticando...',
+    entrarPlataforma: 'Entrar na Plataforma',
+    semAcesso: 'Ainda não possui acesso? ',
+    cadastreSeAgora: 'Cadastre-se agora',
+    camposObrigatorios: 'Campos obrigatórios',
+    loginCamposDesc: 'Informe seu e-mail e sua senha para prosseguir.',
+    falhaAutenticacao: 'Falha na Autenticação',
+
+    editarVeiculo: 'Editar Veículo',
+    configurarApp: 'Configurar App',
+    cadastroDescEditar: 'Atualize as especificações técnicas do seu veículo para manter a precisão da telemetria.',
+    cadastroDescNovo: 'Configure seu perfil e selecione as características do seu veículo para calibrar a telemetria.',
+    dadosPessoais: 'Dados Pessoais',
+    nome: 'Nome',
+    sobrenome: 'Sobrenome',
+    especificacoesVeiculo: 'Especificações do Veículo',
+    selecioneMontadora: 'Selecione a Montadora',
+    montadoraPlaceholder: 'Montadora (Ex: Chevrolet)',
+    modeloPlaceholder: 'Modelo (Ex: Onix)',
+    selecioneMotor: 'Selecione o Motor',
+    motorLabel: 'Motor',
+    tipoPlaceholder: 'Tipo',
+    anoPlaceholder: 'Ano',
+    kmAtualPlaceholder: 'Km Atual',
+    salvarAlteracoes: 'Salvar Alterações',
+    criarContaConectar: 'Criar conta e conectar scanner',
+    cadastroCamposDesc: 'Informe nome, sobrenome, e-mail e preencha ambas as senhas para criar sua conta.',
+    senhaInvalida: 'Senha inválida',
+    senhaMinima: 'A senha deve ter pelo menos 6 caracteres.',
+    senhasNaoCoincidem: 'Senhas não coincidem',
+    senhasNaoCoincidemDesc: 'Verifique se você digitou a mesma senha nos dois campos.',
+    sessaoIndisponivel: 'A sessão da conta não está disponível. Entre novamente e tente salvar.',
+    marcaOutra: 'Outra',
+    combFlex: 'Flex',
+    combGasolina: 'Gasolina',
+    combEtanol: 'Etanol',
+    combDiesel: 'Diesel',
+    combGnv: 'GNV',
+    combHibrido: 'Híbrido',
+    combEletrico: 'Elétrico',
+
+    recuperarSenha: 'Recuperar Senha',
+    recuperarSenhaDesc: 'Informe o e-mail associado à sua conta para receber as instruções de redefinição.',
+    enviando: 'Enviando...',
+    enviarInstrucoes: 'Enviar instruções',
+    emailObrigatorio: 'E-mail obrigatório',
+    emailObrigatorioDesc: 'Informe o e-mail da sua conta.',
+    emailEnviado: 'E-mail enviado',
+    emailEnviadoDesc: 'Se houver uma conta para esse endereço, você receberá instruções para redefinir a senha.',
+    naoFoiPossivelEnviar: 'Não foi possível enviar',
+
+    // --- Modais (Termos e Bluetooth) ---
+    termosTitulo: 'Termos de Uso',
+    termosSubtitulo: 'Política de Privacidade HealthCar',
+    termosSecao1Titulo: '1. Proposta do Aplicativo',
+    termosSecao1Texto: 'O HealthCar é uma ferramenta de gestão veicular e telemetria. Ele permite o acompanhamento de manutenções, abastecimentos e a leitura de dados do veículo em tempo real através de um adaptador Bluetooth OBD-II.',
+    termosSecao2Titulo: '2. Coleta e Privacidade (Offline-First)',
+    termosSecao2Texto: 'Seus dados de telemetria, histórico de gastos e informações do veículo são gravados primeiramente de forma local no seu dispositivo para garantir funcionamento sem internet e, posteriormente, sincronizados de forma criptografada com nossos servidores em nuvem, vinculados unicamente à sua conta.',
+    termosSecao3Titulo: '3. Permissões de Hardware',
+    termosSecao3Texto: 'Para entregar a experiência completa, solicitaremos permissões de Bluetooth (para buscar o scanner OBD2) e Execução em Segundo Plano, garantindo a leitura contínua dos dados apenas enquanto o veículo estiver em uso.',
+    termosSecao4Titulo: '4. Segurança no Trânsito',
+    termosSecao4Texto: 'Sua segurança é prioridade. Nunca manuseie o aplicativo enquanto estiver dirigindo. A interface foi projetada para atuar de forma autônoma após a partida do motor.',
+    termosSecao5Titulo: '5. Isenção de Responsabilidade',
+    termosSecao5Texto: 'O recurso de diagnóstico de falhas (Scanner) tem caráter puramente informativo e não substitui a avaliação de um mecânico qualificado.',
+    naoAceito: 'Não aceito',
+    liEAceito: 'Li e Aceito',
+
+    btModalTitulo: 'Conecte seu Scanner',
+    btModalDesc: 'Para que o HealthCar funcione, você precisa parear o scanner OBD-II nas configurações do seu celular.',
+    btPasso1: '1. Conecte o scanner na porta do carro.',
+    btPasso2: '2. Ligue a meia-chave (painel do carro).',
+    btPasso3: '3. Vá no Bluetooth e busque pelo dispositivo (geralmente "OBDII").',
+    btPasso4Inicio: '4. A senha padrão é ',
+    btPasso4Ou: ' ou ',
+    btAbrirConfig: 'Abrir Configurações de Bluetooth',
+    btJaConectado: 'Já estou conectado',
+
+    // --- Tela Inicial (Dashboard Central) ---
     sistemaOnline: 'Sistema Online',
     conectando: 'A conectar...',
     modoOffline: 'Modo Offline',
@@ -54,14 +167,65 @@ const dicionario = {
     temperatura: 'Temperatura',
     combustivel: 'Combustível',
     bateria: 'Bateria',
-    
-    // --- Escopo: Métricas de Bateria ---
+    heroTitulo: 'Seu carro, de olho em tudo.',
+    heroSubtitulo: 'Acompanhe a saúde do veículo em um só lugar.',
+    dadosVeiculoEyebrow: 'DADOS DO VEÍCULO',
+    veiculoCadastrado: 'Veículo cadastrado',
+    toqueConferirInfo: 'Toque para conferir suas informações',
+    aoVivo: 'AO VIVO',
+    connDescOnline: 'Dados do motor recebidos pelo adaptador OBD-II.',
+    connDescOffline: 'Conecte o adaptador OBD2 para acompanhar os dados ao vivo.',
+    abrirPainelTempoReal: 'Abrir painel em tempo real',
+    conectarVeiculo: 'Conectar ao veículo',
+    dadosDoVeiculo: 'Dados do veículo',
+    atualizadosObd: 'Atualizados pelo OBD-II',
+    disponiveisAposConexao: 'Disponíveis após conexão',
+    quilometragem: 'Quilometragem',
+    hojeLabel: 'Hoje:',
+    toqueCalibrarOdo: 'Toque para ver ou calibrar o odômetro',
+    acessoRapido: 'Acesso rápido',
+    scannerFalhas: 'Scanner de falhas',
+    scannerFalhasSub: 'Leia os códigos reportados pelo veículo',
+    manutencao: 'Manutenção',
+    manutencaoQuickSub: 'Consulte serviços e recibos do veículo',
+    raioXSistema: 'RAIO-X DO SISTEMA',
+    calibrarOdometro: 'Calibrar Odômetro',
+    calibrarDescInicial: 'Para ativar o rastreamento preciso, informe a quilometragem exata.',
+    calibrarDescReset: 'Detectamos um reset na central do veículo. Confirme a quilometragem atual do painel para recalibrar.',
+    calibrarDescAjuste: 'Ajuste ou confirme a quilometragem atual para sincronizar o cálculo.',
+    sincronizar: 'Sincronizar',
+    detalhesOdometro: 'Detalhes do Odômetro Virtual',
+    leituraBrutaObd: 'Leitura Bruta OBD2:',
+    offsetCalibracao: 'Offset de Calibração Salvo:',
+    resultadoFinal: 'Resultado Final:',
+    forcarRecalibracao: 'Forçar Recalibração',
+    modoDevAtivado: 'Modo Desenvolvedor: Ativado',
+    modoDevDesativado: 'Modo Desenvolvedor: Desativado',
+    conexaoSincronizada: 'Conexão ativa sincronizada',
+    resetEcuPill: 'Reset da ECU detectado! Confirme o KM.',
+    recalibracaoNecessaria: 'Recalibração Necessária',
+    recalibracaoNotifDesc: 'Detectamos um reset na central do veículo. Por favor, confirme o KM do painel.',
+    permissaoBtNegada: 'Permissão de Bluetooth negada!',
+    btDesativado: 'Bluetooth desativado.',
+    buscandoSinal: 'Buscando sinal do veículo...',
+    conectadoObdSucesso: 'Conectado ao scanner OBD2 com sucesso!',
+    permissaoNecessaria: 'Permissão Necessária',
+    bateriaLivreDesc: "Para que o HealthCar continue protegendo o motor e alertando sobre manutenções com o celular no bolso, selecione a opção 'Não restrito' na próxima tela.",
+    falhaInitEcu: 'Falha ao inicializar comunicação com a ECU.',
+    nenhumScannerPareado: 'Nenhum scanner OBD2 emparelhado.',
+    erroConexao: 'Erro de conexão:',
+    comunicacaoPerdida: 'Comunicação com o veículo perdida. Verifique a ignição.',
+    btInterrompido: 'Conexão Bluetooth interrompida. Reconectando...',
+    kmInvalido: 'Informe uma quilometragem válida.',
+    odometroCalibradoSucesso: 'Odômetro Virtual calibrado com sucesso!',
+
+    // --- Métricas de Bateria ---
     batCarregando: 'A Carregar (Alternador)',
     batIdeal: 'Ideal',
     batFraca: 'Atenção (Fraca)',
     batDesconhecido: 'Desconhecido',
-    
-    // --- Escopo: Menu de Ferramentas ---
+
+    // --- Menu de Ferramentas / Alertas ---
     ferramentas: 'Ferramentas',
     scanner: 'Scanner de Falhas',
     scannerSub: 'Módulo Real Ativo',
@@ -69,44 +233,146 @@ const dicionario = {
     relatoriosSub: 'Próx. troca: 2.400 km',
     reconectar: 'Reconectar',
     reconectarSub: 'Tentar novamente',
-    
-    // --- Escopo: Alertas do Sistema ---
     atencaoKm: 'Atenção à Quilometragem',
     ignorar: 'Ignorar',
     atualizarSistema: 'Atualizar Sistema',
     emImplementacao: 'EM IMPLEMENTAÇÃO',
-    
-    // --- Escopo: Diagnóstico OBD-II (Scanner) ---
+
+    // --- Diagnóstico OBD-II (Scanner) ---
     tituloScanner: 'Scanner OBD-II',
+    scannerSubtitulo: 'Diagnóstico dos códigos de falha do veículo.',
+    scannerConectado: 'Scanner conectado',
+    scannerDesconectado: 'Scanner desconectado',
+    adaptadorPronto: 'Adaptador OBD-II pronto para leitura',
+    conecteAdaptadorPareado: 'Conecte um adaptador OBD2 pareado',
+    diagnosticoConcluido: 'Diagnóstico concluído',
+    prontoParaVerificar: 'Pronto para verificar',
+    scannerInstrucao: 'Conecte o scanner e ligue a ignição para consultar os códigos registrados pela central do veículo.',
+    conectarIniciarDiag: 'Conectar e iniciar diagnóstico',
+    scannerInfoBox: 'A leitura depende de um adaptador OBD-II compatível e do veículo ligado.',
     saudeVeiculo: 'Saúde do Veículo',
-    emPerfeitoEstado: 'Em perfeito estado',
+    emPerfeitoEstado: 'Nenhum código encontrado nesta leitura',
     atencaoNecessaria: 'Atenção necessária',
     analisandoEcu: 'Analisando ECU...',
     errosEncontrados: 'erro(s) encontrado(s)',
     codigosFalha: 'Códigos de Falha',
+    resultadoDiagnostico: 'Resultado do diagnóstico',
+    leituraConcluida: 'Leitura concluída',
+    nenhumaLeituraRealizada: 'Nenhuma leitura realizada',
+    codigosApareceraoAqui: 'Os códigos aparecerão aqui',
+    codigosApareceraoDesc: 'Após a leitura, você poderá consultar a descrição de cada falha registrada pela ECU.',
     nenhumaFalha: 'Nenhuma falha detectada!',
     nenhumaFalhaDesc: 'A injeção eletrônica não reportou nenhum código de erro ativo ou pendente.',
     apagando: 'Apagando...',
     apagarMemoria: 'Apagar Memória de Falhas',
     agendarRevisao: 'Agendar Revisão',
+    agendarRevisaoDesc: 'Deseja agendar uma revisão na oficina mais próxima para solucionar este quadro técnico?',
+    agendar: 'Agendar',
+    solicitacaoEnviada: 'Solicitação enviada para a oficina credenciada.',
     escaneandoEcu: 'Escaneando a ECU...',
     novoEscaneamento: 'Novo Escaneamento',
+    diagnosticandoVeiculo: 'Diagnosticando veículo',
+    relatorioDtcGravado: 'Relatório DTC gravado no banco local.',
+    stageConectandoBt: 'Conectando ao adaptador Bluetooth...',
+    stageConfigurandoProto: 'Configurando protocolos ISO/SAE...',
+    stageNegociandoObd: 'Negociando protocolo OBD-II...',
+    stageConsultandoEcu: 'Consultando Centralina (ECU)...',
+    stageDecodificando: 'Decodificando matriz de falhas...',
+    erroPermissaoBtScanner: 'Permita o acesso a dispositivos Bluetooth próximos para conectar o scanner.',
+    erroContaDiagnostico: 'Entre na sua conta para salvar o diagnóstico.',
+    erroVeiculoDiagnostico: 'Cadastre um veículo antes de salvar um diagnóstico.',
+    avisoConexao: 'Aviso de Conexão',
+    erroMatrizEcu: 'Não foi possível extrair a matriz da ECU. Verifique a conexão Bluetooth.',
+    erroTimeoutScanner: 'Tempo limite excedido. O scanner não respondeu. Certifique-se que o adaptador está bem encaixado e a ignição do carro está LIGADA.',
+    acessoRestrito: 'Acesso Restrito',
+    limparFalhasRestrito: 'Apenas mecânicos autorizados podem apagar a memória de falhas da centralina.',
+    falhaGenericaDtc: 'Falha identificada pelo módulo de controle.',
+    sistemaInjecaoEcu: 'Sistema de Injeção / ECU',
     critico: 'Crítico',
     aviso: 'Aviso',
     resolvido: 'Resolvido',
 
-    // --- Escopo: Relatórios e Manutenção Preventiva ---
+    // --- Manutenção ---
+    manutencaoSubtitulo: 'Histórico e cuidados do seu veículo.',
+    veiculoAtualEyebrow: 'VEÍCULO ATUAL',
+    kmAcompanhadaApp: 'Quilometragem acompanhada pelo app',
+    gastosRegistrados: 'Gastos registrados',
+    servicosCount: 'serviços',
+    adicionarManutencao: 'Adicionar manutenção',
+    editarManutencao: 'Editar manutenção',
+    historico: 'Histórico',
+    maisRecentes: 'Mais recentes',
+    nenhumaManutencaoAinda: 'Nenhuma manutenção registrada ainda.',
+    proximaRevisaoLabel: 'Próxima revisão:',
+    servicoRegistrado: 'Serviço registrado',
+    salvoNesteAparelho: 'Salvo neste aparelho',
+    registroSemInternet: 'O registro funciona mesmo sem internet.',
+    nomeServicoPlaceholder: 'Nome do serviço',
+    dataPlaceholder: 'Data AAAA-MM-DD',
+    valorPagoPlaceholder: 'Valor pago (R$)',
+    proximaRevisaoKmPlaceholder: 'Próxima revisão (km)',
+    anexarRecibo: 'Anexar recibo',
+    reciboTitulo: 'Recibo',
+    reciboEmBreve: 'O anexo de recibos será habilitado em uma próxima etapa.',
+    salvarManutencao: 'Salvar manutenção',
+    opcoesManutencao: 'Opções da manutenção',
+    registroGenerico: 'Registro',
+    excluirManutencaoPergunta: 'Excluir manutenção?',
+    excluirManutencaoDesc: 'O registro será removido do histórico e sincronizado com sua conta.',
+    naoFoiPossivelExcluir: 'Não foi possível excluir',
+    erroExcluirManutencao: 'A manutenção continua no histórico deste aparelho. Tente novamente.',
+    cadastreVeiculoManutencao: 'Cadastre um veículo antes de registrar uma manutenção.',
+    confiraDadosManutencao: 'Informe o serviço, a data e a quilometragem da manutenção.',
+    erroSalvarManutencao: 'A manutenção não foi gravada no banco local. Tente novamente.',
+
+    // --- Relatórios e Manutenção Preventiva ---
     tituloRelatorios: 'Relatórios e Óleo',
+    relatoriosSubtitulo: 'Acompanhe custos e dados do seu veículo.',
+    periodoLabel: 'Período:',
+    historicoDisponivel: 'Histórico disponível',
+    gastosManutencao: 'Gastos com manutenção',
+    historicoRegistrado: 'Histórico registrado',
+    abastecimentos: 'Abastecimentos',
+    despesasManutencao: 'Despesas de manutenção',
+    custosPorPeriodo: 'Custos por período',
+    resumoServicosRegistrados: 'Resumo do histórico de serviços registrados.',
+    servicosNoHistorico: 'serviços no histórico de manutenção.',
+    ultimos7Dias: 'Últimos 7 dias',
+    ultimos12Meses: 'Últimos 12 meses',
     proximaTrocaOleo: 'Próxima Troca de Óleo',
     faltamKm: 'Faltam',
     doIntervalo: 'do intervalo',
+    semProximaTroca: 'Sem próxima troca registrada',
+    atualLabel: 'Atual:',
+    proximaLabel: 'próxima:',
+    registreProximaTroca: 'Registre a próxima troca na manutenção.',
     consumoMensal: 'Consumo Mensal',
     litrosAbastecidos: 'Litros abastecidos por mês (2025)',
     historicoOleo: 'Histórico de Óleo',
+    nenhumaTrocaOleo: 'Nenhuma troca de óleo registrada.',
     prox: 'Próx.',
     historicoManutencao: 'Histórico de Manutenção',
+    nenhumaManutencaoReg: 'Nenhuma manutenção registrada.',
 
-    // --- Escopo: Gráficos da Home e Detalhes de Consumo ---
+    // --- Painel em Tempo Real ---
+    statusInitScanner: 'INICIALIZANDO SCANNER...',
+    statusLendoDados: 'LENDO DADOS DO CARRO',
+    statusAbrindoPorta: 'ABRINDO PORTA:',
+    statusFalhaConexao: 'FALHA NA CONEXÃO',
+    statusReiniciando: 'REINICIANDO ADAPTADOR...',
+    statusNegociandoCan: 'NEGOCIANDO PROTOCOLOS CAN...',
+    statusSincronizandoEcu: 'SINCRONIZANDO COM A ECU...',
+    statusSemScanner: 'NENHUM SCANNER OBD PAREADO',
+    tripLabel: 'TRIP (VIAGEM)',
+    alertaTempTitulo: 'Atenção à Temperatura!',
+    alertaTempCorpo: 'O motor atingiu',
+    alertaBatTitulo: 'Bateria Fraca',
+    alertaBatCorpo: 'A tensão no painel de Tempo Real desceu para',
+    alertaDtcTitulo: '⚠️ Nova Falha Detectada',
+    alertaDtcCorpo: 'O sistema de injeção registrou um novo código de erro em tempo real.',
+
+    // --- Gráficos da Home e Detalhes de Consumo ---
+    abrirDetalhesConsumo: 'Abrir detalhes de consumo',
     consumoSemanal: 'Consumo Semanal',
     litrosPorDia: 'Litros por dia',
     litrosPorMes: 'Litros por mês',
@@ -120,24 +386,29 @@ const dicionario = {
     sab: 'Sáb',
     dom: 'Dom',
 
-    // --- Escopo: Detalhes Técnicos - Temperatura ---
+    // --- Detalhes Técnicos - Temperatura ---
     temperaturaMotor: 'Temperatura do Motor',
     temperaturaAtual: 'Temperatura Atual',
     normal: 'Normal',
+    alertaBadge: 'ALERTA',
+    desconhecidoBadge: 'DESCONHECIDO',
     minima: 'Mínima',
     media: 'Média',
     maxima: 'Máxima',
     oscilacaoTermica: 'Temperatura por período',
     dadosHorarios: 'Leituras por período',
+    carregandoTelemetria: 'Carregando telemetria...',
+    aguardandoDadosEcu: 'Aguardando dados da ECU.',
+    nenhumLogSessao: 'Nenhum log gravado nesta sessão.',
 
-    // --- Escopo: Detalhes Técnicos - RPM ---
+    // --- Detalhes Técnicos - RPM ---
     rpmAtual: 'RPM Atual',
     doMaximo: 'do máximo',
     pico: 'Pico',
     picosPorPeriodo: 'Picos de RPM por período',
     detalhesPorPeriodo: 'Detalhes por Período',
 
-    // --- Escopo: Detalhes Técnicos - Combustível ---
+    // --- Detalhes Técnicos - Combustível ---
     nivelAtual: 'Nível Atual',
     deAutonomia: 'de autonomia',
     totalSemana: 'Total Semana',
@@ -146,13 +417,38 @@ const dicionario = {
     abastecimentoCompleto: 'Abastecimento completo',
     nenhumAbastecimento: 'Nenhum abastecimento registrado',
     consumoDiario: 'Consumo Diário',
+    abastecido: 'Abastecido',
+    gastoNoPeriodo: 'Gasto no período',
+    volumeAbastecido: 'Volume Abastecido',
+    nenhumRegistroAbast: 'Nenhum registro de abastecimento.',
+    logsAbastecimento: 'Logs de Abastecimento',
+    registreAbastHistorico: 'Registre abastecimentos para ver o histórico.',
+    kmDoPainel: 'KM do Painel:',
+    registrarAbastecimento: 'Registrar abastecimento',
+    litros: 'Litros',
+    valorTotalPlaceholder: 'Valor total (R$)',
+    salvarNoAparelho: 'Salvar no aparelho',
+    cadastreVeiculoAbast: 'Cadastre um veículo antes de registrar um abastecimento.',
+    confiraDadosAbast: 'Informe a quantidade de litros e a quilometragem.',
+    erroSalvarAbast: 'O abastecimento não foi gravado no SQLite. Tente novamente.',
 
-    // --- Escopo: Detalhes Técnicos - Bateria ---
+    // --- Detalhes Técnicos - Bateria ---
+    bateriaTensao: 'Bateria & Tensão',
+    tensaoEletricaAtrv: 'Tensão Elétrica (ATRV)',
+    batCarregandoCurto: 'Carregando',
+    batIdealDescanso: 'Ideal (Descanso)',
+    batFracaAtencao: 'Fraca / Atenção',
+    descargaMin: 'Descarga Min',
+    tensaoMedia: 'Tensão Média',
+    cargaMax: 'Carga Max',
+    oscilacaoVoltagem24h: 'Oscilação de Voltagem (24h)',
+    diagnosticoHistorico: 'Diagnóstico Histórico',
+    nenhumLogGravado: 'Nenhum log gravado.',
     carga: 'Carga',
     saude: 'Saúde',
     historicoCarga: 'Histórico de Carga',
 
-    // --- Escopo: Eficiência Energética ---
+    // --- Eficiência Energética / Consumo ---
     total: 'Total',
     eficiencia: 'Eficiência',
     consumoVsEficiencia: 'Consumo vs Eficiência',
@@ -162,22 +458,149 @@ const dicionario = {
     consumo: 'Consumo',
     melhorDia: 'Melhor Dia',
     piorDia: 'Pior Dia',
+    gasto: 'Gasto',
+    precoMedio: 'Preço médio',
+    nenhumAbastPeriodo: 'Nenhum abastecimento neste período.',
+    resumoPorPeriodo: 'Resumo por período',
   },
-  
+
   en: {
-    // --- Escopo: Tela de Configurações ---
+    // --- Navigation (Tabs) & Header ---
+    tabInicio: 'Home',
+    tabManutencao: 'Maintenance',
+    tabScanner: 'Scanner',
+    tabRelatorios: 'Reports',
+    abrirConfiguracoes: 'Open settings',
+
+    // --- Common / Actions ---
+    cancelar: 'Cancel',
+    fechar: 'Close',
+    voltar: 'Back',
+    editar: 'Edit',
+    excluir: 'Delete',
+    salvando: 'Saving...',
+    sucesso: 'Success',
+    entendi: 'Got it',
+    carregando: 'Loading...',
+    online: 'Online',
+    offline: 'Offline',
+    confiraOsDados: 'Check your input',
+    naoFoiPossivelSalvar: 'Could not save',
+    veiculoNaoEncontrado: 'Vehicle not found',
+
+    // --- Settings Screen ---
     configuracoes: 'Settings',
     conta: 'Account & Login',
     contaSub: 'Manage session or logout',
+    sairDaConta: 'Sign out',
+    sairDaContaPergunta: 'Sign out?',
+    sairDaContaDesc: 'You can sign back in whenever you want.',
+    sair: 'Sign out',
+    erroSairConta: 'Could not sign out',
+    sincronizacao: 'Synchronization',
+    sincronizandoNuvem: 'Syncing with the cloud…',
+    erroNuvemLocal: 'Saved on device; cloud sync failed',
+    pendentes: 'pending',
+    alteracoesAguardando: 'changes waiting for internet',
+    ultimaCopia: 'Last backup:',
+    copiaSegurancaNuvem: 'Cloud backup',
     veiculo: 'Vehicle Configuration',
     veiculoSub: 'Change parameters and pairing',
     idioma: 'Language',
     idiomaSub: 'English (US)',
+    selecioneIdioma: 'Select Language',
     tema: 'Theme',
     temaSub: 'Dark Mode',
     temaSubClaro: 'Light Mode',
-    
-    // --- Escopo: Tela Inicial (Dashboard Central) ---
+    aparenciaApp: 'App Appearance',
+    modoEscuroOpcao: 'Dark Mode',
+    modoClaroOpcao: 'Light Mode',
+
+    // --- Auth (Login, Register, Forgot Password) ---
+    autenticacao: 'Authentication',
+    loginBoasVindas: 'Welcome back! Enter your credentials to access vehicle telemetry and the scanner.',
+    email: 'Email',
+    senha: 'Password',
+    confirmarSenha: 'Confirm Password',
+    esqueciSenha: 'Forgot my password',
+    autenticando: 'Signing in...',
+    entrarPlataforma: 'Sign In',
+    semAcesso: "Don't have an account yet? ",
+    cadastreSeAgora: 'Sign up now',
+    camposObrigatorios: 'Required fields',
+    loginCamposDesc: 'Enter your email and password to continue.',
+    falhaAutenticacao: 'Authentication Failed',
+
+    editarVeiculo: 'Edit Vehicle',
+    configurarApp: 'Set Up App',
+    cadastroDescEditar: 'Update your vehicle specifications to keep telemetry accurate.',
+    cadastroDescNovo: 'Set up your profile and select your vehicle specifications to calibrate telemetry.',
+    dadosPessoais: 'Personal Information',
+    nome: 'First Name',
+    sobrenome: 'Last Name',
+    especificacoesVeiculo: 'Vehicle Specifications',
+    selecioneMontadora: 'Select Make',
+    montadoraPlaceholder: 'Make (e.g. Chevrolet)',
+    modeloPlaceholder: 'Model (e.g. Onix)',
+    selecioneMotor: 'Select Engine',
+    motorLabel: 'Engine',
+    tipoPlaceholder: 'Fuel Type',
+    anoPlaceholder: 'Year',
+    kmAtualPlaceholder: 'Current Odometer',
+    salvarAlteracoes: 'Save Changes',
+    criarContaConectar: 'Create account & connect scanner',
+    cadastroCamposDesc: 'Enter your first name, last name, email, and both password fields to create your account.',
+    senhaInvalida: 'Invalid password',
+    senhaMinima: 'Password must be at least 6 characters.',
+    senhasNaoCoincidem: 'Passwords do not match',
+    senhasNaoCoincidemDesc: 'Make sure you entered the same password in both fields.',
+    sessaoIndisponivel: 'Your account session is unavailable. Sign in again and try saving.',
+    marcaOutra: 'Other',
+    combFlex: 'Flex Fuel',
+    combGasolina: 'Gasoline',
+    combEtanol: 'Ethanol',
+    combDiesel: 'Diesel',
+    combGnv: 'CNG',
+    combHibrido: 'Hybrid',
+    combEletrico: 'Electric',
+
+    recuperarSenha: 'Reset Password',
+    recuperarSenhaDesc: 'Enter the email associated with your account to receive password reset instructions.',
+    enviando: 'Sending...',
+    enviarInstrucoes: 'Send instructions',
+    emailObrigatorio: 'Email required',
+    emailObrigatorioDesc: 'Enter your account email.',
+    emailEnviado: 'Email sent',
+    emailEnviadoDesc: 'If an account exists for that address, you will receive instructions to reset your password.',
+    naoFoiPossivelEnviar: 'Could not send',
+
+    // --- Modals (Terms & Bluetooth) ---
+    termosTitulo: 'Terms of Use',
+    termosSubtitulo: 'HealthCar Privacy Policy',
+    termosSecao1Titulo: '1. App Purpose',
+    termosSecao1Texto: 'HealthCar is a vehicle management and telemetry tool. It allows you to track maintenance, refueling, and real-time vehicle data through a Bluetooth OBD-II adapter.',
+    termosSecao2Titulo: '2. Data Collection & Privacy (Offline-First)',
+    termosSecao2Texto: 'Your telemetry data, expense history, and vehicle information are stored locally on your device first to ensure offline operation, and later synced securely with our cloud servers linked exclusively to your account.',
+    termosSecao3Titulo: '3. Hardware Permissions',
+    termosSecao3Texto: 'To deliver the full experience, we request Bluetooth permissions (to connect to the OBD-II scanner) and Background Execution so data is continuously recorded only while the vehicle is in use.',
+    termosSecao4Titulo: '4. Road Safety',
+    termosSecao4Texto: 'Your safety comes first. Never interact with the app while driving. The interface is designed to operate automatically after starting the engine.',
+    termosSecao5Titulo: '5. Disclaimer',
+    termosSecao5Texto: 'The fault diagnostic feature (Scanner) is for informational purposes only and does not replace an inspection by a qualified mechanic.',
+    naoAceito: 'Decline',
+    liEAceito: 'I Read & Accept',
+
+    btModalTitulo: 'Connect Your Scanner',
+    btModalDesc: 'For HealthCar to work, you need to pair your OBD-II scanner in your phone settings.',
+    btPasso1: '1. Plug the scanner into your car OBD-II port.',
+    btPasso2: '2. Turn the ignition on (dashboard lights on).',
+    btPasso3: '3. Open Bluetooth and look for the device (usually "OBDII").',
+    btPasso4Inicio: '4. The default PIN is ',
+    btPasso4Ou: ' or ',
+    btAbrirConfig: 'Open Bluetooth Settings',
+    btJaConectado: 'Already connected',
+
+    // --- Home Screen (Central Dashboard) ---
     sistemaOnline: 'System Online',
     conectando: 'Connecting...',
     modoOffline: 'Offline Mode',
@@ -189,14 +612,65 @@ const dicionario = {
     temperatura: 'Temperature',
     combustivel: 'Fuel',
     bateria: 'Battery',
-    
-    // --- Escopo: Métricas de Bateria ---
+    heroTitulo: 'Your car, always in check.',
+    heroSubtitulo: 'Track your vehicle health in one place.',
+    dadosVeiculoEyebrow: 'VEHICLE DATA',
+    veiculoCadastrado: 'Registered vehicle',
+    toqueConferirInfo: 'Tap to review your vehicle info',
+    aoVivo: 'LIVE',
+    connDescOnline: 'Engine data received from the OBD-II adapter.',
+    connDescOffline: 'Connect the OBD-II adapter to monitor live data.',
+    abrirPainelTempoReal: 'Open real-time dashboard',
+    conectarVeiculo: 'Connect to vehicle',
+    dadosDoVeiculo: 'Vehicle data',
+    atualizadosObd: 'Updated via OBD-II',
+    disponiveisAposConexao: 'Available after connecting',
+    quilometragem: 'Odometer',
+    hojeLabel: 'Today:',
+    toqueCalibrarOdo: 'Tap to view or calibrate the odometer',
+    acessoRapido: 'Quick access',
+    scannerFalhas: 'Fault scanner',
+    scannerFalhasSub: 'Read diagnostic codes reported by the vehicle',
+    manutencao: 'Maintenance',
+    manutencaoQuickSub: 'Check vehicle services and receipts',
+    raioXSistema: 'SYSTEM X-RAY',
+    calibrarOdometro: 'Calibrate Odometer',
+    calibrarDescInicial: 'To enable accurate tracking, enter your exact odometer reading.',
+    calibrarDescReset: 'An ECU reset was detected. Confirm the current dashboard mileage to recalibrate.',
+    calibrarDescAjuste: 'Adjust or confirm the current mileage to sync the calculation.',
+    sincronizar: 'Sync',
+    detalhesOdometro: 'Virtual Odometer Details',
+    leituraBrutaObd: 'Raw OBD-II Reading:',
+    offsetCalibracao: 'Saved Calibration Offset:',
+    resultadoFinal: 'Final Result:',
+    forcarRecalibracao: 'Force Recalibration',
+    modoDevAtivado: 'Developer Mode: Enabled',
+    modoDevDesativado: 'Developer Mode: Disabled',
+    conexaoSincronizada: 'Active connection synced',
+    resetEcuPill: 'ECU reset detected! Confirm mileage.',
+    recalibracaoNecessaria: 'Recalibration Required',
+    recalibracaoNotifDesc: 'An ECU reset was detected. Please confirm your dashboard mileage.',
+    permissaoBtNegada: 'Bluetooth permission denied!',
+    btDesativado: 'Bluetooth is turned off.',
+    buscandoSinal: 'Searching for vehicle signal...',
+    conectadoObdSucesso: 'Connected to OBD-II scanner successfully!',
+    permissaoNecessaria: 'Permission Required',
+    bateriaLivreDesc: "So HealthCar can keep monitoring your engine and alerting you about maintenance in the background, select 'Unrestricted' on the next screen.",
+    falhaInitEcu: 'Failed to initialize ECU communication.',
+    nenhumScannerPareado: 'No paired OBD-II scanner found.',
+    erroConexao: 'Connection error:',
+    comunicacaoPerdida: 'Lost vehicle communication. Check the ignition.',
+    btInterrompido: 'Bluetooth connection lost. Reconnecting...',
+    kmInvalido: 'Enter a valid mileage.',
+    odometroCalibradoSucesso: 'Virtual Odometer calibrated successfully!',
+
+    // --- Battery Metrics ---
     batCarregando: 'Charging (Alternator)',
     batIdeal: 'Ideal',
     batFraca: 'Warning (Weak)',
     batDesconhecido: 'Unknown',
-    
-    // --- Escopo: Menu de Ferramentas ---
+
+    // --- Tools Menu / Alerts ---
     ferramentas: 'Tools',
     scanner: 'Fault Scanner',
     scannerSub: 'Active Real Module',
@@ -204,44 +678,146 @@ const dicionario = {
     relatoriosSub: 'Next change: 2,400 km',
     reconectar: 'Reconnect',
     reconectarSub: 'Try again',
-    
-    // --- Escopo: Alertas do Sistema ---
     atencaoKm: 'Mileage Alert',
     ignorar: 'Ignore',
     atualizarSistema: 'Update System',
     emImplementacao: 'IN PROGRESS',
 
-    // --- Escopo: Diagnóstico OBD-II (Scanner) ---
+    // --- OBD-II Diagnostics (Scanner) ---
     tituloScanner: 'OBD-II Scanner',
+    scannerSubtitulo: 'Vehicle diagnostic trouble code scan.',
+    scannerConectado: 'Scanner connected',
+    scannerDesconectado: 'Scanner disconnected',
+    adaptadorPronto: 'OBD-II adapter ready to scan',
+    conecteAdaptadorPareado: 'Connect a paired OBD-II adapter',
+    diagnosticoConcluido: 'Diagnostics completed',
+    prontoParaVerificar: 'Ready to scan',
+    scannerInstrucao: 'Connect the scanner and turn on the ignition to read trouble codes stored in the ECU.',
+    conectarIniciarDiag: 'Connect and start scan',
+    scannerInfoBox: 'Scanning requires a compatible OBD-II adapter and the ignition turned on.',
     saudeVeiculo: 'Vehicle Health',
-    emPerfeitoEstado: 'In perfect condition',
+    emPerfeitoEstado: 'No codes found in this reading',
     atencaoNecessaria: 'Attention required',
     analisandoEcu: 'Analyzing ECU...',
     errosEncontrados: 'error(s) found',
     codigosFalha: 'Fault Codes',
+    resultadoDiagnostico: 'Diagnostic results',
+    leituraConcluida: 'Scan completed',
+    nenhumaLeituraRealizada: 'No scan performed yet',
+    codigosApareceraoAqui: 'Codes will appear here',
+    codigosApareceraoDesc: 'After scanning, you will be able to review the description of each fault reported by the ECU.',
     nenhumaFalha: 'No faults detected!',
     nenhumaFalhaDesc: 'The electronic injection did not report any active or pending error codes.',
     apagando: 'Clearing...',
     apagarMemoria: 'Clear Fault Memory',
     agendarRevisao: 'Schedule Service',
+    agendarRevisaoDesc: 'Would you like to schedule an inspection at the nearest workshop to address these issues?',
+    agendar: 'Schedule',
+    solicitacaoEnviada: 'Request sent to the partner workshop.',
     escaneandoEcu: 'Scanning ECU...',
     novoEscaneamento: 'New Scan',
+    diagnosticandoVeiculo: 'Diagnosing vehicle',
+    relatorioDtcGravado: 'DTC report saved locally.',
+    stageConectandoBt: 'Connecting to Bluetooth adapter...',
+    stageConfigurandoProto: 'Configuring ISO/SAE protocols...',
+    stageNegociandoObd: 'Negotiating OBD-II protocol...',
+    stageConsultandoEcu: 'Querying ECU...',
+    stageDecodificando: 'Decoding fault matrix...',
+    erroPermissaoBtScanner: 'Allow access to nearby Bluetooth devices to connect the scanner.',
+    erroContaDiagnostico: 'Sign in to save the diagnostic report.',
+    erroVeiculoDiagnostico: 'Register a vehicle before saving a diagnostic report.',
+    avisoConexao: 'Connection Notice',
+    erroMatrizEcu: 'Could not read ECU data. Check your Bluetooth connection.',
+    erroTimeoutScanner: 'Connection timed out. The scanner did not respond. Make sure the adapter is firmly plugged in and the ignition is ON.',
+    acessoRestrito: 'Restricted Access',
+    limparFalhasRestrito: 'Only authorized mechanics can clear the ECU fault memory.',
+    falhaGenericaDtc: 'Fault identified by the control module.',
+    sistemaInjecaoEcu: 'Injection System / ECU',
     critico: 'Critical',
     aviso: 'Warning',
     resolvido: 'Resolved',
 
-    // --- Escopo: Relatórios e Manutenção Preventiva ---
+    // --- Maintenance ---
+    manutencaoSubtitulo: 'Service history and care for your vehicle.',
+    veiculoAtualEyebrow: 'CURRENT VEHICLE',
+    kmAcompanhadaApp: 'Mileage tracked by the app',
+    gastosRegistrados: 'Recorded expenses',
+    servicosCount: 'services',
+    adicionarManutencao: 'Add maintenance',
+    editarManutencao: 'Edit maintenance',
+    historico: 'History',
+    maisRecentes: 'Most recent',
+    nenhumaManutencaoAinda: 'No maintenance recorded yet.',
+    proximaRevisaoLabel: 'Next service:',
+    servicoRegistrado: 'Recorded service',
+    salvoNesteAparelho: 'Saved on this device',
+    registroSemInternet: 'Works offline even without internet.',
+    nomeServicoPlaceholder: 'Service name',
+    dataPlaceholder: 'Date YYYY-MM-DD',
+    valorPagoPlaceholder: 'Amount paid',
+    proximaRevisaoKmPlaceholder: 'Next service (km)',
+    anexarRecibo: 'Attach receipt',
+    reciboTitulo: 'Receipt',
+    reciboEmBreve: 'Receipt attachments will be available in an upcoming update.',
+    salvarManutencao: 'Save maintenance',
+    opcoesManutencao: 'Maintenance options',
+    registroGenerico: 'Record',
+    excluirManutencaoPergunta: 'Delete maintenance?',
+    excluirManutencaoDesc: 'This record will be removed from history and synced with your account.',
+    naoFoiPossivelExcluir: 'Could not delete',
+    erroExcluirManutencao: 'The maintenance record is still on this device. Please try again.',
+    cadastreVeiculoManutencao: 'Register a vehicle before adding maintenance.',
+    confiraDadosManutencao: 'Enter the service name, date, and mileage.',
+    erroSalvarManutencao: 'Maintenance could not be saved locally. Please try again.',
+
+    // --- Reports & Oil ---
     tituloRelatorios: 'Reports & Oil',
+    relatoriosSubtitulo: 'Track your vehicle costs and data.',
+    periodoLabel: 'Period:',
+    historicoDisponivel: 'Available history',
+    gastosManutencao: 'Maintenance expenses',
+    historicoRegistrado: 'Recorded history',
+    abastecimentos: 'Refuelings',
+    despesasManutencao: 'Maintenance costs',
+    custosPorPeriodo: 'Costs over time',
+    resumoServicosRegistrados: 'Summary of recorded service history.',
+    servicosNoHistorico: 'services in maintenance history.',
+    ultimos7Dias: 'Last 7 days',
+    ultimos12Meses: 'Last 12 months',
     proximaTrocaOleo: 'Next Oil Change',
     faltamKm: 'Remaining',
     doIntervalo: 'of interval',
+    semProximaTroca: 'No upcoming oil change recorded',
+    atualLabel: 'Current:',
+    proximaLabel: 'next:',
+    registreProximaTroca: 'Add the next oil change in Maintenance.',
     consumoMensal: 'Monthly Fuel',
     litrosAbastecidos: 'Liters refueled per month (2025)',
     historicoOleo: 'Oil History',
+    nenhumaTrocaOleo: 'No oil changes recorded.',
     prox: 'Next',
     historicoManutencao: 'Maintenance History',
+    nenhumaManutencaoReg: 'No maintenance recorded.',
 
-    // --- Escopo: Gráficos da Home e Detalhes de Consumo ---
+    // --- Real-Time Dashboard ---
+    statusInitScanner: 'INITIALIZING SCANNER...',
+    statusLendoDados: 'READING VEHICLE DATA',
+    statusAbrindoPorta: 'OPENING PORT:',
+    statusFalhaConexao: 'CONNECTION FAILED',
+    statusReiniciando: 'RESETTING ADAPTER...',
+    statusNegociandoCan: 'NEGOTIATING CAN PROTOCOLS...',
+    statusSincronizandoEcu: 'SYNCING WITH ECU...',
+    statusSemScanner: 'NO PAIRED OBD SCANNER',
+    tripLabel: 'TRIP',
+    alertaTempTitulo: 'High Temperature Alert!',
+    alertaTempCorpo: 'Engine reached',
+    alertaBatTitulo: 'Low Battery',
+    alertaBatCorpo: 'Live voltage dropped to',
+    alertaDtcTitulo: '⚠️ New Fault Detected',
+    alertaDtcCorpo: 'The ECU registered a new error code in real time.',
+
+    // --- Home Charts & Consumption Details ---
+    abrirDetalhesConsumo: 'Open consumption details',
     consumoSemanal: 'Weekly Consumption',
     litrosPorDia: 'Liters per day',
     litrosPorMes: 'Liters per month',
@@ -255,24 +831,29 @@ const dicionario = {
     sab: 'Sat',
     dom: 'Sun',
 
-    // --- Escopo: Detalhes Técnicos - Temperatura ---
+    // --- Technical Details - Temperature ---
     temperaturaMotor: 'Engine Temperature',
     temperaturaAtual: 'Current Temperature',
     normal: 'Normal',
+    alertaBadge: 'ALERT',
+    desconhecidoBadge: 'UNKNOWN',
     minima: 'Minimum',
     media: 'Avg',
     maxima: 'Maximum',
     oscilacaoTermica: 'Temperature by period',
     dadosHorarios: 'Readings by period',
+    carregandoTelemetria: 'Loading telemetry...',
+    aguardandoDadosEcu: 'Waiting for ECU data.',
+    nenhumLogSessao: 'No logs recorded in this session.',
 
-    // --- Escopo: Detalhes Técnicos - RPM ---
+    // --- Technical Details - RPM ---
     rpmAtual: 'Current RPM',
     doMaximo: 'of max',
     pico: 'Peak',
     picosPorPeriodo: 'RPM peaks by period',
     detalhesPorPeriodo: 'Details by Period',
 
-    // --- Escopo: Detalhes Técnicos - Combustível ---
+    // --- Technical Details - Fuel ---
     nivelAtual: 'Current Level',
     deAutonomia: 'of range',
     totalSemana: 'Weekly Total',
@@ -281,13 +862,38 @@ const dicionario = {
     abastecimentoCompleto: 'Full tank refuel',
     nenhumAbastecimento: 'No refueling recorded',
     consumoDiario: 'Daily Consumption',
+    abastecido: 'Refueled',
+    gastoNoPeriodo: 'Spent in period',
+    volumeAbastecido: 'Refueled Volume',
+    nenhumRegistroAbast: 'No refueling records.',
+    logsAbastecimento: 'Refueling Logs',
+    registreAbastHistorico: 'Add refueling logs to view history.',
+    kmDoPainel: 'Odometer:',
+    registrarAbastecimento: 'Add refueling',
+    litros: 'Liters',
+    valorTotalPlaceholder: 'Total cost',
+    salvarNoAparelho: 'Save on device',
+    cadastreVeiculoAbast: 'Register a vehicle before logging a refuel.',
+    confiraDadosAbast: 'Enter the liters and odometer reading.',
+    erroSalvarAbast: 'Could not save refueling locally. Please try again.',
 
-    // --- Escopo: Detalhes Técnicos - Bateria ---
+    // --- Technical Details - Battery ---
+    bateriaTensao: 'Battery & Voltage',
+    tensaoEletricaAtrv: 'Electrical Voltage (ATRV)',
+    batCarregandoCurto: 'Charging',
+    batIdealDescanso: 'Ideal (Resting)',
+    batFracaAtencao: 'Weak / Attention',
+    descargaMin: 'Min Voltage',
+    tensaoMedia: 'Avg Voltage',
+    cargaMax: 'Max Voltage',
+    oscilacaoVoltagem24h: 'Voltage Fluctuation (24h)',
+    diagnosticoHistorico: 'Historical Diagnostics',
+    nenhumLogGravado: 'No logs recorded.',
     carga: 'Charge',
     saude: 'Health',
     historicoCarga: 'Charge History',
 
-    // --- Escopo: Eficiência Energética ---
+    // --- Energy Efficiency / Consumption ---
     total: 'Total',
     eficiencia: 'Efficiency',
     consumoVsEficiencia: 'Consumption vs Efficiency',
@@ -297,19 +903,17 @@ const dicionario = {
     consumo: 'Consumption',
     melhorDia: 'Best Day',
     piorDia: 'Worst Day',
-  }
+    gasto: 'Spent',
+    precoMedio: 'Avg price',
+    nenhumAbastPeriodo: 'No refueling in this period.',
+    resumoPorPeriodo: 'Summary by period',
+  },
 };
 
-/**
- * Provedor Global de Contexto (AppProvider)
- * @description Encapsula a árvore de componentes injetando dependências globais.
- * Gerencia a persistência (AsyncStorage) e alternância de Tema e Idioma.
- */
 export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   const [theme, setTheme] = useState<Theme>('dark');
   const [language, setLanguage] = useState<Language>('pt');
 
-  // Inicialização assíncrona para resgatar configurações salvas localmente
   useEffect(() => {
     async function carregarPreferencias() {
       const savedTheme = await AsyncStorage.getItem('@app_theme');
@@ -320,25 +924,18 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     carregarPreferencias();
   }, []);
 
-  /** Comuta o esquema de cores e persiste a escolha no hardware */
   const toggleTheme = async () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
     setTheme(newTheme);
     await AsyncStorage.setItem('@app_theme', newTheme);
   };
 
-  /** Altera o locale ativo e persiste a escolha no hardware */
   const toggleLanguage = async () => {
     const newLang = language === 'pt' ? 'en' : 'pt';
     setLanguage(newLang);
     await AsyncStorage.setItem('@app_lang', newLang);
   };
 
-  /**
-   * Resolução da chave de tradução (i18n).
-   * @param {string} key Chave de busca no dicionário.
-   * @returns {string} Retorna o valor traduzido ou a própria chave como fallback seguro.
-   */
   const t = (key: string) => {
     return dicionario[language][key as keyof typeof dicionario['pt']] || key;
   };
@@ -350,8 +947,4 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
-/**
- * Hook utilitário (useApp)
- * @description Facilita o consumo do contexto em qualquer nó da árvore React.
- */
 export const useApp = () => useContext(AppContext);

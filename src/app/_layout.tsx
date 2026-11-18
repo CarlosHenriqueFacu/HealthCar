@@ -31,7 +31,7 @@ function RootNavigator() {
 
     const group = segments[0];
     const authRoute = group === '(auth)';
-    const authPage = segments[1];
+    const authPage = (segments as string[])[1];
 
     if (!user && !authRoute) {
       router.replace('/(auth)/login' as any);
@@ -51,7 +51,7 @@ function RootNavigator() {
         </Stack>
       </ThemeProvider>
       {user && isAccountLoading && (
-        <View style={[StyleSheet.absoluteFillObject, { zIndex: 10, elevation: 10 }]}>
+        <View style={[StyleSheet.absoluteFill, { zIndex: 10, elevation: 10 }]}>
           <AccountRestoreScreen />
         </View>
       )}

@@ -23,9 +23,10 @@ interface ConsumptionPeriodData {
 export default function ConsumptionDetailsScreen() {
   const { theme, t, language } = useApp();
   const { user } = useAuth();
+  const locale = language === 'en' ? 'en-US' : 'pt-BR';
   const [period, setPeriod] = useState<ChartPeriod>('day');
   const [chartData, setChartData] = useState<ConsumptionPeriodData[]>(() =>
-    buildChartBuckets('day').map((bucket) => ({ ...bucket, liters: 0, cost: 0 })),
+    buildChartBuckets('day', locale).map((bucket) => ({ ...bucket, liters: 0, cost: 0 })),
   );
   const [isLoading, setIsLoading] = useState(true);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
@@ -38,7 +39,6 @@ export default function ConsumptionDetailsScreen() {
   const borderColor = isDark ? '#1E2235' : '#E2E8F0';
   const colorConsumption = '#FFC107';
   const colorCost = '#4CAF50';
-  const locale = language === 'en' ? 'en-US' : 'pt-BR';
 
   const loadChart = useCallback(async () => {
     setIsLoading(true);
@@ -86,7 +86,7 @@ export default function ConsumptionDetailsScreen() {
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={['top', 'left', 'right']}>
-      <View style={[styles.header, { borderBottomColor }]}>
+      <View style={[styles.header, { borderBottomColor: borderColor }]}>
         <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}>
           <MaterialIcons name="arrow-back" size={24} color={textColor} />
         </Pressable>
@@ -100,17 +100,17 @@ export default function ConsumptionDetailsScreen() {
         <View style={styles.summaryRow}>
           <View style={[styles.summaryCard, { backgroundColor: cardColor, borderColor }]}>
             <MaterialIcons name="local-gas-station" size={24} color={colorConsumption} />
-            <Text style={[styles.summaryLabel, { color: subTextColor }]}>Litros</Text>
+            <Text style={[styles.summaryLabel, { color: subTextColor }]}>{t('litros')}</Text>
             <Text style={[styles.summaryValue, { color: colorConsumption }]}>{totalLiters.toFixed(1)} L</Text>
           </View>
           <View style={[styles.summaryCard, { backgroundColor: cardColor, borderColor }]}>
             <MaterialIcons name="payments" size={24} color={colorCost} />
-            <Text style={[styles.summaryLabel, { color: subTextColor }]}>Gasto</Text>
+            <Text style={[styles.summaryLabel, { color: subTextColor }]}>{t('gasto')}</Text>
             <Text style={[styles.summaryValue, { color: colorCost }]}>{totalCost.toLocaleString(locale, { style: 'currency', currency: 'BRL' })}</Text>
           </View>
           <View style={[styles.summaryCard, { backgroundColor: cardColor, borderColor }]}>
             <MaterialIcons name="price-check" size={24} color="#00B4FF" />
-            <Text style={[styles.summaryLabel, { color: subTextColor }]}>Preço médio</Text>
+            <Text style={[styles.summaryLabel, { color: subTextColor }]}>{t('precoMedio')}</Text>
             <Text style={[styles.summaryValue, { color: '#00B4FF' }]}>{averagePrice.toLocaleString(locale, { style: 'currency', currency: 'BRL' })}/L</Text>
           </View>
         </View>
@@ -119,7 +119,7 @@ export default function ConsumptionDetailsScreen() {
           <View style={styles.chartHeader}>
             <View style={styles.chartHeadingCopy}>
               <Text style={[styles.chartTitle, { color: textColor }]}>{period === 'day' ? t('litrosPorDia') : t('litrosPorMes')}</Text>
-              <Text style={[styles.chartSubtitle, { color: subTextColor }]}>{period === 'day' ? 'Últimos 7 dias' : 'Últimos 12 meses'}</Text>
+              <Text style={[styles.chartSubtitle, { color: subTextColor }]}>{period === 'day' ? t('ultimos7Dias') : t('ultimos12Meses')}</Text>
             </View>
             <ChartPeriodToggle
               value={period}
@@ -137,7 +137,7 @@ export default function ConsumptionDetailsScreen() {
           ) : chartData.every((row) => row.liters === 0 && row.cost === 0) ? (
             <View style={[styles.emptyChart, { height: chartHeight }]}>
               <MaterialIcons name="insights" size={42} color={borderColor} />
-              <Text style={[styles.emptyChartText, { color: subTextColor }]}>Nenhum abastecimento neste período.</Text>
+              <Text style={[styles.emptyChartText, { color: subTextColor }]}>{t('nenhumAbastPeriodo')}</Text>
             </View>
           ) : (
             <>
@@ -186,15 +186,15 @@ export default function ConsumptionDetailsScreen() {
                 {chartData.map((row) => <Text key={row.key} style={[styles.dayLabel, { color: subTextColor }]}>{row.label}</Text>)}
               </View>
               <View style={styles.legend}>
-                <View style={styles.legendItem}><View style={[styles.legendColor, { backgroundColor: colorConsumption }]} /><Text style={[styles.legendText, { color: subTextColor }]}>Litros</Text></View>
-                <View style={styles.legendItem}><View style={[styles.legendColor, { backgroundColor: colorCost }]} /><Text style={[styles.legendText, { color: subTextColor }]}>Gasto</Text></View>
+                <View style={styles.legendItem}><View style={[styles.legendColor, { backgroundColor: colorConsumption }]} /><Text style={[styles.legendText, { color: subTextColor }]}>{t('litros')}</Text></View>
+                <View style={styles.legendItem}><View style={[styles.legendColor, { backgroundColor: colorCost }]} /><Text style={[styles.legendText, { color: subTextColor }]}>{t('gasto')}</Text></View>
               </View>
             </>
           )}
         </View>
 
         <View style={[styles.breakdownContainer, { backgroundColor: cardColor, borderColor }]}>
-          <Text style={[styles.breakdownTitle, { color: textColor }]}>Resumo por período</Text>
+          <Text style={[styles.breakdownTitle, { color: textColor }]}>{t('resumoPorPeriodo')}</Text>
           {chartData.map((row, index) => (
             <Pressable
               key={row.key}

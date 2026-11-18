@@ -8,12 +8,12 @@
     "scheme": "healthcartcc",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/icon.png"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundColor": "#09111E"
       },
       "package": "com.anonymous.HealthCar_TCC",
       "permissions": [
@@ -34,9 +34,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#09111E",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 200
         }
       ],
       [
@@ -57,9 +57,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "3a5d9f12-73e1-450b-b5cc-e0702f844a66"
+        "projectId": "c57622fc-3a87-48ea-85fa-dfb33cbb3a31"
       }
     },
-    "owner": ""
+    "owner": "carlos008"
   }
 }

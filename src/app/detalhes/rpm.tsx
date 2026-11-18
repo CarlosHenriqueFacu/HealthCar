@@ -9,16 +9,11 @@ import { ScreenContainer } from "../../components/screen-container";
 import { useApp } from "../../contexts/AppContext";
 import { useAuth } from "../../contexts/AuthContext";
 
-// IMPORTAÇÃO DA CAMADA DE PERSISTÊNCIA (SQLite)
 import { obterTelemetriaPorPeriodo, obterUltimaLeituraVeiculo, obterVeiculoLocal } from "../../database/database";
 import { buildChartBuckets, type ChartPeriod } from "../../utils/chart-period";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-/**
- * @interface RpmAggregatedData
- * @description Estrutura de dados para o pipeline de renderização do gráfico de barras duplas (Pico/Média).
- */
 interface RpmAggregatedData {
   key: string;
   period: string;
@@ -27,37 +22,25 @@ interface RpmAggregatedData {
   sampleCount: number;
 }
 
-/**
- * @component RPMDetailsScreen
- * @description Módulo de análise dinâmica do regime do motor (RPM).
- * Extrai a série temporal bruta (PID 010C) do SQLite, particiona a telemetria em 
- * blocos agregados sequenciais e renderiza um gráfico vetorial (SVG) comparativo entre picos e médias.
- */
 export default function RPMDetailsScreen() {
   const { theme, t, language } = useApp();
   const { user } = useAuth();
-  
-  // --- ESTADOS DA INTERFACE ---
+
   const [selectedPeriod, setSelectedPeriod] = useState<number | null>(null);
   const [aggregatedData, setAggregatedData] = useState<RpmAggregatedData[]>([]);
   const [currentRPM, setCurrentRPM] = useState(0);
   const [period, setPeriod] = useState<ChartPeriod>('day');
   const [isLoading, setIsLoading] = useState(true);
 
-  // Tema dinâmico corporativo
   const isDark = theme === 'dark';
   const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
   const cardColor = isDark ? '#12141A' : '#FFFFFF';
   const textColor = isDark ? '#F0F2FF' : '#0F172A';
   const subTextColor = isDark ? '#8892A4' : '#64748B';
   const borderColor = isDark ? '#1E2235' : '#E2E8F0';
-  const peakColor = "#9C27B0"; // Roxo (Limites Operacionais)
-  const avgColor = "#00B4FF";  // Azul (Regime Médio)
+  const peakColor = "#9C27B0";
+  const avgColor = "#00B4FF";
 
-  /**
-   * @effect Pipeline de Agregação de Dados (Data Fetching & Chunking)
-   * @description Agrega a telemetria de RPM do veículo por dia ou mês.
-   */
   useEffect(() => {
     async function carregarTelemetriaRPM() {
       setIsLoading(true);
@@ -101,28 +84,24 @@ export default function RPMDetailsScreen() {
     carregarTelemetriaRPM();
   }, [language, period, user?.uid]);
 
-  // --- ESTATÍSTICAS GLOBAIS DA SESSÃO ---
   const dataToRender: RpmAggregatedData[] = aggregatedData.length > 0 ? aggregatedData : [{
     key: 'empty', period: 'N/A', peak: 0, avg: 0, sampleCount: 0,
   }];
-  const maxRPM = 6500; // Hard limit típico para visualização (Redline)
+  const maxRPM = 6500;
   const peakGlobalRPM = Math.max(...dataToRender.map((d) => d.peak));
   const sampleCount = aggregatedData.reduce((sum, row) => sum + row.sampleCount, 0);
   const avgGlobalRPM = sampleCount
     ? Math.round(aggregatedData.reduce((sum, row) => sum + row.avg * row.sampleCount, 0) / sampleCount)
     : 0;
 
-  // --- GEOMETRIA E ESCALA DO GRÁFICO (SVG) ---
   const chartWidth = SCREEN_WIDTH - 40;
   const chartHeight = 200;
-  // Dinâmico: A largura das barras ajusta-se à quantidade de blocos gerados (até 6)
   const numBars = dataToRender.length > 0 ? dataToRender.length : 1;
   const barWidth = (chartWidth - 40) / numBars;
-  const safePeakGlobal = peakGlobalRPM > 0 ? peakGlobalRPM : 1; // Evita divisão por zero
+  const safePeakGlobal = peakGlobalRPM > 0 ? peakGlobalRPM : 1;
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
-      
       <View style={[styles.header, { borderBottomColor: borderColor }]}>
         <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}>
           <MaterialIcons name="arrow-back" size={24} color={textColor} />
@@ -132,9 +111,7 @@ export default function RPMDetailsScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
-        {/* ================= INDICADOR DE TEMPO REAL ================= */}
-        <View style={[styles.statusCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
+        <View style={[styles.statusCard, { backgroundColor: cardColor, borderColor }]}>
           <View style={styles.statusLeft}>
             <MaterialIcons name="settings" size={32} color={peakColor} />
             <View>
@@ -152,20 +129,18 @@ export default function RPMDetailsScreen() {
           </View>
         </View>
 
-        {/* ================= VOLUMETRIA ESTATÍSTICA DA VIAGEM ================= */}
         <View style={styles.statsRow}>
-          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
+          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor }]}>
             <Text style={[styles.statLabel, { color: subTextColor }]}>{t('pico')}</Text>
             <Text style={[styles.statValue, { color: peakColor }]}>{isLoading ? "-" : (peakGlobalRPM / 1000).toFixed(1)}k</Text>
           </View>
-          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
+          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor }]}>
             <Text style={[styles.statLabel, { color: subTextColor }]}>{t('media')}</Text>
             <Text style={[styles.statValue, { color: peakColor }]}>{isLoading ? "-" : (avgGlobalRPM / 1000).toFixed(1)}k</Text>
           </View>
         </View>
 
-        {/* ================= MOTOR GRÁFICO BARRAS DUPLAS (SVG) ================= */}
-        <View style={[styles.chartContainer, { backgroundColor: cardColor, borderColor: borderColor }]}>
+        <View style={[styles.chartContainer, { backgroundColor: cardColor, borderColor }]}>
           <View style={styles.chartHeader}>
             <Text style={[styles.chartTitle, { color: textColor }]}>{t('picosPorPeriodo')}</Text>
             <ChartPeriodToggle
@@ -179,16 +154,16 @@ export default function RPMDetailsScreen() {
               monthLabel={t('mes')}
             />
           </View>
-          
+
           {isLoading ? (
             <View style={[styles.emptyChart, { height: chartHeight }]}>
               <ActivityIndicator size="large" color={peakColor} />
-              <Text style={[styles.emptyChartText, { color: subTextColor, marginTop: 12 }]}>Carregando telemetria...</Text>
+              <Text style={[styles.emptyChartText, { color: subTextColor, marginTop: 12 }]}>{t('carregandoTelemetria')}</Text>
             </View>
           ) : aggregatedData.every((row) => row.sampleCount === 0) ? (
             <View style={[styles.emptyChart, { height: chartHeight }]}>
               <MaterialIcons name="insights" size={48} color={borderColor} />
-              <Text style={[styles.emptyChartText, { color: subTextColor, marginTop: 12 }]}>Aguardando dados da ECU.</Text>
+              <Text style={[styles.emptyChartText, { color: subTextColor, marginTop: 12 }]}>{t('aguardandoDadosEcu')}</Text>
             </View>
           ) : (
             <>
@@ -200,7 +175,6 @@ export default function RPMDetailsScreen() {
                   </LinearGradient>
                 </Defs>
 
-                {/* Grid Lines Horizontais (Eixo Y) */}
                 {[0, 25, 50, 75, 100].map((percent) => (
                   <Line
                     key={`grid-${percent}`}
@@ -214,7 +188,6 @@ export default function RPMDetailsScreen() {
                   />
                 ))}
 
-                {/* Barras de PICO Máximo (Roxo) */}
                 {dataToRender.map((data, i) => {
                   const barHeight = (data.peak / safePeakGlobal) * (chartHeight - 60);
                   const x = 20 + i * barWidth + barWidth * 0.05;
@@ -232,7 +205,6 @@ export default function RPMDetailsScreen() {
                   );
                 })}
 
-                {/* Barras de MÉDIA Aritmética (Azul) */}
                 {dataToRender.map((data, i) => {
                   const barHeight = (data.avg / safePeakGlobal) * (chartHeight - 60);
                   const x = 20 + i * barWidth + barWidth * 0.5;
@@ -273,12 +245,11 @@ export default function RPMDetailsScreen() {
           )}
         </View>
 
-        {/* ================= DATAGRID: RESUMO POR DIA OU MÊS ================= */}
-        <View style={[styles.breakdownContainer, { backgroundColor: cardColor, borderColor: borderColor }]}>
+        <View style={[styles.breakdownContainer, { backgroundColor: cardColor, borderColor }]}>
           <Text style={[styles.breakdownTitle, { color: textColor }]}>{t('detalhesPorPeriodo')}</Text>
-          
+
           {isLoading || aggregatedData.every((row) => row.sampleCount === 0) ? (
-            <Text style={{ color: subTextColor, textAlign: 'center', padding: 20 }}>Nenhum log gravado nesta sessão.</Text>
+            <Text style={{ color: subTextColor, textAlign: 'center', padding: 20 }}>{t('nenhumLogSessao')}</Text>
           ) : (
             aggregatedData.map((data, i) => (
               <Pressable
@@ -325,7 +296,6 @@ const styles = StyleSheet.create({
   headerSpacer: { width: 40 },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, gap: 16, paddingBottom: 40 },
-  
   statusCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 16, padding: 16, borderWidth: 1 },
   statusLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   statusLabel: { fontSize: 12 },
@@ -333,26 +303,22 @@ const styles = StyleSheet.create({
   statusRight: { alignItems: "flex-end" },
   statusPercent: { fontSize: 18, fontWeight: "700" },
   statusPercentLabel: { fontSize: 10, marginTop: 2 },
-  
   statsRow: { flexDirection: "row", gap: 10 },
   statCard: { flex: 1, borderRadius: 12, padding: 12, borderWidth: 1, alignItems: "center" },
   statLabel: { fontSize: 11, marginBottom: 4 },
   statValue: { fontSize: 18, fontWeight: "700" },
-  
   chartContainer: { borderRadius: 16, padding: 16, borderWidth: 1 },
   chartHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 },
   chartTitle: { flex: 1, fontSize: 13, fontWeight: "600" },
   chart: { marginBottom: 8 },
   emptyChart: { justifyContent: "center", alignItems: "center", width: "100%" },
   emptyChartText: { fontSize: 13, fontWeight: "500" },
-  
   periodLabels: { flexDirection: "row", justifyContent: "space-around", paddingHorizontal: 20, marginBottom: 8 },
   periodLabel: { fontSize: 9, fontWeight: "600" },
   legend: { flexDirection: "row", gap: 16, justifyContent: "center", marginTop: 8 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
   legendColor: { width: 12, height: 12, borderRadius: 2 },
   legendText: { fontSize: 11 },
-  
   breakdownContainer: { borderRadius: 16, padding: 16, borderWidth: 1 },
   breakdownTitle: { fontSize: 13, fontWeight: "600", marginBottom: 12 },
   breakdownItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1 },

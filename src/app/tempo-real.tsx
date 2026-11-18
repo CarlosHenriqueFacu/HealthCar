@@ -33,7 +33,7 @@ Notifications.setNotificationHandler({
     shouldPlaySound: true,
     shouldSetBadge: false,
     shouldShowBanner: true,
-    shouldShowList: true,   
+    shouldShowList: true,
   }),
 });
 
@@ -43,9 +43,12 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 export default function RealtimeScreen() {
   const { theme, t } = useApp();
   const { user } = useAuth();
+  const tRef = useRef(t);
+  tRef.current = t;
+
   const tripStorageKey = user?.uid ? `@viagem_atual:${user.uid}` : null;
   const faultCountStorageKey = user?.uid ? `@falhas_count:${user.uid}` : null;
-  
+
   const isDark = theme === 'dark';
   const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
   const textColor = isDark ? '#F0F2FF' : '#0F172A';
@@ -58,7 +61,12 @@ export default function RealtimeScreen() {
   const [tripDistance, setTripDistance] = useState(0);
 
   const [isReading, setIsReading] = useState(false);
-  const [statusMsg, setStatusMsg] = useState("INICIALIZANDO SCANNER...");
+  const [statusKey, setStatusKey] = useState('statusInitScanner');
+  const [statusDeviceName, setStatusDeviceName] = useState('');
+
+  const statusMsg = statusKey === 'statusAbrindoPorta'
+    ? `${t('statusAbrindoPorta')} ${statusDeviceName}`
+    : t(statusKey);
 
   const tripAccumulatorRef = useRef<number>(0);
   const lastSpeedTimeRef = useRef<number | null>(null);
@@ -66,7 +74,7 @@ export default function RealtimeScreen() {
   const currentSessionRef = useRef<string | null>(null);
   const currentTempRef = useRef<number>(0);
   const currentFuelRef = useRef<number>(0);
-  
+
   const alertThrottlerRef = useRef({ temp: 0, volt: 0, dtc: 0 });
   const loopTimerRef = useRef<any>(null);
 
@@ -77,7 +85,7 @@ export default function RealtimeScreen() {
 
   const dispararAlerta = async (titulo: string, mensagem: string) => {
     await Notifications.scheduleNotificationAsync({
-      content: { title: titulo, body: mensagem, sound: true }, trigger: null, 
+      content: { title: titulo, body: mensagem, sound: true }, trigger: null,
     });
   };
 
@@ -98,8 +106,8 @@ export default function RealtimeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      let isActive = true; 
-      let cicloLentoCounter = 0; 
+      let isActive = true;
+      let cicloLentoCounter = 0;
       let amostragemDbCounter = 0;
       currentSessionRef.current = null;
       tripAccumulatorRef.current = 0;
@@ -121,15 +129,15 @@ export default function RealtimeScreen() {
 
       async function perguntarAoCarro(comando: string): Promise<string> {
         try {
-          const timeoutPromise = new Promise((_, reject) => 
+          const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error("TIMEOUT_HW")), 2500)
           );
-          
+
           const resposta = await Promise.race([
             OBDBluetooth.sendCommand(comando),
             timeoutPromise
           ]);
-          
+
           return String(resposta);
         } catch (err: any) {
           return `ERRO: ${err?.message}`;
@@ -154,7 +162,7 @@ export default function RealtimeScreen() {
           if (!rpmResp.includes("ERRO")) {
             const speedResp = await perguntarAoCarro("010D");
             const realSpeed = parseOBD(speedResp, "0D");
-            
+
             if (realSpeed >= 0 && !speedResp.includes("ERRO")) {
               currentSpeed = realSpeed;
               setDisplaySpeed(realSpeed);
@@ -164,7 +172,7 @@ export default function RealtimeScreen() {
                 const deltaHours = (now - lastSpeedTimeRef.current) / 3600000;
                 tripAccumulatorRef.current += realSpeed * deltaHours;
                 setTripDistance(tripAccumulatorRef.current);
-                
+
                 if (tripStorageKey) AsyncStorage.setItem(tripStorageKey, tripAccumulatorRef.current.toString()).catch(() => {});
               }
               lastSpeedTimeRef.current = now;
@@ -172,7 +180,7 @@ export default function RealtimeScreen() {
           }
 
           if (cicloLentoCounter >= 3) {
-            cicloLentoCounter = 0; 
+            cicloLentoCounter = 0;
             const now = Date.now();
 
             const tempResp = await perguntarAoCarro("0105");
@@ -180,9 +188,9 @@ export default function RealtimeScreen() {
             if (realTemp > 0) {
               currentTempRef.current = realTemp;
               setDisplayTemp(realTemp);
-              
+
               if (realTemp > 100 && (now - alertThrottlerRef.current.temp > 120000)) {
-                dispararAlerta("Atenção à Temperatura!", `O motor atingiu os ${realTemp}°C.`);
+                dispararAlerta(tRef.current('alertaTempTitulo'), `${tRef.current('alertaTempCorpo')} ${realTemp}°C.`);
                 alertThrottlerRef.current.temp = now;
               }
             }
@@ -190,7 +198,7 @@ export default function RealtimeScreen() {
             if (currentSpeed < 10 || fuelHistoryRef.current.length === 0) {
               const fuelResp = await perguntarAoCarro("012F");
               const rawFuel = parseOBD(fuelResp, "2F");
-              
+
               if (rawFuel > 0) {
                 fuelHistoryRef.current.push(rawFuel);
                 if (fuelHistoryRef.current.length > 5) {
@@ -198,29 +206,29 @@ export default function RealtimeScreen() {
                 }
                 const sum = fuelHistoryRef.current.reduce((acc, val) => acc + val, 0);
                 const stabilizedFuel = Math.round(sum / fuelHistoryRef.current.length);
-                
+
                 currentFuelRef.current = stabilizedFuel;
                 setDisplayFuel(stabilizedFuel);
               }
             }
-            
+
             try {
               const respVolt = await perguntarAoCarro("ATRV");
               const match = String(respVolt).match(/[\d\.]+/);
               if (match) {
-                 const volt = parseFloat(match[0]);
-                 if (volt > 0 && volt < 12.0 && (now - alertThrottlerRef.current.volt > 120000)) {
-                    dispararAlerta("Bateria Fraca", `A tensão no painel de Tempo Real desceu para ${volt}V.`);
-                    alertThrottlerRef.current.volt = now;
-                 }
+                const volt = parseFloat(match[0]);
+                if (volt > 0 && volt < 12.0 && (now - alertThrottlerRef.current.volt > 120000)) {
+                  dispararAlerta(tRef.current('alertaBatTitulo'), `${tRef.current('alertaBatCorpo')} ${volt}V.`);
+                  alertThrottlerRef.current.volt = now;
+                }
               }
-            } catch(e) {}
+            } catch (e) {}
           }
 
           if (amostragemDbCounter >= 4) {
-            amostragemDbCounter = 0; 
+            amostragemDbCounter = 0;
             const now = Date.now();
-            
+
             try {
               const sID = currentSessionRef.current;
               if (sID) {
@@ -235,19 +243,19 @@ export default function RealtimeScreen() {
             }
 
             try {
-               const falhasResp = await perguntarAoCarro("03");
-               const currentErrors = contarErrosDTC(falhasResp);
-               const savedFaultsStr = faultCountStorageKey ? await AsyncStorage.getItem(faultCountStorageKey) : null;
-               const savedFaults = savedFaultsStr ? parseInt(savedFaultsStr) : 0;
+              const falhasResp = await perguntarAoCarro("03");
+              const currentErrors = contarErrosDTC(falhasResp);
+              const savedFaultsStr = faultCountStorageKey ? await AsyncStorage.getItem(faultCountStorageKey) : null;
+              const savedFaults = savedFaultsStr ? parseInt(savedFaultsStr) : 0;
 
-               if (currentErrors > savedFaults && (now - alertThrottlerRef.current.dtc > 120000)) {
-                  dispararAlerta("⚠️ Nova Falha Detectada", "O sistema de injeção registrou um novo código de erro em tempo real.");
-                  if (faultCountStorageKey) AsyncStorage.setItem(faultCountStorageKey, currentErrors.toString()).catch(()=>{});
-                  alertThrottlerRef.current.dtc = now;
-               } else if (currentErrors < savedFaults) {
-                  if (faultCountStorageKey) AsyncStorage.setItem(faultCountStorageKey, currentErrors.toString()).catch(()=>{});
-               }
-            } catch(e) {}
+              if (currentErrors > savedFaults && (now - alertThrottlerRef.current.dtc > 120000)) {
+                dispararAlerta(tRef.current('alertaDtcTitulo'), tRef.current('alertaDtcCorpo'));
+                if (faultCountStorageKey) AsyncStorage.setItem(faultCountStorageKey, currentErrors.toString()).catch(() => {});
+                alertThrottlerRef.current.dtc = now;
+              } else if (currentErrors < savedFaults) {
+                if (faultCountStorageKey) AsyncStorage.setItem(faultCountStorageKey, currentErrors.toString()).catch(() => {});
+              }
+            } catch (e) {}
           }
 
         } catch (err) {
@@ -255,7 +263,7 @@ export default function RealtimeScreen() {
         }
 
         if (isActive) {
-          loopTimerRef.current = setTimeout(() => loopDeLeitura(), 1200); 
+          loopTimerRef.current = setTimeout(() => loopDeLeitura(), 1200);
         }
       }
 
@@ -267,12 +275,12 @@ export default function RealtimeScreen() {
             if (!user?.uid) throw new Error('A conta não está autenticada.');
             const vehicle = await obterVeiculoLocal(user.uid);
             if (!vehicle) throw new Error('Não há veículo local cadastrado para esta conta.');
-            
+
             const sessoes: any = await obterResumoSessoes(user.uid, vehicle.id);
-            if(sessoes && sessoes.length > 0) {
-               currentSessionRef.current = sessoes[0].id;
+            if (sessoes && sessoes.length > 0) {
+              currentSessionRef.current = sessoes[0].id;
             } else {
-               currentSessionRef.current = await iniciarSessaoLocal(user.uid, vehicle.id, "ISO_15765-4");
+              currentSessionRef.current = await iniciarSessaoLocal(user.uid, vehicle.id, "ISO_15765-4");
             }
           }
 
@@ -280,72 +288,73 @@ export default function RealtimeScreen() {
             const checkConn = await perguntarAoCarro("010C");
             if (checkConn && !String(checkConn).includes("ERR") && !String(checkConn).includes("TIMEOUT")) {
               setIsReading(true);
-              setStatusMsg("LENDO DADOS DO CARRO");
+              setStatusKey('statusLendoDados');
               lastSpeedTimeRef.current = Date.now();
               loopDeLeitura();
               return;
             }
-          } catch (e) { }
+          } catch (e) {}
 
           const devices = await RNBluetoothClassic.getBondedDevices();
-          const obdDevice = devices.find((d: any) => 
+          const obdDevice = devices.find((d: any) =>
             d.name && (
-              d.name.toUpperCase().includes("OBD") || 
+              d.name.toUpperCase().includes("OBD") ||
               d.name.toUpperCase().includes("ELM") ||
               d.name.toUpperCase().includes("V-LINK")
             )
           );
-          
+
           if (obdDevice) {
             setIsReading(true);
-            setStatusMsg(`ABRINDO PORTA: ${obdDevice.name.toUpperCase()}`);
-            
+            setStatusDeviceName(obdDevice.name.toUpperCase());
+            setStatusKey('statusAbrindoPorta');
+
             try {
               await OBDBluetooth.connect(obdDevice.address);
             } catch (e: any) {
-              setStatusMsg("FALHA NA CONEXÃO");
-              return; 
+              setStatusKey('statusFalhaConexao');
+              return;
             }
 
-            setStatusMsg("REINICIANDO ADAPTADOR...");
+            setStatusKey('statusReiniciando');
             await perguntarAoCarro("ATZ");
             await new Promise(resolve => setTimeout(resolve, 1500));
 
-            setStatusMsg("NEGOCIANDO PROTOCOLOS CAN...");
-            await perguntarAoCarro("ATE0"); 
-            await perguntarAoCarro("ATL0"); 
-            await perguntarAoCarro("ATS0"); 
-            await perguntarAoCarro("ATH0"); 
-            await perguntarAoCarro("ATSP0"); 
+            setStatusKey('statusNegociandoCan');
+            await perguntarAoCarro("ATE0");
+            await perguntarAoCarro("ATL0");
+            await perguntarAoCarro("ATS0");
+            await perguntarAoCarro("ATH0");
+            await perguntarAoCarro("ATSP0");
 
-            setStatusMsg("SINCRONIZANDO COM A ECU...");
-            await perguntarAoCarro("0100"); 
-            await new Promise(resolve => setTimeout(resolve, 1000)); 
+            setStatusKey('statusSincronizandoEcu');
+            await perguntarAoCarro("0100");
+            await new Promise(resolve => setTimeout(resolve, 1000));
 
             if (!isActive) return;
 
-            setStatusMsg("LENDO DADOS DO CARRO");
+            setStatusKey('statusLendoDados');
             lastSpeedTimeRef.current = Date.now();
-            loopDeLeitura(); 
+            loopDeLeitura();
           } else {
-            setStatusMsg("NENHUM SCANNER OBD PAREADO");
+            setStatusKey('statusSemScanner');
           }
         } catch (error: any) {
-          setStatusMsg("FALHA NA CONEXÃO");
+          setStatusKey('statusFalhaConexao');
         }
       }
 
       startReading();
 
       return () => {
-        isActive = false; 
+        isActive = false;
         setIsReading(false);
         lastSpeedTimeRef.current = null;
-        currentSessionRef.current = null; 
-        
+        currentSessionRef.current = null;
+
         if (loopTimerRef.current) {
-            clearTimeout(loopTimerRef.current);
-            loopTimerRef.current = null;
+          clearTimeout(loopTimerRef.current);
+          loopTimerRef.current = null;
         }
       };
     }, [user?.uid, tripStorageKey, faultCountStorageKey])
@@ -354,40 +363,37 @@ export default function RealtimeScreen() {
   function parseOBD(response: any, pid: string): number {
     if (!response) return -1;
     const strResponse = String(response).replace(/[\s>]/g, "").toUpperCase();
-    
+
     if (
-      strResponse.includes("NODATA") || 
-      strResponse.includes("SEARCHING") || 
-      strResponse.includes("ERROR") || 
+      strResponse.includes("NODATA") ||
+      strResponse.includes("SEARCHING") ||
+      strResponse.includes("ERROR") ||
       strResponse.includes("TIMEOUT") ||
       strResponse.includes("QUASE")
     ) {
       return -1;
     }
-    
-    const target = "41" + pid; 
+
+    const target = "41" + pid;
     const index = strResponse.indexOf(target);
-    
+
     if (index !== -1) {
       const dataHex = strResponse.substring(index + 4);
       try {
-        if (pid === "0C" && dataHex.length >= 4) { 
+        if (pid === "0C" && dataHex.length >= 4) {
           const A = parseInt(dataHex.substring(0, 2), 16);
           const B = parseInt(dataHex.substring(2, 4), 16);
           return Math.round(((A * 256) + B) / 4);
-        } 
-        else if (pid === "0D" && dataHex.length >= 2) { 
+        } else if (pid === "0D" && dataHex.length >= 2) {
           return parseInt(dataHex.substring(0, 2), 16);
-        }
-        else if (pid === "05" && dataHex.length >= 2) { 
+        } else if (pid === "05" && dataHex.length >= 2) {
           return parseInt(dataHex.substring(0, 2), 16) - 40;
-        }
-        else if (pid === "2F" && dataHex.length >= 2) { 
+        } else if (pid === "2F" && dataHex.length >= 2) {
           const A = parseInt(dataHex.substring(0, 2), 16);
           return Math.round((A * 100) / 255);
         }
       } catch (e) {
-        return -1; 
+        return -1;
       }
     }
     return -1;
@@ -398,7 +404,6 @@ export default function RealtimeScreen() {
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
-      
       <View style={[styles.header, { borderBottomColor: borderColor }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <MaterialIcons name="arrow-back" size={22} color={textColor} />
@@ -408,7 +413,6 @@ export default function RealtimeScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        
         <Animated.View style={[styles.liveBadge, headerGlowStyle, !isDark && { backgroundColor: '#E0F2FE', borderColor: '#BAE6FD' }]}>
           <View style={[styles.liveDot, isReading && { backgroundColor: "#00E676", shadowColor: "#00E676" }]} />
           <Text style={styles.liveBadgeText}>{statusMsg}</Text>
@@ -420,7 +424,7 @@ export default function RealtimeScreen() {
 
         <View style={styles.primaryTelemetry}>
           <View style={styles.telemetryRow}>
-            <TelemetryCard icon="directions" label="TRIP (VIAGEM)" value={tripDistance.toFixed(1)} unit="km" color="#00B4FF" />
+            <TelemetryCard icon="directions" label={t('tripLabel')} value={tripDistance.toFixed(1)} unit="km" color="#00B4FF" />
             <TelemetryCard icon="settings" label="RPM" value={displayRpm > 0 ? (displayRpm / 1000).toFixed(1) : "0.0"} unit="k" color="#00B4FF" />
           </View>
           <View style={styles.telemetryRow}>
@@ -431,7 +435,7 @@ export default function RealtimeScreen() {
 
         <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.stopBtn, pressed && { opacity: 0.8 }]}>
           <MaterialIcons name="stop-circle" size={20} color="#FF3D57" />
-          <Text style={styles.stopBtnText}>Voltar</Text>
+          <Text style={styles.stopBtnText}>{t('voltar')}</Text>
         </Pressable>
       </ScrollView>
     </ScreenContainer>

@@ -2,15 +2,13 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { MaterialIcons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import Svg, { Defs, Line, LinearGradient, Rect, Stop } from "react-native-svg";
 import { ChartPeriodToggle } from "../../components/ChartPeriodToggle";
 import { ScreenContainer } from "../../components/screen-container";
 import { useApp } from "../../contexts/AppContext";
 import { useAuth } from "../../contexts/AuthContext";
-import { useFocusEffect } from 'expo-router';
 
-// IMPORTAÇÃO DA CAMADA DE PERSISTÊNCIA (SQLite)
 import {
   obterAbastecimentosPorPeriodo,
   obterDadosGrafico,
@@ -23,10 +21,6 @@ import { buildChartBuckets, type ChartPeriod } from "../../utils/chart-period";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-/**
- * @interface RefillData
- * @description Estrutura agregada combinando o consumo de combustível e os eventos de abastecimento.
- */
 interface RefillData {
   key: string;
   dataString: string;
@@ -42,23 +36,17 @@ interface FuelChartData {
   custo: number;
 }
 
-/**
- * @component FuelDetailsScreen
- * @description Interface analítica de eficiência energética e logística de combustível.
- * Extrai o nível instantâneo da telemetria (PID 012F) e constrói um histórico
- * de gastos baseado na tabela relacional 'abastecimento_local'.
- */
 export default function FuelDetailsScreen() {
   const { theme, t, language } = useApp();
   const { user, syncNow } = useAuth();
-  
-  // --- ESTADOS DA INTERFACE ---
+  const locale = language === 'en' ? 'en-US' : 'pt-BR';
+
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [currentLevel, setCurrentLevel] = useState<number>(0);
   const [abastecimentos, setAbastecimentos] = useState<RefillData[]>([]);
   const [period, setPeriod] = useState<ChartPeriod>('day');
   const [fuelChartData, setFuelChartData] = useState<FuelChartData[]>(() =>
-    buildChartBuckets('day').map((bucket) => ({ ...bucket, litros: 0, custo: 0 })),
+    buildChartBuckets('day', locale).map((bucket) => ({ ...bucket, litros: 0, custo: 0 })),
   );
   const [isLoading, setIsLoading] = useState(true);
   const [vehicle, setVehicle] = useState<any>(null);
@@ -67,28 +55,21 @@ export default function FuelDetailsScreen() {
   const [costInput, setCostInput] = useState('');
   const [mileageInput, setMileageInput] = useState('');
 
-  // Paleta corporativa
   const isDark = theme === 'dark';
   const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
   const cardColor = isDark ? '#12141A' : '#FFFFFF';
   const textColor = isDark ? '#F0F2FF' : '#0F172A';
   const subTextColor = isDark ? '#8892A4' : '#64748B';
   const borderColor = isDark ? '#1E2235' : '#E2E8F0';
-  const primaryColor = "#FFC107"; // Amarelo (Eficiência)
+  const primaryColor = "#FFC107";
   const dangerColor = "#FF3D57";
 
-  /**
-   * @effect Pipeline de Agregação Mista (Telemetria + CRUD Relacional)
-   * @description Puxa o nível instantâneo da ECU e cruza com a tabela de abastecimento manual.
-   */
   const carregarDadosCombustivel = useCallback(async () => {
     setIsLoading(true);
     setCurrentLevel(0);
     setAbastecimentos([]);
     try {
-      // 1. Extração do Nível Atual (Telemetria)
       if (!user?.uid) return;
-      const locale = language === 'en' ? 'en-US' : 'pt-BR';
       const buckets = buildChartBuckets(period, locale);
       const currentVehicle = await obterVeiculoLocal(user.uid);
       setVehicle(currentVehicle);
@@ -102,25 +83,23 @@ export default function FuelDetailsScreen() {
         }
       }
 
-      // 2. Extração do Histórico de Abastecimento (Tabela CRUD)
       if (currentVehicle) {
         const [historico, resumoPorPeriodo] = await Promise.all([
           obterHistoricoAbastecimento(user.uid, currentVehicle.id),
           obterAbastecimentosPorPeriodo(user.uid, currentVehicle.id, period),
         ]);
-        
+
         if (historico && historico.length > 0) {
           const processado = historico.map((h: any) => {
             const dataObj = new Date(h.dataAbastecimento);
             return {
               key: String(h.id),
-              dataString: `${dataObj.getDate()}/${(dataObj.getMonth()+1).toString().padStart(2, '0')}`,
+              dataString: dataObj.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' }),
               litros: h.litros,
               custo: h.custoTotal,
               kmOcasiao: h.kmNaOcasiao
             };
           });
-          // O gráfico usa ordem cronológica (mais antigo para mais recente)
           setAbastecimentos(processado.reverse());
         } else {
           setAbastecimentos([]);
@@ -142,7 +121,7 @@ export default function FuelDetailsScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [language, period, user?.uid]);
+  }, [locale, period, user?.uid]);
 
   useFocusEffect(useCallback(() => {
     void carregarDadosCombustivel();
@@ -153,11 +132,11 @@ export default function FuelDetailsScreen() {
     const cost = Number(costInput.replace(',', '.'));
     const mileage = Number(mileageInput.replace(/\D/g, ''));
     if (!user?.uid || !vehicle) {
-      Alert.alert('Veículo não encontrado', 'Cadastre um veículo antes de registrar um abastecimento.');
+      Alert.alert(t('veiculoNaoEncontrado'), t('cadastreVeiculoAbast'));
       return;
     }
     if (!Number.isFinite(liters) || liters <= 0 || !Number.isFinite(mileage) || mileage <= 0) {
-      Alert.alert('Confira os dados', 'Informe a quantidade de litros e a quilometragem.');
+      Alert.alert(t('confiraOsDados'), t('confiraDadosAbast'));
       return;
     }
     try {
@@ -169,22 +148,18 @@ export default function FuelDetailsScreen() {
       await carregarDadosCombustivel();
       void syncNow().catch(() => {});
     } catch (error) {
-      Alert.alert('Não foi possível salvar', 'O abastecimento não foi gravado no SQLite. Tente novamente.');
+      Alert.alert(t('naoFoiPossivelSalvar'), t('erroSalvarAbast'));
       console.error('[Abastecimento] Falha ao gravar no SQLite:', error);
     }
   }
 
-  // --- ESTATÍSTICAS E MATEMÁTICA ---
-  const autonomiaEstimada = Math.round((currentLevel / 100) * 600); // Exemplo: Tanque cheio = 600km
-  
-  // Variáveis do Gráfico de Abastecimentos (Litros colocados por data)
+  const autonomiaEstimada = Math.round((currentLevel / 100) * 600);
   const dataToRender = fuelChartData;
   const maxLitros = Math.max(...dataToRender.map((d) => d.litros), 1);
-  const safeMax = maxLitros > 0 ? maxLitros : 1; // Previne divisão por zero
+  const safeMax = maxLitros > 0 ? maxLitros : 1;
   const totalLitrosPeriodo = fuelChartData.reduce((sum, d) => sum + d.litros, 0);
   const totalCustoPeriodo = fuelChartData.reduce((sum, d) => sum + d.custo, 0);
 
-  // --- GEOMETRIA DO GRÁFICO ---
   const chartWidth = SCREEN_WIDTH - 40;
   const chartHeight = 180;
   const numBars = dataToRender.length > 0 ? dataToRender.length : 1;
@@ -192,22 +167,19 @@ export default function FuelDetailsScreen() {
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
-      
       <View style={[styles.header, { borderBottomColor: borderColor }]}>
         <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}>
           <MaterialIcons name="arrow-back" size={24} color={textColor} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: textColor }]}>{t('combustivel')}</Text>
-        
+
         <Pressable onPress={() => { setMileageInput(String(vehicle?.km ?? '')); setShowRefuelForm(true); }} style={styles.testBtn}>
-           <MaterialIcons name="add" size={20} color="#00B4FF" />
+          <MaterialIcons name="add" size={20} color="#00B4FF" />
         </Pressable>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
-        {/* ================= INDICADOR DE NÍVEL EM TEMPO REAL ================= */}
-        <View style={[styles.statusCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
+        <View style={[styles.statusCard, { backgroundColor: cardColor, borderColor }]}>
           <View style={styles.statusLeft}>
             <MaterialIcons name="local-gas-station" size={32} color={currentLevel < 15 ? dangerColor : primaryColor} />
             <View>
@@ -225,26 +197,24 @@ export default function FuelDetailsScreen() {
           </View>
         </View>
 
-        {/* ================= VOLUMETRIA FINANCEIRA ================= */}
         <View style={styles.statsRow}>
-          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
-            <Text style={[styles.statLabel, { color: subTextColor }]}>Abastecido</Text>
+          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor }]}>
+            <Text style={[styles.statLabel, { color: subTextColor }]}>{t('abastecido')}</Text>
             <Text style={[styles.statValue, { color: primaryColor }]}>{isLoading ? "-" : totalLitrosPeriodo.toFixed(1)}L</Text>
           </View>
-          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
-            <Text style={[styles.statLabel, { color: subTextColor }]}>Gasto no período (R$)</Text>
+          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor }]}>
+            <Text style={[styles.statLabel, { color: subTextColor }]}>{t('gastoNoPeriodo')}</Text>
             <Text style={[styles.statValue, { color: primaryColor }]}>
-              {isLoading ? "-" : totalCustoPeriodo.toFixed(2)}
+              {isLoading ? "-" : totalCustoPeriodo.toLocaleString(locale, { style: 'currency', currency: 'BRL' })}
             </Text>
           </View>
         </View>
 
-        {/* ================= MOTOR GRÁFICO (SVG) - VOLUME DE ABASTECIMENTO ================= */}
-        <View style={[styles.chartContainer, { backgroundColor: cardColor, borderColor: borderColor }]}>
+        <View style={[styles.chartContainer, { backgroundColor: cardColor, borderColor }]}>
           <View style={styles.chartHeader}>
             <View style={styles.chartHeadingCopy}>
-              <Text style={[styles.chartTitle, { color: textColor }]}>Volume Abastecido</Text>
-              <Text style={[styles.chartSubtitle, { color: subTextColor }]}>{period === 'day' ? 'Últimos 7 dias' : 'Últimos 12 meses'}</Text>
+              <Text style={[styles.chartTitle, { color: textColor }]}>{t('volumeAbastecido')}</Text>
+              <Text style={[styles.chartSubtitle, { color: subTextColor }]}>{period === 'day' ? t('ultimos7Dias') : t('ultimos12Meses')}</Text>
             </View>
             <ChartPeriodToggle
               value={period}
@@ -257,7 +227,7 @@ export default function FuelDetailsScreen() {
               monthLabel={t('mes')}
             />
           </View>
-          
+
           {isLoading ? (
             <View style={[styles.emptyChart, { height: chartHeight }]}>
               <ActivityIndicator size="large" color={primaryColor} />
@@ -265,7 +235,7 @@ export default function FuelDetailsScreen() {
           ) : fuelChartData.every((entry) => entry.litros === 0) ? (
             <View style={[styles.emptyChart, { height: chartHeight }]}>
               <MaterialIcons name="local-gas-station" size={48} color={borderColor} />
-              <Text style={[styles.emptyChartText, { color: subTextColor, marginTop: 12 }]}>Nenhum registro de abastecimento.</Text>
+              <Text style={[styles.emptyChartText, { color: subTextColor, marginTop: 12 }]}>{t('nenhumRegistroAbast')}</Text>
             </View>
           ) : (
             <>
@@ -294,7 +264,7 @@ export default function FuelDetailsScreen() {
                   const barHeight = (data.litros / safeMax) * (chartHeight - 60);
                   const x = 20 + i * barWidth + barWidth * 0.1;
                   const y = chartHeight - 30 - barHeight;
-                  
+
                   return (
                     <Rect
                       key={data.key}
@@ -321,42 +291,40 @@ export default function FuelDetailsScreen() {
           )}
         </View>
 
-        {/* ================= DATAGRID: HISTÓRICO RELACIONAL ================= */}
-        <View style={[styles.breakdownContainer, { backgroundColor: cardColor, borderColor: borderColor }]}>
-          <Text style={[styles.breakdownTitle, { color: textColor }]}>Logs de Abastecimento</Text>
-          
+        <View style={[styles.breakdownContainer, { backgroundColor: cardColor, borderColor }]}>
+          <Text style={[styles.breakdownTitle, { color: textColor }]}>{t('logsAbastecimento')}</Text>
+
           {isLoading || abastecimentos.length === 0 ? (
-            <Text style={{ color: subTextColor, textAlign: 'center', padding: 20 }}>Registe abastecimentos para ver histórico.</Text>
+            <Text style={{ color: subTextColor, textAlign: 'center', padding: 20 }}>{t('registreAbastHistorico')}</Text>
           ) : (
             abastecimentos.slice().reverse().map((data) => (
               <View key={data.key} style={[styles.refillItem, { borderBottomColor: borderColor }]}>
                 <MaterialIcons name="local-gas-station" size={24} color="#4CAF50" />
                 <View style={styles.refillContent}>
                   <Text style={[styles.refillDay, { color: textColor }]}>{data.dataString}</Text>
-                  <Text style={[styles.refillTime, { color: subTextColor }]}>KM do Painel: {data.kmOcasiao.toLocaleString()} km</Text>
+                  <Text style={[styles.refillTime, { color: subTextColor }]}>{t('kmDoPainel')} {data.kmOcasiao.toLocaleString(locale)} km</Text>
                 </View>
                 <View style={{ alignItems: "flex-end" }}>
-                   <Text style={{ color: primaryColor, fontWeight: "700" }}>{data.litros.toFixed(1)} L</Text>
-                   <Text style={{ color: subTextColor, fontSize: 10 }}>R$ {data.custo.toFixed(2)}</Text>
+                  <Text style={{ color: primaryColor, fontWeight: "700" }}>{data.litros.toFixed(1)} L</Text>
+                  <Text style={{ color: subTextColor, fontSize: 10 }}>{data.custo.toLocaleString(locale, { style: 'currency', currency: 'BRL' })}</Text>
                 </View>
               </View>
             ))
           )}
         </View>
-
       </ScrollView>
 
       <Modal visible={showRefuelForm} transparent animationType="slide" onRequestClose={() => setShowRefuelForm(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { backgroundColor: cardColor, borderColor }]}>
             <View style={styles.modalTitleRow}>
-              <Text style={[styles.chartTitle, { color: textColor }]}>Registrar abastecimento</Text>
+              <Text style={[styles.chartTitle, { color: textColor }]}>{t('registrarAbastecimento')}</Text>
               <Pressable onPress={() => setShowRefuelForm(false)}><MaterialIcons name="close" size={22} color={subTextColor} /></Pressable>
             </View>
-            <TextInput value={litersInput} onChangeText={setLitersInput} placeholder="Litros" placeholderTextColor={subTextColor} keyboardType="decimal-pad" style={[styles.formInput, { color: textColor, borderColor, backgroundColor: bgColor }]} />
-            <TextInput value={costInput} onChangeText={setCostInput} placeholder="Valor total (R$)" placeholderTextColor={subTextColor} keyboardType="decimal-pad" style={[styles.formInput, { color: textColor, borderColor, backgroundColor: bgColor }]} />
-            <TextInput value={mileageInput} onChangeText={setMileageInput} placeholder="Quilometragem" placeholderTextColor={subTextColor} keyboardType="numeric" style={[styles.formInput, { color: textColor, borderColor, backgroundColor: bgColor }]} />
-            <Pressable onPress={() => void saveRefuel()} style={styles.saveButton}><Text style={styles.saveButtonText}>Salvar no aparelho</Text></Pressable>
+            <TextInput value={litersInput} onChangeText={setLitersInput} placeholder={t('litros')} placeholderTextColor={subTextColor} keyboardType="decimal-pad" style={[styles.formInput, { color: textColor, borderColor, backgroundColor: bgColor }]} />
+            <TextInput value={costInput} onChangeText={setCostInput} placeholder={t('valorTotalPlaceholder')} placeholderTextColor={subTextColor} keyboardType="decimal-pad" style={[styles.formInput, { color: textColor, borderColor, backgroundColor: bgColor }]} />
+            <TextInput value={mileageInput} onChangeText={setMileageInput} placeholder={t('quilometragem')} placeholderTextColor={subTextColor} keyboardType="numeric" style={[styles.formInput, { color: textColor, borderColor, backgroundColor: bgColor }]} />
+            <Pressable onPress={() => void saveRefuel()} style={styles.saveButton}><Text style={styles.saveButtonText}>{t('salvarNoAparelho')}</Text></Pressable>
           </View>
         </View>
       </Modal>
@@ -378,7 +346,6 @@ const styles = StyleSheet.create({
   saveButtonText: { color: '#04131A', fontSize: 14, fontWeight: '800' },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, gap: 16, paddingBottom: 40 },
-  
   statusCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 16, padding: 16, borderWidth: 1 },
   statusLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   statusLabel: { fontSize: 12 },
@@ -386,12 +353,10 @@ const styles = StyleSheet.create({
   statusRight: { alignItems: "flex-end" },
   statusRange: { fontSize: 16, fontWeight: "700" },
   statusRangeLabel: { fontSize: 10, marginTop: 2 },
-  
   statsRow: { flexDirection: "row", gap: 10 },
   statCard: { flex: 1, borderRadius: 12, padding: 12, borderWidth: 1, alignItems: "center" },
   statLabel: { fontSize: 11, marginBottom: 4 },
   statValue: { fontSize: 18, fontWeight: "700" },
-  
   chartContainer: { borderRadius: 16, padding: 16, borderWidth: 1 },
   chartHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 },
   chartHeadingCopy: { flex: 1 },
@@ -400,10 +365,8 @@ const styles = StyleSheet.create({
   chart: { marginBottom: 8 },
   emptyChart: { justifyContent: "center", alignItems: "center", width: "100%" },
   emptyChartText: { fontSize: 13, fontWeight: "500" },
-  
   dayLabels: { flexDirection: "row", justifyContent: "space-around", paddingHorizontal: 20 },
   dayLabel: { fontSize: 10, fontWeight: "600" },
-  
   breakdownContainer: { borderRadius: 16, padding: 16, borderWidth: 1 },
   breakdownTitle: { fontSize: 13, fontWeight: "600", marginBottom: 12 },
   refillItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1 },

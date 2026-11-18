@@ -21,7 +21,7 @@ interface VoltData {
 export default function BatteryDetailsScreen() {
   const { theme, t } = useApp();
   const { user } = useAuth();
-  
+
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [chartData, setChartData] = useState<VoltData[]>([]);
   const [currentVolt, setCurrentVolt] = useState(0);
@@ -40,11 +40,9 @@ export default function BatteryDetailsScreen() {
     try {
       if (!user?.uid) return;
       const sessoes = await obterResumoSessoes(user.uid);
-      
+
       if (sessoes && sessoes.length > 0) {
         const sessaoAtiva: any = sessoes[0];
-        
-        // PID de Voltagem no banco: "ATRV"
         const leiturasBrutas: any = await obterDadosGrafico(user.uid, sessaoAtiva.id, "ATRV");
 
         if (leiturasBrutas && leiturasBrutas.length > 0) {
@@ -52,18 +50,17 @@ export default function BatteryDetailsScreen() {
 
           const agora = Date.now();
           const limite24h = agora - JANELA_24H_MS;
-
           const leiturasValidas = leiturasBrutas.filter((l: any) => l.timestamp >= limite24h);
 
           const dadosProcessados: VoltData[] = leiturasValidas.map((l: any) => {
-             const dataObj = new Date(l.timestamp);
-             const horas = dataObj.getHours().toString().padStart(2, '0');
-             const minutos = dataObj.getMinutes().toString().padStart(2, '0');
-             return {
-                time: `${horas}:${minutos}`,
-                volt: parseFloat(l.valor.toFixed(1)),
-                timestampSort: l.timestamp
-             };
+            const dataObj = new Date(l.timestamp);
+            const horas = dataObj.getHours().toString().padStart(2, '0');
+            const minutos = dataObj.getMinutes().toString().padStart(2, '0');
+            return {
+              time: `${horas}:${minutos}`,
+              volt: parseFloat(l.valor.toFixed(1)),
+              timestampSort: l.timestamp
+            };
           });
 
           dadosProcessados.sort((a, b) => a.timestampSort - b.timestampSort);
@@ -79,35 +76,34 @@ export default function BatteryDetailsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      carregarTelemetria(); 
-      const interval = setInterval(() => { carregarTelemetria(); }, 5000); 
+      carregarTelemetria();
+      const interval = setInterval(() => { carregarTelemetria(); }, 5000);
       return () => clearInterval(interval);
     }, [carregarTelemetria])
   );
 
   const dataToRender = chartData.length > 0 ? chartData : [{ time: "--:--", volt: 12.0, timestampSort: 0 }];
-  
+
   const minVolt = Math.min(...dataToRender.map((d) => d.volt));
   const maxVolt = Math.max(...dataToRender.map((d) => d.volt));
   const avgVolt = (dataToRender.reduce((sum, d) => sum + d.volt, 0) / dataToRender.length).toFixed(1);
 
-  // Classificação Dinâmica da Voltagem
-  let statusBat = "Desconhecido";
-  let primaryColor = "#00B4FF"; 
-  
+  let statusBat = t('batDesconhecido');
+  let primaryColor = "#00B4FF";
+
   if (currentVolt >= 13.5) {
-      statusBat = "Carregando";
-      primaryColor = "#00E676"; // Verde (Alternador ok)
-  } else if (currentVolt >= 12.2 && currentVolt <= 13.4) {
-      statusBat = "Ideal (Descanso)";
-      primaryColor = "#00B4FF"; // Azul
-  } else if (currentVolt > 0 && currentVolt < 12.2) {
-      statusBat = "Fraca / Atenção";
-      primaryColor = "#FF3D57"; // Vermelho
+    statusBat = t('batCarregandoCurto');
+    primaryColor = "#00E676";
+  } else if (currentVolt >= 12.0 && currentVolt <= 13.4) {
+    statusBat = t('batIdealDescanso');
+    primaryColor = "#00B4FF";
+  } else if (currentVolt > 0 && currentVolt < 12.0) {
+    statusBat = t('batFracaAtencao');
+    primaryColor = "#FF3D57";
   }
 
   const chartWidth = SCREEN_WIDTH - 40;
-  const chartHeight = 220; 
+  const chartHeight = 220;
   const padding = 40;
   const vRange = maxVolt === minVolt ? 1 : (maxVolt - minVolt);
 
@@ -121,28 +117,26 @@ export default function BatteryDetailsScreen() {
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
-      
       <View style={[styles.header, { borderBottomColor: borderColor }]}>
         <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}>
           <MaterialIcons name="arrow-back" size={24} color={textColor} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: textColor }]}>Bateria & Tensão</Text>
+        <Text style={[styles.headerTitle, { color: textColor }]}>{t('bateriaTensao')}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
-        <View style={[styles.statusCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
+        <View style={[styles.statusCard, { backgroundColor: cardColor, borderColor }]}>
           <View style={styles.statusLeft}>
             <MaterialIcons name="battery-charging-full" size={32} color={primaryColor} />
             <View>
-              <Text style={[styles.statusLabel, { color: subTextColor }]}>Tensão Elétrica (ATRV)</Text>
+              <Text style={[styles.statusLabel, { color: subTextColor }]}>{t('tensaoEletricaAtrv')}</Text>
               <Text style={[styles.statusValue, { color: primaryColor }]}>
-                {isLoading ? "--" : currentVolt.toFixed(1)}<Text style={{fontSize: 14}} > V</Text>
+                {isLoading ? "--" : currentVolt.toFixed(1)}<Text style={{ fontSize: 14 }}> V</Text>
               </Text>
             </View>
           </View>
-          <View style={[styles.statusBadge, { backgroundColor: isDark ? `${primaryColor}22` : `${primaryColor}22` }]}>
+          <View style={[styles.statusBadge, { backgroundColor: `${primaryColor}22` }]}>
             <Text style={{ color: primaryColor, fontSize: 11, fontWeight: "700", textTransform: 'uppercase' }}>
               {statusBat}
             </Text>
@@ -150,23 +144,23 @@ export default function BatteryDetailsScreen() {
         </View>
 
         <View style={styles.statsRow}>
-          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
-            <Text style={[styles.statLabel, { color: subTextColor }]}>Descarga Min</Text>
+          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor }]}>
+            <Text style={[styles.statLabel, { color: subTextColor }]}>{t('descargaMin')}</Text>
             <Text style={[styles.statValue, { color: textColor }]}>{isLoading ? "-" : minVolt.toFixed(1)}v</Text>
           </View>
-          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
-            <Text style={[styles.statLabel, { color: subTextColor }]}>Tensão Média</Text>
+          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor }]}>
+            <Text style={[styles.statLabel, { color: subTextColor }]}>{t('tensaoMedia')}</Text>
             <Text style={[styles.statValue, { color: textColor }]}>{isLoading ? "-" : avgVolt}v</Text>
           </View>
-          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
-            <Text style={[styles.statLabel, { color: subTextColor }]}>Carga Max</Text>
+          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor }]}>
+            <Text style={[styles.statLabel, { color: subTextColor }]}>{t('cargaMax')}</Text>
             <Text style={[styles.statValue, { color: textColor }]}>{isLoading ? "-" : maxVolt.toFixed(1)}v</Text>
           </View>
         </View>
 
-        <View style={[styles.chartContainer, { backgroundColor: cardColor, borderColor: borderColor }]}>
-          <Text style={[styles.chartTitle, { color: textColor }]}>Oscilação de Voltagem (24h)</Text>
-          
+        <View style={[styles.chartContainer, { backgroundColor: cardColor, borderColor }]}>
+          <Text style={[styles.chartTitle, { color: textColor }]}>{t('oscilacaoVoltagem24h')}</Text>
+
           {isLoading ? (
             <View style={[styles.emptyChart, { height: chartHeight }]}>
               <ActivityIndicator size="large" color={primaryColor} />
@@ -235,19 +229,19 @@ export default function BatteryDetailsScreen() {
           )}
         </View>
 
-        <View style={[styles.dataSection, { backgroundColor: cardColor, borderColor: borderColor }]}>
-          <Text style={[styles.dataTitle, { color: textColor }]}>Diagnóstico Histórico</Text>
-          
+        <View style={[styles.dataSection, { backgroundColor: cardColor, borderColor }]}>
+          <Text style={[styles.dataTitle, { color: textColor }]}>{t('diagnosticoHistorico')}</Text>
+
           {isLoading || chartData.length === 0 ? (
-            <Text style={{ color: subTextColor, textAlign: 'center', padding: 20 }}>Nenhum log gravado.</Text>
+            <Text style={{ color: subTextColor, textAlign: 'center', padding: 20 }}>{t('nenhumLogGravado')}</Text>
           ) : (
             [...chartData].reverse().map((data, i) => {
               const originalIndex = chartData.length - 1 - i;
-              
+
               let barColor = "#00B4FF";
               if (data.volt >= 13.5) barColor = "#00E676";
-              else if (data.volt < 12.2) barColor = "#FF3D57";
-              
+              else if (data.volt < 12.0) barColor = "#FF3D57";
+
               return (
                 <Pressable
                   key={`data-${i}`}
@@ -260,7 +254,7 @@ export default function BatteryDetailsScreen() {
                   ]}
                 >
                   <Text style={[styles.dataTime, { color: subTextColor }]}>{data.time}</Text>
-                  
+
                   <View style={[styles.dataBar, { backgroundColor: isDark ? "#1E2235" : "#CBD5E1" }]}>
                     <View style={[styles.dataBarFill, { width: `${((data.volt - minVolt) / vRange) * 100}%` as any, backgroundColor: barColor }]} />
                   </View>
@@ -282,30 +276,25 @@ const styles = StyleSheet.create({
   headerSpacer: { width: 40 },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, gap: 16, paddingBottom: 40 },
-  
   statusCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 16, padding: 16, borderWidth: 1 },
   statusLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   statusLabel: { fontSize: 12 },
   statusValue: { fontSize: 24, fontWeight: "700", marginTop: 2 },
   statusBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
-  
   statsRow: { flexDirection: "row", gap: 10 },
   statCard: { flex: 1, borderRadius: 12, padding: 12, borderWidth: 1, alignItems: "center", gap: 8 },
   statLabel: { fontSize: 11 },
   statValue: { fontSize: 17, fontWeight: "700" },
-  
   chartContainer: { borderRadius: 16, padding: 16, borderWidth: 1 },
   chartTitle: { fontSize: 13, fontWeight: "600", marginBottom: 12 },
   chart: { marginBottom: 8 },
   emptyChart: { justifyContent: "center", alignItems: "center", width: "100%" },
-  
   timeLabels: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 40 },
   timeLabel: { fontSize: 10, fontWeight: "600" },
-  
   dataSection: { borderRadius: 16, padding: 16, borderWidth: 1 },
   dataTitle: { fontSize: 13, fontWeight: "600", marginBottom: 12 },
   dataRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1 },
-  dataTime: { width: 50, fontSize: 12, fontWeight: "600" }, 
+  dataTime: { width: 50, fontSize: 12, fontWeight: "600" },
   dataBar: { flex: 1, height: 6, borderRadius: 3, overflow: "hidden" },
   dataBarFill: { height: "100%", borderRadius: 3 },
   dataValue: { width: 50, fontSize: 12, fontWeight: "700", textAlign: "right" },

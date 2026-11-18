@@ -3,6 +3,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -31,7 +32,7 @@ function dateInputValue(date: Date) {
 }
 
 export default function MaintenanceScreen() {
-  const { theme } = useApp();
+  const { theme, language, t } = useApp();
   const { user, syncNow } = useAuth();
   const [showForm, setShowForm] = useState(false);
   const [vehicle, setVehicle] = useState<any>(null);
@@ -43,6 +44,8 @@ export default function MaintenanceScreen() {
   const [nextKm, setNextKm] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  const locale = language === 'en' ? 'en-US' : 'pt-BR';
   const isDark = theme === 'dark';
   const background = isDark ? '#0A0A0F' : '#F1F5F9';
   const card = isDark ? '#12141A' : '#FFFFFF';
@@ -51,7 +54,7 @@ export default function MaintenanceScreen() {
   const muted = isDark ? '#9AA5B5' : '#64748B';
   const totalSpent = maintenance.reduce((sum, item) => sum + Number(item.custo ?? 0), 0);
   const formatCurrency = (amount: number) =>
-    amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    amount.toLocaleString(locale, { style: 'currency', currency: 'BRL' });
 
   const loadMaintenance = useCallback(async () => {
     if (!user?.uid) return;
@@ -96,33 +99,33 @@ export default function MaintenanceScreen() {
       await loadMaintenance();
       void syncNow().catch(() => {});
     } catch (error) {
-      Alert.alert('Não foi possível excluir', 'A manutenção continua no histórico deste aparelho. Tente novamente.');
+      Alert.alert(t('naoFoiPossivelExcluir'), t('erroExcluirManutencao'));
       console.error('[Manutenção] Falha ao excluir o registro:', error);
     }
   };
 
   const showMaintenanceActions = (item: any) => {
-    Alert.alert('Opções da manutenção', String(item.tipo ?? 'Registro'), [
-      { text: 'Editar', onPress: () => openEditForm(item) },
+    Alert.alert(t('opcoesManutencao'), String(item.tipo ?? t('registroGenerico')), [
+      { text: t('editar'), onPress: () => openEditForm(item) },
       {
-        text: 'Excluir',
+        text: t('excluir'),
         style: 'destructive',
         onPress: () => Alert.alert(
-          'Excluir manutenção?',
-          'O registro será removido do histórico e sincronizado com sua conta.',
+          t('excluirManutencaoPergunta'),
+          t('excluirManutencaoDesc'),
           [
-            { text: 'Cancelar', style: 'cancel' },
-            { text: 'Excluir', style: 'destructive', onPress: () => void deleteMaintenance(item) },
+            { text: t('cancelar'), style: 'cancel' },
+            { text: t('excluir'), style: 'destructive', onPress: () => void deleteMaintenance(item) },
           ],
         ),
       },
-      { text: 'Cancelar', style: 'cancel' },
+      { text: t('cancelar'), style: 'cancel' },
     ]);
   };
 
   const saveMaintenance = async () => {
     if (!user?.uid || !vehicle) {
-      Alert.alert('Veículo não encontrado', 'Cadastre um veículo antes de registrar uma manutenção.');
+      Alert.alert(t('veiculoNaoEncontrado'), t('cadastreVeiculoManutencao'));
       return;
     }
     const kmValue = Number(serviceKm.replace(/\D/g, ''));
@@ -130,7 +133,7 @@ export default function MaintenanceScreen() {
     const nextKmValue = Number(nextKm.replace(/\D/g, '')) || null;
     const dateValue = new Date(`${serviceDate}T12:00:00`).getTime();
     if (!serviceName.trim() || !Number.isFinite(kmValue) || kmValue <= 0 || !Number.isFinite(dateValue)) {
-      Alert.alert('Confira os dados', 'Informe o serviço, a data e a quilometragem da manutenção.');
+      Alert.alert(t('confiraOsDados'), t('confiraDadosManutencao'));
       return;
     }
     setIsSaving(true);
@@ -145,7 +148,7 @@ export default function MaintenanceScreen() {
       setServiceName('');
       closeForm();
     } catch (error) {
-      Alert.alert('Não foi possível salvar', 'A manutenção não foi gravada no banco local. Tente novamente.');
+      Alert.alert(t('naoFoiPossivelSalvar'), t('erroSalvarManutencao'));
       console.error('[Manutenção] Falha ao gravar no SQLite:', error);
     } finally {
       setIsSaving(false);
@@ -158,29 +161,39 @@ export default function MaintenanceScreen() {
         <HealthCarHeader />
 
         <View style={styles.pageHeading}>
-          <Text style={[styles.pageTitle, { color: text }]}>Manutenção</Text>
-          <Text style={[styles.pageSubtitle, { color: muted }]}>Histórico e cuidados do seu veículo.</Text>
+          <Text style={[styles.pageTitle, { color: text }]}>{t('manutencao')}</Text>
+          <Text style={[styles.pageSubtitle, { color: muted }]}>{t('manutencaoSubtitulo')}</Text>
         </View>
 
         <Pressable
           onPress={() => router.push('/configuracoes')}
           style={({ pressed }) => [styles.vehicleCard, { backgroundColor: card, borderColor: border }, pressed && { opacity: 0.78 }]}
         >
-          <View style={styles.vehicleIcon}><MaterialIcons name="directions-car" size={19} color="#00B4FF" /></View>
+          <View style={[styles.vehicleIcon, { backgroundColor: '#09111E', padding: 3, overflow: 'hidden' }]}>
+            <Image
+              source={require('../../../assets/images/icon.png')}
+              style={{ width: '100%', height: '100%' }}
+              resizeMode="contain"
+            />
+          </View>
           <View style={styles.vehicleInfo}>
-            <Text style={styles.eyebrow}>VEÍCULO ATUAL</Text>
-            <Text style={[styles.vehicleTitle, { color: text }]}>{vehicle ? `${vehicle.marca} ${vehicle.veiculo}`.trim() : 'Veículo cadastrado'}</Text>
-            <Text style={[styles.vehicleSubtitle, { color: muted }]}>{vehicle ? `${Number(vehicle.km).toLocaleString('pt-BR')} km` : 'Quilometragem acompanhada pelo app'}</Text>
+            <Text style={styles.eyebrow}>{t('veiculoAtualEyebrow')}</Text>
+            <Text style={[styles.vehicleTitle, { color: text }]}>
+              {vehicle ? `${vehicle.marca} ${vehicle.veiculo}`.trim() : t('veiculoCadastrado')}
+            </Text>
+            <Text style={[styles.vehicleSubtitle, { color: muted }]}>
+              {vehicle ? `${Number(vehicle.km).toLocaleString(locale)} km` : t('kmAcompanhadaApp')}
+            </Text>
           </View>
           <MaterialIcons name="chevron-right" size={22} color={muted} />
         </Pressable>
 
         <View style={styles.summaryRow}>
           <View>
-            <Text style={[styles.summaryLabel, { color: muted }]}>Gastos registrados</Text>
+            <Text style={[styles.summaryLabel, { color: muted }]}>{t('gastosRegistrados')}</Text>
             <Text style={[styles.summaryValue, { color: text }]}>{formatCurrency(totalSpent)}</Text>
           </View>
-          <Text style={styles.serviceCount}>{maintenance.length} serviços</Text>
+          <Text style={styles.serviceCount}>{maintenance.length} {t('servicosCount')}</Text>
         </View>
 
         <Pressable
@@ -188,68 +201,70 @@ export default function MaintenanceScreen() {
           style={({ pressed }) => [styles.addButton, pressed && { opacity: 0.82 }]}
         >
           <MaterialIcons name="add" size={20} color="#04131A" />
-          <Text style={styles.addButtonText}>Adicionar manutenção</Text>
+          <Text style={styles.addButtonText}>{t('adicionarManutencao')}</Text>
         </Pressable>
 
         <View style={styles.historyHeading}>
-          <Text style={[styles.sectionTitle, { color: text }]}>Histórico</Text>
-          <Text style={[styles.sortLabel, { color: muted }]}>Mais recentes</Text>
+          <Text style={[styles.sectionTitle, { color: text }]}>{t('historico')}</Text>
+          <Text style={[styles.sortLabel, { color: muted }]}>{t('maisRecentes')}</Text>
         </View>
 
-        {maintenance.length === 0 && <Text style={[styles.noSaveHint, { color: muted }]}>Nenhuma manutenção registrada ainda.</Text>}
+        {maintenance.length === 0 && (
+          <Text style={[styles.noSaveHint, { color: muted }]}>{t('nenhumaManutencaoAinda')}</Text>
+        )}
         {maintenance.map((item) => {
           const date = new Date(item.dataRealizada);
-          const title = String(item.tipo ?? 'Manutenção');
-          const icon = /óleo|oleo/i.test(title) ? 'opacity' : 'build';
+          const title = String(item.tipo ?? t('manutencao'));
+          const icon = /óleo|oleo|oil/i.test(title) ? 'opacity' : 'build';
           return (
-          <View key={item.id} style={[styles.historyCard, { backgroundColor: card, borderColor: border }]}>
-            <View style={styles.historyTop}>
-              <View style={styles.serviceIcon}><MaterialIcons name={icon as any} size={19} color="#00B4FF" /></View>
-              <View style={styles.historyInfo}>
-                <Text style={[styles.serviceTitle, { color: text }]}>{title}</Text>
-                <Text style={[styles.serviceCategory, { color: muted }]}>{item.proximoKm ? `Próxima revisão: ${Number(item.proximoKm).toLocaleString('pt-BR')} km` : 'Serviço registrado'}</Text>
+            <View key={item.id} style={[styles.historyCard, { backgroundColor: card, borderColor: border }]}>
+              <View style={styles.historyTop}>
+                <View style={styles.serviceIcon}><MaterialIcons name={icon as any} size={19} color="#00B4FF" /></View>
+                <View style={styles.historyInfo}>
+                  <Text style={[styles.serviceTitle, { color: text }]}>{title}</Text>
+                  <Text style={[styles.serviceCategory, { color: muted }]}>
+                    {item.proximoKm
+                      ? `${t('proximaRevisaoLabel')} ${Number(item.proximoKm).toLocaleString(locale)} km`
+                      : t('servicoRegistrado')}
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${t('opcoesManutencao')}: ${title}`}
+                  onPress={() => showMaintenanceActions(item)}
+                  hitSlop={8}
+                >
+                  <MaterialIcons name="more-horiz" size={22} color={muted} />
+                </Pressable>
               </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Opções de ${title}`}
-                onPress={() => showMaintenanceActions(item)}
-                hitSlop={8}
-              >
-                <MaterialIcons name="more-horiz" size={22} color={muted} />
-              </Pressable>
-            </View>
 
-            <View style={styles.metadataRow}>
-              <View style={styles.metadataItem}>
-                <MaterialIcons name="calendar-today" size={15} color={muted} />
-                <Text style={[styles.metadataText, { color: muted }]}>{date.toLocaleDateString('pt-BR')}</Text>
+              <View style={styles.metadataRow}>
+                <View style={styles.metadataItem}>
+                  <MaterialIcons name="calendar-today" size={15} color={muted} />
+                  <Text style={[styles.metadataText, { color: muted }]}>{date.toLocaleDateString(locale)}</Text>
+                </View>
+                <View style={styles.metadataItem}>
+                  <MaterialIcons name="speed" size={15} color={muted} />
+                  <Text style={[styles.metadataText, { color: muted }]}>{Number(item.kmNaOcasiao).toLocaleString(locale)} km</Text>
+                </View>
               </View>
-              <View style={styles.metadataItem}>
-                <MaterialIcons name="speed" size={15} color={muted} />
-                <Text style={[styles.metadataText, { color: muted }]}>{Number(item.kmNaOcasiao).toLocaleString('pt-BR')} km</Text>
-              </View>
-            </View>
 
-            <View style={[styles.cardDivider, { backgroundColor: border }]} />
-            <View style={styles.costRow}>
-              <Text style={[styles.costValue, { color: text }]}>{formatCurrency(Number(item.custo ?? 0))}</Text>
-              <View style={styles.receiptStatus}>
-                <MaterialIcons
-                  name="cloud-done"
-                  size={15}
-                  color="#20D9A0"
-                />
-                <Text style={[styles.receiptText, { color: '#20D9A0' }]}>
-                  Salvo neste aparelho
-                </Text>
+              <View style={[styles.cardDivider, { backgroundColor: border }]} />
+              <View style={styles.costRow}>
+                <Text style={[styles.costValue, { color: text }]}>{formatCurrency(Number(item.custo ?? 0))}</Text>
+                <View style={styles.receiptStatus}>
+                  <MaterialIcons name="cloud-done" size={15} color="#20D9A0" />
+                  <Text style={[styles.receiptText, { color: '#20D9A0' }]}>
+                    {t('salvoNesteAparelho')}
+                  </Text>
+                </View>
               </View>
             </View>
-          </View>
-        )})}
+          );
+        })}
       </ScrollView>
 
       <Modal visible={showForm} transparent animationType="slide" onRequestClose={closeForm}>
-        {/* Mantém os campos acessíveis quando o teclado reduz a área visível. */}
         <KeyboardAvoidingView
           style={styles.keyboardAvoiding}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -264,30 +279,65 @@ export default function MaintenanceScreen() {
               <View style={[styles.formCard, { backgroundColor: card, borderColor: border }]}>
                 <View style={styles.formHeader}>
                   <View>
-                    <Text style={[styles.formTitle, { color: text }]}>{editingId ? 'Editar manutenção' : 'Adicionar manutenção'}</Text>
-                    <Text style={[styles.formSubtitle, { color: muted }]}>O registro funciona mesmo sem internet.</Text>
+                    <Text style={[styles.formTitle, { color: text }]}>
+                      {editingId ? t('editarManutencao') : t('adicionarManutencao')}
+                    </Text>
+                    <Text style={[styles.formSubtitle, { color: muted }]}>{t('registroSemInternet')}</Text>
                   </View>
                   <Pressable onPress={closeForm} hitSlop={10}>
                     <MaterialIcons name="close" size={22} color={muted} />
                   </Pressable>
                 </View>
 
-                <TextInput value={serviceName} onChangeText={setServiceName} placeholder="Nome do serviço" placeholderTextColor={muted} style={[styles.input, { color: text, borderColor: border, backgroundColor: isDark ? '#0B0D12' : '#F8FAFC' }]} />
+                <TextInput
+                  value={serviceName}
+                  onChangeText={setServiceName}
+                  placeholder={t('nomeServicoPlaceholder')}
+                  placeholderTextColor={muted}
+                  style={[styles.input, { color: text, borderColor: border, backgroundColor: isDark ? '#0B0D12' : '#F8FAFC' }]}
+                />
                 <View style={styles.formRow}>
-                  <TextInput value={serviceDate} onChangeText={setServiceDate} placeholder="Data AAAA-MM-DD" placeholderTextColor={muted} style={[styles.input, styles.halfInput, { color: text, borderColor: border, backgroundColor: isDark ? '#0B0D12' : '#F8FAFC' }]} />
-                  <TextInput value={serviceKm} onChangeText={setServiceKm} placeholder="Quilometragem" placeholderTextColor={muted} keyboardType="numeric" style={[styles.input, styles.halfInput, { color: text, borderColor: border, backgroundColor: isDark ? '#0B0D12' : '#F8FAFC' }]} />
+                  <TextInput
+                    value={serviceDate}
+                    onChangeText={setServiceDate}
+                    placeholder={t('dataPlaceholder')}
+                    placeholderTextColor={muted}
+                    style={[styles.input, styles.halfInput, { color: text, borderColor: border, backgroundColor: isDark ? '#0B0D12' : '#F8FAFC' }]}
+                  />
+                  <TextInput
+                    value={serviceKm}
+                    onChangeText={setServiceKm}
+                    placeholder={t('quilometragem')}
+                    placeholderTextColor={muted}
+                    keyboardType="numeric"
+                    style={[styles.input, styles.halfInput, { color: text, borderColor: border, backgroundColor: isDark ? '#0B0D12' : '#F8FAFC' }]}
+                  />
                 </View>
                 <View style={styles.formRow}>
-                  <TextInput value={serviceCost} onChangeText={setServiceCost} placeholder="Valor pago (R$)" placeholderTextColor={muted} keyboardType="decimal-pad" style={[styles.input, styles.halfInput, { color: text, borderColor: border, backgroundColor: isDark ? '#0B0D12' : '#F8FAFC' }]} />
-                  <TextInput value={nextKm} onChangeText={setNextKm} placeholder="Próxima revisão (km)" placeholderTextColor={muted} keyboardType="numeric" style={[styles.input, styles.halfInput, { color: text, borderColor: border, backgroundColor: isDark ? '#0B0D12' : '#F8FAFC' }]} />
+                  <TextInput
+                    value={serviceCost}
+                    onChangeText={setServiceCost}
+                    placeholder={t('valorPagoPlaceholder')}
+                    placeholderTextColor={muted}
+                    keyboardType="decimal-pad"
+                    style={[styles.input, styles.halfInput, { color: text, borderColor: border, backgroundColor: isDark ? '#0B0D12' : '#F8FAFC' }]}
+                  />
+                  <TextInput
+                    value={nextKm}
+                    onChangeText={setNextKm}
+                    placeholder={t('proximaRevisaoKmPlaceholder')}
+                    placeholderTextColor={muted}
+                    keyboardType="numeric"
+                    style={[styles.input, styles.halfInput, { color: text, borderColor: border, backgroundColor: isDark ? '#0B0D12' : '#F8FAFC' }]}
+                  />
                 </View>
 
                 <Pressable
-                  onPress={() => Alert.alert('Recibo', 'O anexo de recibos será habilitado em uma próxima etapa.')}
+                  onPress={() => Alert.alert(t('reciboTitulo'), t('reciboEmBreve'))}
                   style={[styles.receiptButton, { borderColor: border }]}
                 >
                   <MaterialIcons name="attach-file" size={18} color="#00B4FF" />
-                  <Text style={[styles.receiptButtonText, { color: text }]}>Anexar recibo</Text>
+                  <Text style={[styles.receiptButtonText, { color: text }]}>{t('anexarRecibo')}</Text>
                 </Pressable>
 
                 <Pressable
@@ -295,7 +345,9 @@ export default function MaintenanceScreen() {
                   disabled={isSaving}
                   style={[styles.saveButton, isSaving && { opacity: 0.6 }]}
                 >
-                  <Text style={styles.saveButtonText}>{isSaving ? 'Salvando…' : editingId ? 'Salvar alterações' : 'Salvar manutenção'}</Text>
+                  <Text style={styles.saveButtonText}>
+                    {isSaving ? t('salvando') : editingId ? t('salvarAlteracoes') : t('salvarManutencao')}
+                  </Text>
                 </Pressable>
               </View>
             </ScrollView>

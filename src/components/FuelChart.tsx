@@ -1,12 +1,12 @@
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
 
-import { ChartPeriodToggle } from './ChartPeriodToggle';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import { obterAbastecimentosPorPeriodo, obterVeiculoLocal } from '../database/database';
 import { buildChartBuckets, type ChartPeriod } from '../utils/chart-period';
+import { ChartPeriodToggle } from './ChartPeriodToggle';
 
 interface FuelChartProps {
   onPress?: () => void;
@@ -21,9 +21,10 @@ interface FuelChartPoint {
 export function FuelChart({ onPress }: FuelChartProps) {
   const { theme, t, language } = useApp();
   const { user } = useAuth();
+  const locale = language === 'en' ? 'en-US' : 'pt-BR';
   const [period, setPeriod] = useState<ChartPeriod>('day');
   const [data, setData] = useState<FuelChartPoint[]>(() =>
-    buildChartBuckets('day').map((bucket) => ({ ...bucket, liters: 0 })),
+    buildChartBuckets('day', locale).map((bucket) => ({ ...bucket, liters: 0 })),
   );
 
   const isDark = theme === 'dark';
@@ -32,7 +33,6 @@ export function FuelChart({ onPress }: FuelChartProps) {
   const textColor = isDark ? '#F0F2FF' : '#0F172A';
   const subTextColor = isDark ? '#8892A4' : '#64748B';
   const trackColor = isDark ? '#1E2235' : '#CBD5E1';
-  const locale = language === 'en' ? 'en-US' : 'pt-BR';
 
   const loadData = useCallback(async () => {
     const buckets = buildChartBuckets(period, locale);
@@ -78,7 +78,7 @@ export function FuelChart({ onPress }: FuelChartProps) {
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Abrir detalhes de consumo"
+        accessibilityLabel={t('abrirDetalhesConsumo')}
         onPress={onPress}
         style={({ pressed }) => [styles.chartArea, pressed && { opacity: 0.8 }]}
       >

@@ -17,16 +17,11 @@ import { ScreenContainer } from "../../components/screen-container";
 import { useApp } from "../../contexts/AppContext";
 import { useAuth } from "../../contexts/AuthContext";
 
-// IMPORTAÇÃO DA CAMADA DE PERSISTÊNCIA (SQLite)
 import { obterTelemetriaPorPeriodo, obterUltimaLeituraVeiculo, obterVeiculoLocal } from "../../database/database";
 import { buildChartBuckets, type ChartPeriod } from "../../utils/chart-period";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-/**
- * @interface TemperatureData
- * @description Estrutura de dados para o pipeline de renderização do gráfico Time-Series.
- */
 interface TemperatureData {
   key: string;
   label: string;
@@ -37,36 +32,24 @@ interface TemperatureData {
   bucketIndex: number;
 }
 
-/**
- * @component TemperatureDetailsScreen
- * @description Módulo de visualização analítica para telemetria de arrefecimento (ECT - Engine Coolant Temperature).
- * Extrai a série temporal do motor SQLite local, calcula a volumetria estatística (Min/Max/Avg)
- * e plota as coordenadas de forma dinâmica em um gráfico vetorial (SVG).
- */
 export default function TemperatureDetailsScreen() {
   const { theme, t, language } = useApp();
   const { user } = useAuth();
-  
-  // --- ESTADOS DA INTERFACE ---
+
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [chartData, setChartData] = useState<TemperatureData[]>([]);
   const [period, setPeriod] = useState<ChartPeriod>('day');
   const [latestTemp, setLatestTemp] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Paleta de cores reativa ao contexto global
   const isDark = theme === 'dark';
   const bgColor = isDark ? '#0A0A0F' : '#F1F5F9';
   const cardColor = isDark ? '#12141A' : '#FFFFFF';
   const textColor = isDark ? '#F0F2FF' : '#0F172A';
   const subTextColor = isDark ? '#8892A4' : '#64748B';
   const borderColor = isDark ? '#1E2235' : '#E2E8F0';
-  const primaryColor = "#FF6B35"; // Laranja térmico
+  const primaryColor = "#FF6B35";
 
-  /**
-   * @effect Pipeline de Extração de Dados (Data Fetching)
-   * @description Agrega a telemetria do veículo por dia ou mês a partir dos timestamps locais.
-   */
   useEffect(() => {
     async function carregarTelemetria() {
       setIsLoading(true);
@@ -106,7 +89,6 @@ export default function TemperatureDetailsScreen() {
     carregarTelemetria();
   }, [language, period, user?.uid]);
 
-  // --- CÁLCULOS ESTATÍSTICOS DE BORDAS ---
   const dataToRender: TemperatureData[] = chartData.length > 0 ? chartData : [{
     key: 'empty', label: '--', temp: 0, minimum: 0, maximum: 0, sampleCount: 0, bucketIndex: 0,
   }];
@@ -119,15 +101,11 @@ export default function TemperatureDetailsScreen() {
     : 0;
   const axisBuckets = buildChartBuckets(period, language === 'en' ? 'en-US' : 'pt-BR');
 
-  // --- GEOMETRIA E ESCALA DO GRÁFICO (SVG) ---
   const chartWidth = SCREEN_WIDTH - 40;
   const chartHeight = 200;
   const padding = 40;
-
-  // CORREÇÃO CRÍTICA: Proteção absoluta contra divisão por zero (impede o congelamento da UI)
   const tempRange = maxTemp === minTemp ? 1 : (maxTemp - minTemp);
 
-  // Mapeamento de matriz de dados para coordenadas bidimensionais (X, Y)
   const points = dataToRender.map((data, i) => {
     const position = chartData.length > 0 && chartData[i]?.bucketIndex !== undefined ? data.bucketIndex : i;
     const x = padding + (position / (axisBuckets.length > 1 ? axisBuckets.length - 1 : 1)) * (chartWidth - padding * 2);
@@ -139,7 +117,6 @@ export default function TemperatureDetailsScreen() {
 
   return (
     <ScreenContainer containerClassName="" style={{ backgroundColor: bgColor }} edges={["top", "left", "right"]}>
-      
       <View style={[styles.header, { borderBottomColor: borderColor }]}>
         <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}>
           <MaterialIcons name="arrow-back" size={24} color={textColor} />
@@ -149,9 +126,7 @@ export default function TemperatureDetailsScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
-        {/* ================= INDICADOR DE TEMPO REAL ================= */}
-        <View style={[styles.statusCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
+        <View style={[styles.statusCard, { backgroundColor: cardColor, borderColor }]}>
           <View style={styles.statusLeft}>
             <MaterialIcons name="thermostat" size={32} color={primaryColor} />
             <View>
@@ -163,29 +138,27 @@ export default function TemperatureDetailsScreen() {
           </View>
           <View style={[styles.statusBadge, { backgroundColor: isDark ? "#FF6B3522" : "#FFEDD5" }]}>
             <Text style={{ color: primaryColor, fontSize: 12, fontWeight: "700" }}>
-              {currentTemp > 100 ? "ALERTA" : currentTemp === 0 ? "DESCONHECIDO" : t('normal')}
+              {currentTemp > 100 ? t('alertaBadge') : currentTemp === 0 ? t('desconhecidoBadge') : t('normal')}
             </Text>
           </View>
         </View>
 
-        {/* ================= VOLUMETRIA ESTATÍSTICA ================= */}
         <View style={styles.statsRow}>
-          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
+          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor }]}>
             <Text style={[styles.statLabel, { color: subTextColor }]}>{t('minima')}</Text>
             <Text style={[styles.statValue, { color: primaryColor }]}>{isLoading ? "-" : minTemp}°C</Text>
           </View>
-          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
+          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor }]}>
             <Text style={[styles.statLabel, { color: subTextColor }]}>{t('media')}</Text>
             <Text style={[styles.statValue, { color: primaryColor }]}>{isLoading ? "-" : avgTemp}°C</Text>
           </View>
-          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor: borderColor }]}>
+          <View style={[styles.statCard, { backgroundColor: cardColor, borderColor }]}>
             <Text style={[styles.statLabel, { color: subTextColor }]}>{t('maxima')}</Text>
             <Text style={[styles.statValue, { color: primaryColor }]}>{isLoading ? "-" : maxTemp}°C</Text>
           </View>
         </View>
 
-        {/* ================= MOTOR GRÁFICO (SVG) ================= */}
-        <View style={[styles.chartContainer, { backgroundColor: cardColor, borderColor: borderColor }]}>
+        <View style={[styles.chartContainer, { backgroundColor: cardColor, borderColor }]}>
           <View style={styles.chartHeader}>
             <Text style={[styles.chartTitle, { color: textColor }]}>{t('oscilacaoTermica')}</Text>
             <ChartPeriodToggle
@@ -199,16 +172,16 @@ export default function TemperatureDetailsScreen() {
               monthLabel={t('mes')}
             />
           </View>
-          
+
           {isLoading ? (
             <View style={[styles.emptyChart, { height: chartHeight }]}>
               <ActivityIndicator size="large" color={primaryColor} />
-              <Text style={[styles.emptyChartText, { color: subTextColor, marginTop: 12 }]}>Carregando telemetria...</Text>
+              <Text style={[styles.emptyChartText, { color: subTextColor, marginTop: 12 }]}>{t('carregandoTelemetria')}</Text>
             </View>
           ) : chartData.length === 0 ? (
             <View style={[styles.emptyChart, { height: chartHeight }]}>
               <MaterialIcons name="insights" size={48} color={borderColor} />
-              <Text style={[styles.emptyChartText, { color: subTextColor, marginTop: 12 }]}>Aguardando dados da ECU.</Text>
+              <Text style={[styles.emptyChartText, { color: subTextColor, marginTop: 12 }]}>{t('aguardandoDadosEcu')}</Text>
             </View>
           ) : (
             <Svg width={chartWidth} height={chartHeight} style={styles.chart}>
@@ -219,7 +192,6 @@ export default function TemperatureDetailsScreen() {
                 </LinearGradient>
               </Defs>
 
-              {/* Grid Lines Verticais (Eixo Y) */}
               {[0, 25, 50, 75, 100].map((percent) => (
                 <Line
                   key={`grid-${percent}`}
@@ -233,7 +205,6 @@ export default function TemperatureDetailsScreen() {
                 />
               ))}
 
-              {/* Vetor de Oscilação */}
               <Polyline
                 points={polylinePoints}
                 fill="none"
@@ -243,7 +214,6 @@ export default function TemperatureDetailsScreen() {
                 strokeLinejoin="round"
               />
 
-              {/* Nodos Interativos */}
               {points.map((point, i) => (
                 <Circle
                   key={`point-${i}`}
@@ -257,7 +227,6 @@ export default function TemperatureDetailsScreen() {
             </Svg>
           )}
 
-          {/* Eixo X (dias ou meses) */}
           {chartData.length > 0 && (
             <View style={styles.timeLabels}>
               {axisBuckets.map((bucket) => (
@@ -267,12 +236,11 @@ export default function TemperatureDetailsScreen() {
           )}
         </View>
 
-        {/* ================= DATAGRID: RESUMO POR PERÍODO ================= */}
-        <View style={[styles.dataSection, { backgroundColor: cardColor, borderColor: borderColor }]}>
+        <View style={[styles.dataSection, { backgroundColor: cardColor, borderColor }]}>
           <Text style={[styles.dataTitle, { color: textColor }]}>{t('dadosHorarios')}</Text>
-          
+
           {isLoading || chartData.length === 0 ? (
-            <Text style={{ color: subTextColor, textAlign: 'center', padding: 20 }}>Nenhum log gravado nesta sessão.</Text>
+            <Text style={{ color: subTextColor, textAlign: 'center', padding: 20 }}>{t('nenhumLogSessao')}</Text>
           ) : (
             chartData.map((data, i) => (
               <Pressable
@@ -286,13 +254,12 @@ export default function TemperatureDetailsScreen() {
                 ]}
               >
                 <Text style={[styles.dataTime, { color: subTextColor }]}>{data.label}</Text>
-                
+
                 <View style={[styles.dataBar, { backgroundColor: isDark ? "#1E2235" : "#CBD5E1" }]}>
                   <View
                     style={[
                       styles.dataBarFill,
                       {
-                        // CORREÇÃO DA SINTAXE DO WIDTH AQUI
                         width: `${((data.temp - minTemp) / tempRange) * 100}%` as any,
                         backgroundColor: data.temp > 100 ? "#FF3D57" : data.temp > 85 ? primaryColor : "#00B4FF",
                       },
@@ -316,28 +283,23 @@ const styles = StyleSheet.create({
   headerSpacer: { width: 40 },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, gap: 16, paddingBottom: 40 },
-  
   statusCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 16, padding: 16, borderWidth: 1 },
   statusLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   statusLabel: { fontSize: 12 },
   statusValue: { fontSize: 24, fontWeight: "700", marginTop: 2 },
   statusBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
-  
   statsRow: { flexDirection: "row", gap: 10 },
   statCard: { flex: 1, borderRadius: 12, padding: 12, borderWidth: 1, alignItems: "center" },
   statLabel: { fontSize: 11, marginBottom: 4 },
   statValue: { fontSize: 18, fontWeight: "700" },
-  
   chartContainer: { borderRadius: 16, padding: 16, borderWidth: 1 },
   chartHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 },
   chartTitle: { flex: 1, fontSize: 13, fontWeight: "600" },
   chart: { marginBottom: 8 },
   emptyChart: { justifyContent: "center", alignItems: "center", width: "100%" },
   emptyChartText: { fontSize: 13, fontWeight: "500" },
-  
   timeLabels: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 40 },
   timeLabel: { fontSize: 10, fontWeight: "600" },
-  
   dataSection: { borderRadius: 16, padding: 16, borderWidth: 1 },
   dataTitle: { fontSize: 13, fontWeight: "600", marginBottom: 12 },
   dataRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, borderBottomWidth: 1 },

@@ -1,9 +1,8 @@
-import React from 'react';
-import { Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useApp } from '../contexts/AppContext'; // Ajuste o caminho se necessário
+import { Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useApp } from '../contexts/AppContext';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 interface TermsModalProps {
   visible: boolean;
@@ -12,8 +11,8 @@ interface TermsModalProps {
 }
 
 export function TermsModal({ visible, onAccept, onDecline }: TermsModalProps) {
-  const { theme } = useApp();
-  
+  const { theme, t } = useApp();
+
   const isDark = theme === 'dark';
   const bgColor = isDark ? 'rgba(10, 10, 15, 0.85)' : 'rgba(15, 23, 42, 0.7)';
   const cardColor = isDark ? '#12141A' : '#FFFFFF';
@@ -25,57 +24,42 @@ export function TermsModal({ visible, onAccept, onDecline }: TermsModalProps) {
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onDecline}>
       <View style={[styles.overlay, { backgroundColor: bgColor }]}>
         <View style={[styles.container, { backgroundColor: cardColor, borderColor }]}>
-          
-          {/* HEADER DO MODAL */}
           <View style={[styles.header, { borderBottomColor: borderColor }]}>
             <View style={[styles.iconBox, { backgroundColor: isDark ? '#00B4FF11' : '#E0F2FE' }]}>
               <MaterialIcons name="gavel" size={24} color="#00B4FF" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.title, { color: textColor }]}>Termos de Uso</Text>
-              <Text style={[styles.subtitle, { color: subTextColor }]}>Política de Privacidade HealthCar</Text>
+              <Text style={[styles.title, { color: textColor }]}>{t('termosTitulo')}</Text>
+              <Text style={[styles.subtitle, { color: subTextColor }]}>{t('termosSubtitulo')}</Text>
             </View>
           </View>
 
-          {/* TEXTO DO TERMO (SCROLL) */}
           <ScrollView style={styles.scrollArea} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={true}>
-            <Text style={[styles.sectionTitle, { color: textColor }]}>1. Proposta do Aplicativo</Text>
-            <Text style={[styles.paragraph, { color: subTextColor }]}>
-              O HealthCar é uma ferramenta de gestão veicular e telemetria. Ele permite o acompanhamento de manutenções, abastecimentos e a leitura de dados do veículo em tempo real através de um adaptador Bluetooth OBD-II.
-            </Text>
+            <Text style={[styles.sectionTitle, { color: textColor }]}>{t('termosSecao1Titulo')}</Text>
+            <Text style={[styles.paragraph, { color: subTextColor }]}>{t('termosSecao1Texto')}</Text>
 
-            <Text style={[styles.sectionTitle, { color: textColor }]}>2. Coleta e Privacidade (Offline-First)</Text>
-            <Text style={[styles.paragraph, { color: subTextColor }]}>
-              Seus dados de telemetria, histórico de gastos e informações do veículo são gravados primeiramente de forma local no seu dispositivo para garantir funcionamento sem internet e, posteriormente, sincronizados de forma criptografada com nossos servidores em nuvem, vinculados unicamente à sua conta.
-            </Text>
+            <Text style={[styles.sectionTitle, { color: textColor }]}>{t('termosSecao2Titulo')}</Text>
+            <Text style={[styles.paragraph, { color: subTextColor }]}>{t('termosSecao2Texto')}</Text>
 
-            <Text style={[styles.sectionTitle, { color: textColor }]}>3. Permissões de Hardware</Text>
-            <Text style={[styles.paragraph, { color: subTextColor }]}>
-              Para entregar a experiência completa, solicitaremos permissões de Bluetooth (para buscar o scanner OBD2) e Execução em Segundo Plano, garantindo a leitura contínua dos dados apenas enquanto o veículo estiver em uso.
-            </Text>
+            <Text style={[styles.sectionTitle, { color: textColor }]}>{t('termosSecao3Titulo')}</Text>
+            <Text style={[styles.paragraph, { color: subTextColor }]}>{t('termosSecao3Texto')}</Text>
 
-            <Text style={[styles.sectionTitle, { color: textColor }]}>4. Segurança no Trânsito</Text>
-            <Text style={[styles.paragraph, { color: subTextColor }]}>
-              Sua segurança é prioridade. Nunca manuseie o aplicativo enquanto estiver dirigindo. A interface foi projetada para atuar de forma autônoma após a partida do motor.
-            </Text>
+            <Text style={[styles.sectionTitle, { color: textColor }]}>{t('termosSecao4Titulo')}</Text>
+            <Text style={[styles.paragraph, { color: subTextColor }]}>{t('termosSecao4Texto')}</Text>
 
-            <Text style={[styles.sectionTitle, { color: textColor }]}>5. Isenção de Responsabilidade</Text>
-            <Text style={[styles.paragraph, { color: subTextColor }]}>
-              O recurso de diagnóstico de falhas (Scanner) tem caráter puramente informativo e não substitui a avaliação de um mecânico qualificado.
-            </Text>
+            <Text style={[styles.sectionTitle, { color: textColor }]}>{t('termosSecao5Titulo')}</Text>
+            <Text style={[styles.paragraph, { color: subTextColor }]}>{t('termosSecao5Texto')}</Text>
           </ScrollView>
 
-          {/* BOTÕES DE AÇÃO */}
           <View style={[styles.footer, { borderTopColor: borderColor }]}>
             <Pressable style={[styles.btnDecline, { borderColor }]} onPress={onDecline}>
-              <Text style={[styles.btnDeclineText, { color: subTextColor }]}>Não aceito</Text>
+              <Text style={[styles.btnDeclineText, { color: subTextColor }]}>{t('naoAceito')}</Text>
             </Pressable>
-            
+
             <Pressable style={styles.btnAccept} onPress={onAccept}>
-              <Text style={styles.btnAcceptText}>Li e Aceito</Text>
+              <Text style={styles.btnAcceptText}>{t('liEAceito')}</Text>
             </Pressable>
           </View>
-
         </View>
       </View>
     </Modal>
