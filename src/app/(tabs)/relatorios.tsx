@@ -1,21 +1,29 @@
 import { MaterialIcons } from '@expo/vector-icons';
+import { useCallback, useState } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+
+import { ChartPeriodToggle } from '@/components/ChartPeriodToggle';
 import { ScreenContainer } from '@/components/screen-container';
 import { HealthCarHeader } from '@/components/HealthCarHeader';
 import { useApp } from '@/contexts/AppContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { obterHistoricoAbastecimento, obterHistoricoManutencao, obterVeiculoLocal } from '@/database/database';
-import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
-
-const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+import {
+  obterAbastecimentosPorPeriodo,
+  obterHistoricoAbastecimento,
+  obterHistoricoManutencao,
+  obterVeiculoLocal,
+} from '@/database/database';
+import { buildChartBuckets, type ChartPeriod } from '@/utils/chart-period';
 
 export default function ReportsScreen() {
-  const { theme, t } = useApp();
+  const { theme, t, language } = useApp();
   const { user } = useAuth();
   const [maintenanceHistory, setMaintenanceHistory] = useState<any[]>([]);
   const [refuelHistory, setRefuelHistory] = useState<any[]>([]);
   const [currentVehicle, setCurrentVehicle] = useState<any>(null);
+  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>('day');
+  const [fuelChartData, setFuelChartData] = useState(() => buildChartBuckets('day').map((bucket) => ({ ...bucket, liters: 0 })));
   const isDark = theme === 'dark';
   const background = isDark ? '#0A0A0F' : '#F1F5F9';
   const card = isDark ? '#12141A' : '#FFFFFF';
@@ -23,11 +31,7 @@ export default function ReportsScreen() {
   const muted = isDark ? '#8892A4' : '#64748B';
   const border = isDark ? '#252B37' : '#E2E8F0';
   const track = isDark ? '#252B37' : '#CBD5E1';
-  const monthlyFuel = Array.from({ length: 12 }, (_, month) => refuelHistory
-    .filter((entry) => new Date(entry.dataAbastecimento).getFullYear() === new Date().getFullYear()
-      && new Date(entry.dataAbastecimento).getMonth() === month)
-    .reduce((sum, entry) => sum + Number(entry.litros ?? 0), 0));
-  const maxFuel = Math.max(...monthlyFuel, 1);
+  const maxFuel = Math.max(...fuelChartData.map((entry) => entry.liters), 1);
   const totalFuel = refuelHistory.reduce((sum, item) => sum + Number(item.litros ?? 0), 0);
   const totalMaintenance = maintenanceHistory.reduce((sum, item) => sum + Number(item.custo ?? 0), 0);
   const formattedMaintenance = totalMaintenance.toLocaleString('pt-BR');
@@ -50,16 +54,22 @@ export default function ReportsScreen() {
 
   const loadReports = useCallback(async () => {
     if (!user?.uid) return;
+    const locale = language === 'en' ? 'en-US' : 'pt-BR';
+    const buckets = buildChartBuckets(chartPeriod, locale);
     const vehicle = await obterVeiculoLocal(user.uid);
     setCurrentVehicle(vehicle);
     if (!vehicle) {
       setMaintenanceHistory([]);
       setRefuelHistory([]);
+      setFuelChartData(buckets.map((bucket) => ({ ...bucket, liters: 0 })));
       return;
     }
     setMaintenanceHistory(await obterHistoricoManutencao(user.uid, vehicle.id));
     setRefuelHistory(await obterHistoricoAbastecimento(user.uid, vehicle.id));
-  }, [user?.uid]);
+    const summary = await obterAbastecimentosPorPeriodo(user.uid, vehicle.id, chartPeriod);
+    const byPeriod = new Map(summary.map((item) => [item.periodKey, Number(item.litros ?? 0)]));
+    setFuelChartData(buckets.map((bucket) => ({ ...bucket, liters: byPeriod.get(bucket.key) ?? 0 })));
+  }, [chartPeriod, language, user?.uid]);
 
   useFocusEffect(useCallback(() => {
     void loadReports();
@@ -118,22 +128,36 @@ export default function ReportsScreen() {
         </View>
 
         <View style={styles.sectionHeading}>
-          <Text style={[styles.sectionTitle, { color: text }]}>{t('consumoMensal')}</Text>
+          <Text style={[styles.sectionTitle, { color: text }]}>{chartPeriod === 'day' ? t('consumoDiario') : t('consumoMensal')}</Text>
         </View>
         <View style={[styles.sectionCard, { backgroundColor: card, borderColor: border }]}>
-          <Text style={[styles.cardTitle, { color: text }]}>{t('litrosAbastecidos')}</Text>
-          <Text style={[styles.cardSubtitle, { color: muted }]}>Acompanhe os litros registrados ao longo do ano.</Text>
+          <View style={styles.chartHeader}>
+            <View style={styles.chartHeadingCopy}>
+              <Text style={[styles.cardTitle, { color: text }]}>{chartPeriod === 'day' ? t('litrosPorDia') : t('litrosPorMes')}</Text>
+              <Text style={[styles.cardSubtitle, { color: muted }]}>{chartPeriod === 'day' ? 'Últimos 7 dias' : 'Últimos 12 meses'}</Text>
+            </View>
+            <ChartPeriodToggle
+              value={chartPeriod}
+              onChange={setChartPeriod}
+              cardColor={card}
+              borderColor={border}
+              mutedColor={muted}
+              dayLabel={t('dia')}
+              monthLabel={t('mes')}
+            />
+          </View>
           <View style={styles.chart}>
-            {monthlyFuel.map((value, index) => {
+            {fuelChartData.map((entry) => {
+              const value = entry.liters;
               const height = (value / maxFuel) * 78;
-              const isMax = value === maxFuel;
+              const isMax = value > 0 && value === maxFuel;
               return (
-                <View key={MONTHS[index]} style={styles.monthColumn}>
-                  <Text style={[styles.monthValue, { color: isMax ? '#00B4FF' : muted }]}>{value}</Text>
+                <View key={entry.key} style={styles.monthColumn}>
+                  <Text style={[styles.monthValue, { color: isMax ? '#00B4FF' : muted }]}>{value > 0 ? value.toFixed(1) : '—'}</Text>
                   <View style={[styles.barTrack, { backgroundColor: track }]}>
-                    <View style={[styles.barFill, { height, backgroundColor: isMax ? '#00B4FF' : '#087EAE' }]} />
+                    {value > 0 && <View style={[styles.barFill, { height, backgroundColor: isMax ? '#00B4FF' : '#087EAE' }]} />}
                   </View>
-                  <Text style={[styles.monthLabel, { color: muted }]}>{MONTHS[index]}</Text>
+                  <Text style={[styles.monthLabel, { color: muted }]}>{entry.label}</Text>
                 </View>
               );
             })}
@@ -219,6 +243,8 @@ const styles = StyleSheet.create({
   sectionCard: { marginHorizontal: 20, marginBottom: 18, padding: 14, borderRadius: 17, borderWidth: 1 },
   cardTitle: { fontSize: 12, fontWeight: '700' },
   cardSubtitle: { fontSize: 9, lineHeight: 14, marginTop: 4 },
+  chartHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  chartHeadingCopy: { flex: 1 },
   maintenanceSummary: { alignItems: 'center', paddingTop: 15, paddingBottom: 4 },
   summaryIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
   summaryValue: { fontSize: 16, fontWeight: '800' },

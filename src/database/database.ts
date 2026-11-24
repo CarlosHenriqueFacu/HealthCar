@@ -1,6 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 
 import { notifyLocalDataChanged } from '../services/syncSignals';
+import type { ChartPeriod } from '../utils/chart-period';
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
@@ -783,6 +784,53 @@ export async function salvarManutencaoLocal(
   return id;
 }
 
+export async function atualizarManutencaoLocal(
+  ownerUid: string,
+  maintenanceId: string,
+  tipo: string,
+  dataRealizada: number,
+  kmNaOcasiao: number,
+  custo: number,
+  proximoKm: number | null,
+) {
+  requireUid(ownerUid);
+  const db = await openDatabase();
+  const now = Date.now();
+  let updated = false;
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    const result = await tx.runAsync(
+      `UPDATE manutencao_local
+       SET tipo = ?, dataRealizada = ?, kmNaOcasiao = ?, custo = ?, proximoKm = ?,
+           updatedAt = ?, deletedAt = NULL, sincronizado = 0, syncStatus = 0
+       WHERE ownerUid = ? AND id = ? AND deletedAt IS NULL`,
+      [tipo, dataRealizada, kmNaOcasiao, custo, proximoKm, now, ownerUid, maintenanceId],
+    );
+    updated = result.changes > 0;
+    if (updated) await enqueue(tx, ownerUid, 'maintenance', maintenanceId);
+  });
+  if (!updated) throw new Error('A manutenção não foi encontrada neste aparelho.');
+  notifyLocalDataChanged(ownerUid);
+}
+
+export async function excluirManutencaoLocal(ownerUid: string, maintenanceId: string) {
+  requireUid(ownerUid);
+  const db = await openDatabase();
+  const now = Date.now();
+  let deleted = false;
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    const result = await tx.runAsync(
+      `UPDATE manutencao_local
+       SET deletedAt = ?, updatedAt = ?, sincronizado = 0, syncStatus = 0
+       WHERE ownerUid = ? AND id = ? AND deletedAt IS NULL`,
+      [now, now, ownerUid, maintenanceId],
+    );
+    deleted = result.changes > 0;
+    if (deleted) await enqueue(tx, ownerUid, 'maintenance', maintenanceId);
+  });
+  if (!deleted) throw new Error('A manutenção não foi encontrada neste aparelho.');
+  notifyLocalDataChanged(ownerUid);
+}
+
 export async function salvarAbastecimentoLocal(
   ownerUid: string,
   veiculoId: string,
@@ -834,6 +882,97 @@ export async function obterDadosGrafico(ownerUid: string, sessaoId: string, pid:
     `SELECT valor, timestamp FROM leitura_local
      WHERE ownerUid = ? AND sessaoId = ? AND pid = ? ORDER BY timestamp ASC`,
     [ownerUid, sessaoId, pid],
+  );
+}
+
+function chartPeriodExpression(column: string, period: ChartPeriod) {
+  const format = period === 'day' ? '%Y-%m-%d' : '%Y-%m';
+  return `strftime('${format}', ${column} / 1000, 'unixepoch', 'localtime')`;
+}
+
+function chartPeriodStart(period: ChartPeriod) {
+  const start = new Date();
+  if (period === 'day') {
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - 6);
+  } else {
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    start.setMonth(start.getMonth() - 11);
+  }
+  return start.getTime();
+}
+
+export async function obterTelemetriaPorPeriodo(
+  ownerUid: string,
+  veiculoId: string,
+  pid: string,
+  period: ChartPeriod,
+) {
+  requireUid(ownerUid);
+  const db = await openDatabase();
+  const periodExpression = chartPeriodExpression('l.timestamp', period);
+  return db.getAllAsync<{
+    periodKey: string;
+    average: number;
+    minimum: number;
+    maximum: number;
+    sampleCount: number;
+  }>(
+    `SELECT ${periodExpression} AS periodKey,
+            AVG(l.valor) AS average,
+            MIN(l.valor) AS minimum,
+            MAX(l.valor) AS maximum,
+            COUNT(*) AS sampleCount
+     FROM leitura_local l
+     INNER JOIN sessao_local s ON s.id = l.sessaoId AND s.ownerUid = l.ownerUid
+     WHERE l.ownerUid = ? AND s.veiculoId = ? AND l.pid = ?
+       AND l.timestamp >= ? AND s.deletedAt IS NULL
+     GROUP BY periodKey
+     ORDER BY periodKey DESC
+     LIMIT 400`,
+    [ownerUid, veiculoId, pid, chartPeriodStart(period)],
+  );
+}
+
+export async function obterUltimaLeituraVeiculo(ownerUid: string, veiculoId: string, pid: string) {
+  requireUid(ownerUid);
+  const db = await openDatabase();
+  return db.getFirstAsync<{ valor: number; timestamp: number }>(
+    `SELECT l.valor, l.timestamp
+     FROM leitura_local l
+     INNER JOIN sessao_local s ON s.id = l.sessaoId AND s.ownerUid = l.ownerUid
+     WHERE l.ownerUid = ? AND s.veiculoId = ? AND l.pid = ? AND s.deletedAt IS NULL
+     ORDER BY l.timestamp DESC
+     LIMIT 1`,
+    [ownerUid, veiculoId, pid],
+  );
+}
+
+export async function obterAbastecimentosPorPeriodo(
+  ownerUid: string,
+  veiculoId: string,
+  period: ChartPeriod,
+) {
+  requireUid(ownerUid);
+  const db = await openDatabase();
+  const periodExpression = chartPeriodExpression('dataAbastecimento', period);
+  return db.getAllAsync<{
+    periodKey: string;
+    litros: number;
+    custo: number;
+    quantidade: number;
+  }>(
+    `SELECT ${periodExpression} AS periodKey,
+            SUM(litros) AS litros,
+            SUM(COALESCE(custoTotal, 0)) AS custo,
+            COUNT(*) AS quantidade
+     FROM abastecimento_local
+     WHERE ownerUid = ? AND veiculoId = ? AND dataAbastecimento >= ? AND deletedAt IS NULL
+     GROUP BY periodKey
+     ORDER BY periodKey DESC
+     LIMIT 400`,
+    [ownerUid, veiculoId, chartPeriodStart(period)],
   );
 }
 

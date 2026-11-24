@@ -6,7 +6,7 @@ import { useApp } from '@/contexts/AppContext';
 const ACTIVE = '#00B4FF';
 
 export default function MainTabsLayout() {
-  const { theme } = useApp();
+  const { theme, t } = useApp();
   const isDark = theme === 'dark';
 
   return (
@@ -34,28 +34,28 @@ export default function MainTabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Início',
+          title: t('tabInicio'),
           tabBarIcon: ({ color, size }) => <MaterialIcons name="home" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="manutencao"
         options={{
-          title: 'Manutenção',
+          title: t('tabManutencao'),
           tabBarIcon: ({ color, size }) => <MaterialIcons name="build" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="scanner"
         options={{
-          title: 'Scanner',
+          title: t('tabScanner'),
           tabBarIcon: ({ color, size }) => <MaterialIcons name="center-focus-weak" color={color} size={size} />,
         }}
       />
       <Tabs.Screen
         name="relatorios"
         options={{
-          title: 'Relatórios',
+          title: t('tabRelatorios'),
           tabBarIcon: ({ color, size }) => <MaterialIcons name="bar-chart" color={color} size={size} />,
         }}
       />

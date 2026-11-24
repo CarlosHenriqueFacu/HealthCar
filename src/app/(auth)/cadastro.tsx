@@ -16,33 +16,44 @@ import {
   View
 } from 'react-native';
 
+import type { User } from 'firebase/auth';
+import { TermsModal } from '../../components/TermsModal';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { BluetoothTutorialModal } from '../../components/ui/BluetoothTutorialModal';
+import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { obterVeiculoLocal, salvarPerfilLocal, salvarVeiculoLocal } from '../../database/database';
 import { getAuthErrorMessage, registerWithEmail } from '../../services/firebase';
-import type { User } from 'firebase/auth';
 
-// ============================================================================
-// CONSTANTES DE DADOS ESTRUTURADOS
-// ============================================================================
 const OPCOES_MARCA = ['Chevrolet', 'Volkswagen', 'Fiat', 'Ford', 'Honda', 'Toyota', 'Hyundai', 'Renault', 'Jeep', 'Outra'];
 const OPCOES_COMBUSTIVEL = ['Flex', 'Gasolina', 'Etanol', 'Diesel', 'GNV', 'Híbrido', 'Elétrico'];
 const OPCOES_MOTOR = ['1.0', '1.0 Turbo', '1.3', '1.4', '1.6', '1.8', '2.0', '2.0 Turbo', 'V6', 'V8'];
 
+const FUEL_KEY_MAP: Record<string, string> = {
+  'Flex': 'combFlex',
+  'Gasolina': 'combGasolina',
+  'Etanol': 'combEtanol',
+  'Diesel': 'combDiesel',
+  'GNV': 'combGnv',
+  'Híbrido': 'combHibrido',
+  'Elétrico': 'combEletrico',
+};
+
 export default function CadastroScreen() {
   const router = useRouter();
+  const { t } = useApp();
   const { user, syncNow } = useAuth();
-  
-  // ============================================================================
-  // ESTADOS GLOBAIS DA INTERFACE
-  // ============================================================================
+
   const [nome, setNome] = useState('');
   const [sobrenome, setSobrenome] = useState('');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
-  
+  const [confirmarSenha, setConfirmarSenha] = useState('');
+
+  const [mostrarSenha, setMostrarSenha] = useState(false);
+  const [mostrarConfirmarSenha, setMostrarConfirmarSenha] = useState(false);
+
   const [veiculo, setVeiculo] = useState('');
   const [ano, setAno] = useState('');
   const [km, setKm] = useState('');
@@ -50,17 +61,20 @@ export default function CadastroScreen() {
   const [combustivel, setCombustivel] = useState('');
   const [motor, setMotor] = useState('');
 
-  // Estado arquitetural: Define se o usuário está criando ou editando um perfil
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [newlyRegisteredUser, setNewlyRegisteredUser] = useState<User | null>(null);
 
   const [showBluetoothModal, setShowBluetoothModal] = useState(false);
   const [selectModalConfig, setSelectModalConfig] = useState({ visible: false, type: '', title: '', data: [] as string[] });
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
-  // ============================================================================
-  // CICLO DE VIDA (MOUNT) - RECUPERAÇÃO DE DADOS EXISTENTES
-  // ============================================================================
+  const translateOption = (type: string, option: string) => {
+    if (type === 'marca' && option === 'Outra') return t('marcaOutra');
+    if (type === 'combustivel' && FUEL_KEY_MAP[option]) return t(FUEL_KEY_MAP[option]);
+    return option;
+  };
+
   useEffect(() => {
     const carregarDadosExistentes = async () => {
       if (!user) {
@@ -88,9 +102,6 @@ export default function CadastroScreen() {
     carregarDadosExistentes();
   }, [user?.uid]);
 
-  // ============================================================================
-  // CONTROLADORES DE EVENTO
-  // ============================================================================
   const openSelect = (type: string, title: string, data: string[]) => {
     setSelectModalConfig({ visible: true, type, title, data });
   };
@@ -103,20 +114,30 @@ export default function CadastroScreen() {
   };
 
   const handleCadastro = async () => {
-    if (!isEditing && (!nome.trim() || !sobrenome.trim() || !email.trim() || !senha)) {
-      Alert.alert(
-        'Campos obrigatórios',
-        'Informe nome, sobrenome, e-mail e senha para criar sua conta.',
-      );
-      return;
-    }
+    if (!isEditing) {
+      if (!nome.trim() || !sobrenome.trim() || !email.trim() || !senha || !confirmarSenha) {
+        Alert.alert(t('camposObrigatorios'), t('cadastroCamposDesc'));
+        return;
+      }
+      if (senha.length < 6) {
+        Alert.alert(t('senhaInvalida'), t('senhaMinima'));
+        return;
+      }
+      if (senha !== confirmarSenha) {
+        Alert.alert(t('senhasNaoCoincidem'), t('senhasNaoCoincidemDesc'));
+        return;
+      }
 
-    if (!isEditing && senha.length < 6) {
-      Alert.alert('Senha inválida', 'A senha deve ter pelo menos 6 caracteres.');
-      return;
+      setShowTermsModal(true);
+    } else {
+      prosseguirComCadastro();
     }
+  };
 
+  const prosseguirComCadastro = async () => {
+    setShowTermsModal(false);
     setIsSubmitting(true);
+
     try {
       let authenticatedUser = user ?? newlyRegisteredUser;
       if (!isEditing && !authenticatedUser) {
@@ -129,13 +150,14 @@ export default function CadastroScreen() {
       }
 
       if (!authenticatedUser) {
-        throw new Error('A sessão da conta não está disponível. Entre novamente e tente salvar.');
+        throw new Error(t('sessaoIndisponivel'));
       }
 
       const dadosVeiculo = { marca, veiculo, motor, ano, km: km || '0', combustivel };
       const cachedVehicle = await AsyncStorage.getItem('@veiculo_cadastrado');
       const cachedId = isEditing && cachedVehicle ? JSON.parse(cachedVehicle)?.id : undefined;
       const vehicleId = await salvarVeiculoLocal(authenticatedUser.uid, dadosVeiculo, cachedId);
+
       await salvarPerfilLocal(authenticatedUser.uid, {
         displayName: authenticatedUser.displayName ?? `${nome.trim()} ${sobrenome.trim()}`.trim(),
         firstName: nome.trim() || authenticatedUser.displayName?.split(' ')[0],
@@ -143,24 +165,22 @@ export default function CadastroScreen() {
         email: authenticatedUser.email ?? email.trim(),
         vehicleId,
       });
+
       const vehicleCache = { ...dadosVeiculo, id: vehicleId };
       await AsyncStorage.multiSet([
         ['@veiculo_cadastrado', JSON.stringify(vehicleCache)],
         ['@veiculo_cadastrado_uid', authenticatedUser.uid],
       ]);
       void syncNow().catch(() => {});
-      
-      // Rotina de roteamento condicional baseada no estado arquitetural
+
       if (isEditing) {
-        // Retorna ao menu de configurações caso seja uma atualização de dados
         router.back();
       } else {
-        // Aciona o fluxo de onboarding (Pareamento Bluetooth) para novos usuários
         setShowBluetoothModal(true);
       }
     } catch (error) {
       console.error('[Cadastro] Falha ao criar conta ou salvar dados locais:', error);
-      Alert.alert('Não foi possível salvar', error instanceof Error ? error.message : getAuthErrorMessage(error));
+      Alert.alert(t('naoFoiPossivelSalvar'), error instanceof Error ? error.message : getAuthErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -168,104 +188,124 @@ export default function CadastroScreen() {
 
   const finalizarOnboarding = () => {
     setShowBluetoothModal(false);
-    router.replace('/'); 
+    router.replace('/');
   };
 
-  // ============================================================================
-  // RENDERIZAÇÃO DA INTERFACE (VIEW)
-  // ============================================================================
   return (
     <ThemedView style={styles.container}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          
           <View style={styles.header}>
             <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
               <MaterialIcons name="arrow-back" size={24} color="#F0F2FF" />
             </TouchableOpacity>
             <ThemedText type="title" style={styles.titulo}>
-              {isEditing ? "Editar Veículo" : "Configurar App"}
+              {isEditing ? t('editarVeiculo') : t('configurarApp')}
             </ThemedText>
             <View style={{ width: 24 }} />
           </View>
 
           <ThemedText style={styles.descricao}>
-            {isEditing 
-              ? "Atualize as especificações técnicas do seu veículo para manter a precisão da telemetria."
-              : "Configure seu perfil e selecione as características do seu veículo para calibrar a telemetria."}
+            {isEditing ? t('cadastroDescEditar') : t('cadastroDescNovo')}
           </ThemedText>
 
-          {/* ================= SESSÃO OMITIDA CONDICIONALMENTE NA EDIÇÃO ================= */}
           {!isEditing && (
             <>
-              <ThemedText style={styles.sectionTitle}>Dados Pessoais</ThemedText>
-              
+              <ThemedText style={styles.sectionTitle}>{t('dadosPessoais')}</ThemedText>
+
               <View style={styles.row}>
                 <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
                   <MaterialIcons name="person" size={20} color="#8892A4" style={styles.icon} />
-                  <TextInput style={styles.input} placeholder="Nome" placeholderTextColor="#8892A4" value={nome} onChangeText={setNome} />
+                  <TextInput style={styles.input} placeholder={t('nome')} placeholderTextColor="#8892A4" value={nome} onChangeText={setNome} />
                 </View>
                 <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
-                  <TextInput style={[styles.input, { paddingLeft: 16 }]} placeholder="Sobrenome" placeholderTextColor="#8892A4" value={sobrenome} onChangeText={setSobrenome} />
+                  <TextInput style={[styles.input, { paddingLeft: 16 }]} placeholder={t('sobrenome')} placeholderTextColor="#8892A4" value={sobrenome} onChangeText={setSobrenome} />
                 </View>
               </View>
 
               <View style={styles.inputContainer}>
                 <MaterialIcons name="email" size={20} color="#8892A4" style={styles.icon} />
-                <TextInput style={styles.input} placeholder="E-mail" placeholderTextColor="#8892A4" keyboardType="email-address" autoCapitalize="none" autoComplete="email" value={email} onChangeText={setEmail} />
+                <TextInput style={styles.input} placeholder={t('email')} placeholderTextColor="#8892A4" keyboardType="email-address" autoCapitalize="none" autoComplete="email" value={email} onChangeText={setEmail} />
               </View>
 
               <View style={styles.inputContainer}>
                 <MaterialIcons name="lock" size={20} color="#8892A4" style={styles.icon} />
-                <TextInput style={styles.input} placeholder="Senha" placeholderTextColor="#8892A4" secureTextEntry autoComplete="new-password" value={senha} onChangeText={setSenha} />
+                <TextInput
+                  style={styles.input}
+                  placeholder={t('senha')}
+                  placeholderTextColor="#8892A4"
+                  secureTextEntry={!mostrarSenha}
+                  autoComplete="new-password"
+                  value={senha}
+                  onChangeText={setSenha}
+                />
+                <TouchableOpacity onPress={() => setMostrarSenha(!mostrarSenha)} style={styles.eyeIcon}>
+                  <MaterialIcons name={mostrarSenha ? "visibility" : "visibility-off"} size={20} color="#8892A4" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.inputContainer}>
+                <MaterialIcons name="lock-outline" size={20} color="#8892A4" style={styles.icon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder={t('confirmarSenha')}
+                  placeholderTextColor="#8892A4"
+                  secureTextEntry={!mostrarConfirmarSenha}
+                  autoComplete="new-password"
+                  value={confirmarSenha}
+                  onChangeText={setConfirmarSenha}
+                />
+                <TouchableOpacity onPress={() => setMostrarConfirmarSenha(!mostrarConfirmarSenha)} style={styles.eyeIcon}>
+                  <MaterialIcons name={mostrarConfirmarSenha ? "visibility" : "visibility-off"} size={20} color="#8892A4" />
+                </TouchableOpacity>
               </View>
             </>
           )}
 
-          {/* ================= SESSÃO: DADOS DO VEÍCULO ================= */}
-          <ThemedText style={styles.sectionTitle}>Especificações do Veículo</ThemedText>
+          <ThemedText style={styles.sectionTitle}>{t('especificacoesVeiculo')}</ThemedText>
 
-          <TouchableOpacity 
-            style={styles.inputContainer} 
+          <TouchableOpacity
+            style={styles.inputContainer}
             activeOpacity={0.7}
-            onPress={() => openSelect('marca', 'Selecione a Montadora', OPCOES_MARCA)}
+            onPress={() => openSelect('marca', t('selecioneMontadora'), OPCOES_MARCA)}
           >
             <MaterialIcons name="directions-car" size={20} color="#8892A4" style={styles.icon} />
             <Text style={[styles.inputSelector, !marca && styles.inputSelectorPlaceholder]}>
-              {marca ? marca : "Montadora (Ex: Chevrolet)"}
+              {marca ? translateOption('marca', marca) : t('montadoraPlaceholder')}
             </Text>
             <MaterialIcons name="arrow-drop-down" size={24} color="#8892A4" style={{ paddingRight: 12 }} />
           </TouchableOpacity>
 
           <View style={styles.inputContainer}>
             <MaterialIcons name="sell" size={20} color="#8892A4" style={styles.icon} />
-            <TextInput style={styles.input} placeholder="Modelo (Ex: Onix)" placeholderTextColor="#8892A4" value={veiculo} onChangeText={setVeiculo} />
+            <TextInput style={styles.input} placeholder={t('modeloPlaceholder')} placeholderTextColor="#8892A4" value={veiculo} onChangeText={setVeiculo} />
           </View>
 
           <View style={styles.row}>
-            <TouchableOpacity style={[styles.inputContainer, { flex: 1, marginRight: 8 }]} activeOpacity={0.7} onPress={() => openSelect('motor', 'Selecione o Motor', OPCOES_MOTOR)}>
+            <TouchableOpacity style={[styles.inputContainer, { flex: 1, marginRight: 8 }]} activeOpacity={0.7} onPress={() => openSelect('motor', t('selecioneMotor'), OPCOES_MOTOR)}>
               <MaterialIcons name="build" size={20} color="#8892A4" style={styles.icon} />
-              <Text style={[styles.inputSelector, !motor && styles.inputSelectorPlaceholder]}>{motor ? motor : "Motor"}</Text>
+              <Text style={[styles.inputSelector, !motor && styles.inputSelectorPlaceholder]}>{motor ? motor : t('motorLabel')}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]} activeOpacity={0.7} onPress={() => openSelect('combustivel', 'Combustível', OPCOES_COMBUSTIVEL)}>
+            <TouchableOpacity style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]} activeOpacity={0.7} onPress={() => openSelect('combustivel', t('combustivel'), OPCOES_COMBUSTIVEL)}>
               <MaterialIcons name="local-gas-station" size={20} color="#8892A4" style={styles.icon} />
-              <Text style={[styles.inputSelector, !combustivel && styles.inputSelectorPlaceholder]}>{combustivel ? combustivel : "Tipo"}</Text>
+              <Text style={[styles.inputSelector, !combustivel && styles.inputSelectorPlaceholder]}>
+                {combustivel ? translateOption('combustivel', combustivel) : t('tipoPlaceholder')}
+              </Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.row}>
             <View style={[styles.inputContainer, { flex: 1, marginRight: 8 }]}>
               <MaterialIcons name="date-range" size={20} color="#8892A4" style={styles.icon} />
-              <TextInput style={styles.input} placeholder="Ano" placeholderTextColor="#8892A4" keyboardType="numeric" maxLength={4} value={ano} onChangeText={setAno} />
+              <TextInput style={styles.input} placeholder={t('anoPlaceholder')} placeholderTextColor="#8892A4" keyboardType="numeric" maxLength={4} value={ano} onChangeText={setAno} />
             </View>
             <View style={[styles.inputContainer, { flex: 1, marginLeft: 8 }]}>
               <MaterialIcons name="speed" size={20} color="#8892A4" style={styles.icon} />
-              <TextInput style={styles.input} placeholder="Km Atual" placeholderTextColor="#8892A4" keyboardType="numeric" value={km} onChangeText={setKm} />
+              <TextInput style={styles.input} placeholder={t('kmAtualPlaceholder')} placeholderTextColor="#8892A4" keyboardType="numeric" value={km} onChangeText={setKm} />
             </View>
           </View>
 
-          {/* ================= AÇÃO PRINCIPAL ================= */}
           <TouchableOpacity
             style={[styles.primaryBtn, isSubmitting && styles.disabledBtn]}
             onPress={handleCadastro}
@@ -273,10 +313,10 @@ export default function CadastroScreen() {
           >
             <ThemedText style={styles.primaryBtnText}>
               {isSubmitting
-                ? 'Salvando...'
+                ? t('salvando')
                 : isEditing
-                  ? 'Salvar Alterações'
-                  : 'Criar conta e conectar scanner'}
+                  ? t('salvarAlteracoes')
+                  : t('criarContaConectar')}
             </ThemedText>
             {!isSubmitting && (
               <MaterialIcons
@@ -286,11 +326,9 @@ export default function CadastroScreen() {
               />
             )}
           </TouchableOpacity>
-
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* ================= COMPONENTES SOBREPOSTOS (MODAIS) ================= */}
       <Modal visible={selectModalConfig.visible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -300,13 +338,13 @@ export default function CadastroScreen() {
                 <MaterialIcons name="close" size={24} color="#F0F2FF" />
               </TouchableOpacity>
             </View>
-            
+
             <FlatList
               data={selectModalConfig.data}
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity style={styles.modalItem} onPress={() => handleSelectOption(item)}>
-                  <Text style={styles.modalItemText}>{item}</Text>
+                  <Text style={styles.modalItemText}>{translateOption(selectModalConfig.type, item)}</Text>
                 </TouchableOpacity>
               )}
             />
@@ -314,11 +352,16 @@ export default function CadastroScreen() {
         </View>
       </Modal>
 
-      <BluetoothTutorialModal 
-        visible={showBluetoothModal} 
-        onClose={finalizarOnboarding} 
+      <TermsModal
+        visible={showTermsModal}
+        onAccept={prosseguirComCadastro}
+        onDecline={() => setShowTermsModal(false)}
       />
 
+      <BluetoothTutorialModal
+        visible={showBluetoothModal}
+        onClose={finalizarOnboarding}
+      />
     </ThemedView>
   );
 }
@@ -334,6 +377,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between' },
   inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#12141A', borderWidth: 1, borderColor: '#1E2235', borderRadius: 12, marginBottom: 16, height: 54 },
   icon: { paddingLeft: 16 },
+  eyeIcon: { padding: 12, paddingRight: 16 },
   input: { flex: 1, color: '#F0F2FF', fontSize: 15, paddingHorizontal: 12, height: '100%' },
   inputSelector: { flex: 1, color: '#F0F2FF', fontSize: 15, paddingHorizontal: 12, paddingTop: 16 },
   inputSelectorPlaceholder: { color: '#8892A4' },
@@ -345,5 +389,5 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#F0F2FF' },
   modalItem: { paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#1E2235' },
-  modalItemText: { fontSize: 16, color: '#00B4FF' }
+  modalItemText: { fontSize: 16, color: '#00B4FF' },
 });

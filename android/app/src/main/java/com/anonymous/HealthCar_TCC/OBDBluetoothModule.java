@@ -16,35 +16,20 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.UUID;
 
-/**
- * @class OBDBluetoothModule
- * @description Módulo Nativo (React Native Bridge) para comunicação Bluetooth Classic.
- * Gerencia a criação de sockets RFCOMM, transações I/O (Input/Output) com o 
- * scanner OBD-II e o ciclo de vida do Foreground Service (Telemetria em Background).
- */
 public class OBDBluetoothModule extends ReactContextBaseJavaModule {
 
     private BluetoothSocket socket;
     private InputStream inputStream;
     private OutputStream outputStream;
     private ReactApplicationContext reactContext;
-    // Serializa cada envio e sua resposta para a tela e o serviço não lerem o mesmo socket juntos.
     private final Object ioLock = new Object();
     
-    /** 
-     * UUID padrão Universal para portas seriais (SPP - Serial Port Profile) no Bluetooth.
-     * Necessário para comunicação com adaptadores ELM327.
-     */
     private static final UUID MY_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
-
-    // SEMÁFORO: Controla quem está lendo o Bluetooth (App ou Serviço de Segundo Plano)
     private volatile boolean isAppPolling = false;
 
     public OBDBluetoothModule(ReactApplicationContext reactContext) {
         super(reactContext);
         this.reactContext = reactContext;
-        
-        // [INTEGRAÇÃO] - Informa ao Serviço em Background quem ele deve chamar
         OBDBluetoothService.obdModuleInstance = this;
     }
 
@@ -53,14 +38,27 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
         return "OBDBluetooth";
     }
 
-    /**
-     * @method pauseBackgroundPolling
-     * @description Avisa ao Java que o React Native assumiu a tela e o serviço zumbi deve pausar.
-     */
     @ReactMethod
     public void pauseBackgroundPolling(boolean pause, Promise promise) {
         this.isAppPolling = pause;
-        promise.resolve(true);
+        try {
+            OBDBluetoothService.setPaused(pause, "", "");
+            promise.resolve(null);
+        } catch (Exception e) {
+            promise.reject("HANDOVER_ERROR", e);
+        }
+    }
+
+    // NOVA FUNÇÃO: Recebe os IDs de segurança e os envia para o Motor Java
+    @ReactMethod
+    public void pauseBackgroundPollingWithSession(boolean pause, String sessaoId, String userId, Promise promise) {
+        this.isAppPolling = pause;
+        try {
+            OBDBluetoothService.setPaused(pause, sessaoId, userId);
+            promise.resolve(null);
+        } catch (Exception e) {
+            promise.reject("HANDOVER_ERROR", e);
+        }
     }
 
     private void startForegroundMonitor() {
@@ -204,15 +202,8 @@ public class OBDBluetoothModule extends ReactContextBaseJavaModule {
         }
     }
 
-    // =========================================================================
-    // METÓDOS NATIVOS PARA O SERVIÇO EM SEGUNDO PLANO (BACKGROUND SERVICE)
-    // =========================================================================
-
     public boolean isConnectedNative() {
-        // SEMÁFORO: Se a tela do React Native estiver lendo rápido, o Java finge 
-        // que está desconectado para dormir e evitar colisões!
         if (isAppPolling) return false; 
-
         return socket != null && socket.isConnected() && inputStream != null && outputStream != null;
     }
 

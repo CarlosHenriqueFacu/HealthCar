@@ -1,26 +1,29 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useApp } from '../contexts/AppContext';
 
 export function HealthCarHeader() {
-  const { theme } = useApp();
+  const { theme, t } = useApp();
   const isDark = theme === 'dark';
 
-  // Cabeçalho compartilhado para manter marca e acesso às configurações consistentes entre as abas.
   return (
     <View style={styles.container}>
       <View style={styles.brand}>
-        <View style={[styles.brandIcon, { backgroundColor: isDark ? '#082A3A' : '#E0F2FE' }]}>
-          <MaterialIcons name="directions-car" size={19} color="#00B4FF" />
+        <View style={styles.brandIcon}>
+          <Image
+            source={require('../../assets/images/icon.png')}
+            style={styles.brandLogo}
+            resizeMode="contain"
+          />
         </View>
         <Text style={[styles.brandName, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>HealthCar</Text>
       </View>
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Abrir configurações"
+        accessibilityLabel={t('abrirConfiguracoes')}
         onPress={() => router.push('/configuracoes' as any)}
         style={({ pressed }) => [
           styles.settingsButton,
@@ -48,7 +51,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  brandIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  brandIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#09111E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 3,
+    overflow: 'hidden',
+  },
+  brandLogo: { width: '100%', height: '100%' },
   brandName: { fontSize: 15, fontWeight: '700', letterSpacing: -0.2 },
   settingsButton: {
     width: 42,
